@@ -3,13 +3,13 @@
 	url = https://github.com/waywardgeek/sonic
 [submodule "deps/libtashkeel"]
 	path = deps/libtashkeel
-	url = https://github.com/mush42/libtashkeel
+	url = https://github.com/austek/libtashkeel
 [submodule "deps/espeak-ng"]
 	path = deps/espeak-ng
 	url = https://github.com/rhasspy/espeak-ng
 [submodule "deps/tqsm"]
 	path = deps/tqsm
-	url = https://github.com/mush42/tqsm
+	url = https://github.com/austek/tqsm
 [submodule "deps/nanosnap"]
 	path = deps/nanosnap
 	url = https://github.com/lighttransport/nanosnap
