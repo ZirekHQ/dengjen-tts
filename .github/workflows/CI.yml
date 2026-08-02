@@ -21,13 +21,8 @@ jobs:
         platform:
           - runner: ubuntu-latest
             target: x86_64
-            manylinux: "2_28"
-          - runner: ubuntu-latest
-            target: x86
-            manylinux: "2014"
           - runner: ubuntu-latest
             target: aarch64
-            manylinux: "2_28"
     steps:
       - name: git-submodule-fix
         run: git config --global protocol.file.allow always
@@ -46,7 +41,7 @@ jobs:
           args: --release --out dist
           working-directory: ./crates/frontends/python
           sccache: 'true'
-          manylinux: ${{ matrix.platform.manylinux }}
+          manylinux: 2_28
           before-script-linux: |
             if command -v yum &> /dev/null; then
               yum install -y clang-devel llvm-devel
