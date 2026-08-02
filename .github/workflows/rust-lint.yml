@@ -1,0 +1,52 @@
+name: Rust Lint
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: git-submodule-fix
+        run: git config --global protocol.file.allow always
+      - name: install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev llvm-dev cmake protobuf-compiler
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          components: clippy
+      - name: cargo clippy
+        # istft-sys (deps/nanosnap) has no other member depending on it and its
+        # CMake build is currently broken (nanosnap defines no `install`
+        # target); benches/tests are excluded too since crates/audio/ops's
+        # bench has a pre-existing broken import. Scoped to what actually ships.
+        run: cargo clippy --workspace --exclude istft-sys --lib --bins -- -D warnings
+
+  audit:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      checks: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+        with:
+          persist-credentials: false
+      # Informational only: the transitive dependency tree currently has
+      # known advisories (mostly via the grpc frontend's tonic/rustls stack
+      # and pyo3) that would need major version bumps to clear. Surface
+      # findings without blocking merges until those are triaged.
+      - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
+        continue-on-error: true
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
