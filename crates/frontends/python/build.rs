@@ -3,9 +3,14 @@ use std::path::PathBuf;
 
 fn main() {
     let cargo_manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    let espeak_data_dir = cargo_manifest_dir
+    let workspace_root = cargo_manifest_dir
         .parent()
         .unwrap()
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
+    let espeak_data_dir = workspace_root
         .join("deps")
         .join("dev")
         .join("espeak-ng-data");
