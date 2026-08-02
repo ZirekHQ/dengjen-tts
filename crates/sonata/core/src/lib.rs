@@ -72,9 +72,9 @@ impl From<Vec<String>> for Phonemes {
     }
 }
 
-impl std::string::ToString for Phonemes {
-    fn to_string(&self) -> String {
-        self.0.join(" ")
+impl std::fmt::Display for Phonemes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0.join(" "))
     }
 }
 
@@ -123,7 +123,7 @@ pub trait SonataModel {
         #[allow(unused_variables)] phonemes: String,
         #[allow(unused_variables)] chunk_size: usize,
         #[allow(unused_variables)] chunk_padding: usize,
-    ) -> SonataResult<AudioStreamIterator> {
+    ) -> SonataResult<AudioStreamIterator<'_>> {
         Err(SonataError::OperationError(
                 "Streaming synthesis is not supported for this model".to_string(),
             ))

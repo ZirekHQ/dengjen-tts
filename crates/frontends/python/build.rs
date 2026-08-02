@@ -19,9 +19,8 @@ fn main() {
         .join("pysonata")
         .join("espeak-ng-data");
     if target_dir.exists() {
-        return
-    } else {
-         let options = fs_extra::dir::CopyOptions::new();
-        fs_extra::dir::copy(&espeak_data_dir, &target_dir.parent().unwrap(), &options).unwrap();
+        return;
     }
+    let options = fs_extra::dir::CopyOptions::new();
+    fs_extra::dir::copy(&espeak_data_dir, target_dir.parent().unwrap(), &options).unwrap();
 }

@@ -199,7 +199,6 @@ pub unsafe extern "C" fn libsonataFreePiperSynthConfig(synth_config: *mut PiperS
 }
 /// # Safety
 /// Pointer must be non-null and well alighned
-
 #[no_mangle]
 #[allow(non_snake_case)]
 pub unsafe extern "C" fn libsonataFreeSynthesisEvent(event: SynthesisEvent) {

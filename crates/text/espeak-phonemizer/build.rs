@@ -1,5 +1,3 @@
-use cmake;
-
 fn main() {
     println!("cargo:rerun-if-changed=../../../deps/espeak-ng/src");
     println!("cargo:rustc-link-lib=static=espeak-ng");

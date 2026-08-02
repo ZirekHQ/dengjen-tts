@@ -1,3 +1,9 @@
+// PyO3's #[pymethods] expands each impl into a hidden wrapper item, which
+// trips rustc's non_local_definitions lint as a false positive; an #[allow]
+// on the impl itself doesn't survive the macro expansion, so it's silenced
+// crate-wide here instead.
+#![allow(non_local_definitions)]
+
 use sonata_core::{SonataError, SonataModel, Audio, AudioInfo};
 use sonata_synth::{
     AudioOutputConfig, SonataSpeechStreamLazy, SonataSpeechStreamParallel,
@@ -150,10 +156,7 @@ impl LazySpeechStream {
 
     fn __next__(&mut self, py: Python) -> Option<WaveSamples> {
         let next_item = py.allow_threads(|| self.0.next());
-        let audio_result = match next_item {
-            Some(result) => result,
-            None => return None,
-        };
+        let audio_result = next_item?;
         match audio_result {
             Ok(audio_data) => Some(WaveSamples(audio_data)),
             Err(e) => {
@@ -181,10 +184,7 @@ impl ParallelSpeechStream {
 
     fn __next__(&mut self, py: Python) -> Option<WaveSamples> {
         let next_item = py.allow_threads(|| self.0.next());
-        let audio_result = match next_item {
-            Some(result) => result,
-            None => return None,
-        };
+        let audio_result = next_item?;
         match audio_result {
             Ok(audio_data) => Some(WaveSamples(audio_data)),
             Err(e) => {

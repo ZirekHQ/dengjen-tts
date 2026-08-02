@@ -194,6 +194,12 @@ trait VitsModelCommons {
                 .unwrap_or("unknown".to_string()),
         )])
     }
+    // Unused: get_default_synthesis_config below duplicates this logic inline
+    // instead of calling it. See issue #1 (Piper config format drift) before
+    // consolidating, since the two aren't quite equivalent (this checks
+    // num_speakers > 0 before defaulting to speaker 0; the inline version
+    // doesn't).
+    #[allow(dead_code)]
     fn factory_synthesis_config(&self) -> PiperSynthesisConfig {
         let config = self.get_config();
 
@@ -209,6 +215,9 @@ trait VitsModelCommons {
             noise_w: config.inference.noise_w,
         }
     }
+    // Unused: get_speakers below duplicates this logic inline (returning a
+    // reference instead of a clone). See the note on factory_synthesis_config.
+    #[allow(dead_code)]
     fn speakers(&self) -> SonataResult<HashMap<i64, String>> {
         Ok(self.get_speaker_map().clone())
     }
@@ -654,7 +663,7 @@ impl SonataModel for VitsStreamingModel {
         phonemes: String,
         chunk_size: usize,
         chunk_padding: usize,
-    ) -> SonataResult<AudioStreamIterator> {
+    ) -> SonataResult<AudioStreamIterator<'_>> {
         let (pad_id, bos_id, eos_id) = self.get_meta_ids();
         let phonemes = self.phonemes_to_input_ids(&phonemes, pad_id, bos_id, eos_id);
         let encoder_outputs = self.infer_encoder(phonemes)?;
