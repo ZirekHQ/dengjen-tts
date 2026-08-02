@@ -31,6 +31,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+      - if: matrix.platform.target != 'x86_64'
+        uses: docker/setup-qemu-action@v3
       - uses: actions/setup-python@v5
         with:
           python-version: 3.x
