@@ -52,6 +52,13 @@ jobs:
             elif command -v apk &> /dev/null; then
               apk add clang-dev llvm-dev
             fi
+            # espeak-ng's build runs its own freshly cross-compiled binary to
+            # generate data files; under qemu-user emulation it needs the
+            # target sysroot to resolve its dynamic loader.
+            sysroot=/usr/aarch64-unknown-linux-gnu/aarch64-unknown-linux-gnu/sysroot
+            if [ -d "$sysroot" ]; then
+              export QEMU_LD_PREFIX="$sysroot"
+            fi
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
