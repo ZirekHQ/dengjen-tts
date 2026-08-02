@@ -41,7 +41,7 @@ jobs:
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist
-          working-directory: ./sonata-python
+          working-directory: ./crates/frontends/python
           sccache: 'true'
           manylinux: auto
       - name: Upload wheels
@@ -76,7 +76,7 @@ jobs:
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist
-          working-directory: ./sonata-python
+          working-directory: ./crates/frontends/python
           sccache: 'true'
       - name: Upload wheels
         uses: actions/upload-artifact@v4
@@ -107,7 +107,7 @@ jobs:
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist
-          working-directory: ./sonata-python
+          working-directory: ./crates/frontends/python
           sccache: 'true'
       - name: Upload wheels
         uses: actions/upload-artifact@v4
@@ -129,7 +129,7 @@ jobs:
         with:
           command: sdist
           args: --out dist
-          working-directory: ./sonata-python
+          working-directory: ./crates/frontends/python
       - name: Upload sdist
         uses: actions/upload-artifact@v4
         with:
@@ -150,4 +150,4 @@ jobs:
         with:
           command: upload
           args: --non-interactive --skip-existing wheels-*/*
-          working-directory: ./sonata-python
+          working-directory: ./crates/frontends/python
