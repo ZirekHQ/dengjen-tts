@@ -1,5 +1,5 @@
 mod dev_utils;
-use sonata_synth::{AudioOutputConfig, SonataSpeechSynthesizer};
+use dengjen_synth::{AudioOutputConfig, DengjenSpeechSynthesizer};
 
 fn main() {
     dev_utils::init();
@@ -8,7 +8,7 @@ fn main() {
 
 fn provide_params(
     kind: &'static str,
-) -> impl Fn() -> (SonataSpeechSynthesizer, String, Option<AudioOutputConfig>) {
+) -> impl Fn() -> (DengjenSpeechSynthesizer, String, Option<AudioOutputConfig>) {
     move || dev_utils::gen_params(kind)
 }
 

@@ -12,40 +12,40 @@ pub use audio_ops::{
 };
 
 
-pub type SonataResult<T> = Result<T, SonataError>;
-pub type SonataAudioResult = SonataResult<Audio>;
-pub type AudioStreamIterator<'a> = Box<dyn Iterator<Item = SonataResult<AudioSamples>> + Send + Sync + 'a>;
+pub type DengjenResult<T> = Result<T, DengjenError>;
+pub type DengjenAudioResult = DengjenResult<Audio>;
+pub type AudioStreamIterator<'a> = Box<dyn Iterator<Item = DengjenResult<AudioSamples>> + Send + Sync + 'a>;
 
 #[derive(Debug)]
-pub enum SonataError {
+pub enum DengjenError {
     FailedToLoadResource(String),
     PhonemizationError(String),
     OperationError(String),
 }
 
-impl SonataError {
+impl DengjenError {
     pub fn with_message(message: impl Into<String>) -> Self {
         Self::OperationError(message.into())
     }
 }
-impl Error for SonataError {}
+impl Error for DengjenError {}
 
-impl fmt::Display for SonataError {
+impl fmt::Display for DengjenError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let err_message = match self {
-            SonataError::FailedToLoadResource(msg) => {
+            DengjenError::FailedToLoadResource(msg) => {
                 format!("Failed to load resource from. Error `{}`", msg)
             }
-            SonataError::PhonemizationError(msg) => msg.to_string(),
-            SonataError::OperationError(msg) => msg.to_string(),
+            DengjenError::PhonemizationError(msg) => msg.to_string(),
+            DengjenError::OperationError(msg) => msg.to_string(),
         };
         write!(f, "{}", err_message)
     }
 }
 
-impl From<WaveWriterError> for SonataError {
+impl From<WaveWriterError> for DengjenError {
     fn from(error: WaveWriterError) -> Self {
-        SonataError::OperationError(error.to_string())
+        DengjenError::OperationError(error.to_string())
     }
 }
 
@@ -79,29 +79,29 @@ impl std::fmt::Display for Phonemes {
 }
 
 
-pub trait SonataModel {
-    fn audio_output_info(&self) -> SonataResult<AudioInfo>;
-    fn phonemize_text(&self, text: &str) -> SonataResult<Phonemes>;
-    fn speak_batch(&self, phoneme_batches: Vec<String>) -> SonataResult<Vec<Audio>>;
-    fn speak_one_sentence(&self, phonemes: String) -> SonataAudioResult;
+pub trait DengjenModel {
+    fn audio_output_info(&self) -> DengjenResult<AudioInfo>;
+    fn phonemize_text(&self, text: &str) -> DengjenResult<Phonemes>;
+    fn speak_batch(&self, phoneme_batches: Vec<String>) -> DengjenResult<Vec<Audio>>;
+    fn speak_one_sentence(&self, phonemes: String) -> DengjenAudioResult;
 
-    fn get_default_synthesis_config(&self) -> SonataResult<Box<dyn Any>>;
-    fn get_fallback_synthesis_config(&self) -> SonataResult<Box<dyn Any>>;
-    fn set_fallback_synthesis_config(&self, synthesis_config: &dyn Any) -> SonataResult<()>;
+    fn get_default_synthesis_config(&self) -> DengjenResult<Box<dyn Any>>;
+    fn get_fallback_synthesis_config(&self) -> DengjenResult<Box<dyn Any>>;
+    fn set_fallback_synthesis_config(&self, synthesis_config: &dyn Any) -> DengjenResult<()>;
 
-    fn get_language(&self) -> SonataResult<Option<String>> {
+    fn get_language(&self) -> DengjenResult<Option<String>> {
         Ok(None)
     }
-    fn get_speakers(&self) -> SonataResult<Option<&HashMap<i64, String>>> {
+    fn get_speakers(&self) -> DengjenResult<Option<&HashMap<i64, String>>> {
         Ok(None)
     }
-    fn speaker_id_to_name(&self, sid: &i64) -> SonataResult<Option<String>> {
+    fn speaker_id_to_name(&self, sid: &i64) -> DengjenResult<Option<String>> {
         Ok(self
             .get_speakers()?
             .and_then(|speakers| speakers.get(sid))
             .cloned())
     }
-    fn speaker_name_to_id(&self, name: &str) -> SonataResult<Option<i64>> {
+    fn speaker_name_to_id(&self, name: &str) -> DengjenResult<Option<i64>> {
         Ok(self.get_speakers()?.and_then(|speakers| {
             for (sid, sname) in speakers {
                 if sname == name {
@@ -111,7 +111,7 @@ pub trait SonataModel {
             None
         }))
     }
-    fn properties(&self) -> SonataResult<HashMap<String, String>> {
+    fn properties(&self) -> DengjenResult<HashMap<String, String>> {
         Ok(HashMap::with_capacity(0))
     }
 
@@ -123,8 +123,8 @@ pub trait SonataModel {
         #[allow(unused_variables)] phonemes: String,
         #[allow(unused_variables)] chunk_size: usize,
         #[allow(unused_variables)] chunk_padding: usize,
-    ) -> SonataResult<AudioStreamIterator<'_>> {
-        Err(SonataError::OperationError(
+    ) -> DengjenResult<AudioStreamIterator<'_>> {
+        Err(DengjenError::OperationError(
                 "Streaming synthesis is not supported for this model".to_string(),
             ))
     }

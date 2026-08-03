@@ -16,7 +16,7 @@ fn main() {
         .join("espeak-ng-data");
     let target_dir = cargo_manifest_dir
         .join("python")
-        .join("pysonata")
+        .join("pydengjen")
         .join("espeak-ng-data");
     if target_dir.exists() {
         return;

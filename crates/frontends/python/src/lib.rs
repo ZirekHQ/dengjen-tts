@@ -4,12 +4,12 @@
 // crate-wide here instead.
 #![allow(non_local_definitions)]
 
-use sonata_core::{SonataError, SonataModel, Audio, AudioInfo};
-use sonata_synth::{
-    AudioOutputConfig, SonataSpeechStreamLazy, SonataSpeechStreamParallel,
-    SonataSpeechSynthesizer, RealtimeSpeechStream
+use dengjen_core::{DengjenError, DengjenModel, Audio, AudioInfo};
+use dengjen_synth::{
+    AudioOutputConfig, DengjenSpeechStreamLazy, DengjenSpeechStreamParallel,
+    DengjenSpeechSynthesizer, RealtimeSpeechStream
 };
-use sonata_piper::PiperSynthesisConfig;
+use dengjen_piper::PiperSynthesisConfig;
 use libtashkeel_core::{LibtashkeelResult, DynamicInferenceEngine as TashkeelInferenceEngine, do_tashkeel};
 use once_cell::sync::Lazy;
 use pyo3::create_exception;
@@ -22,26 +22,26 @@ use std::sync::Arc;
 
 static LIBTASHKEEL_ENGINE: Lazy<LibtashkeelResult<TashkeelInferenceEngine>>=
     Lazy::new(|| libtashkeel_core::create_inference_engine(None));
-type PySonataResult<T> = Result<T, PySonataError>;
+type PyDengjenResult<T> = Result<T, PyDengjenError>;
 
 create_exception!(
     piper,
-    SonataException,
+    DengjenException,
     PyException,
     "Base Exception for all exceptions raised by piper."
 );
 
 
-struct PySonataError(SonataError);
+struct PyDengjenError(DengjenError);
 
-impl From<PySonataError> for PyErr {
-    fn from(other: PySonataError) -> Self {
-        SonataException::new_err(other.0.to_string())
+impl From<PyDengjenError> for PyErr {
+    fn from(other: PyDengjenError) -> Self {
+        DengjenException::new_err(other.0.to_string())
     }
 }
 
-impl From<SonataError> for PySonataError {
-    fn from(other: SonataError) -> Self {
+impl From<DengjenError> for PyDengjenError {
+    fn from(other: DengjenError) -> Self {
         Self(other)
     }
 }
@@ -110,8 +110,8 @@ impl WaveSamples {
         let bytes_vec = py.allow_threads(move || self.0.as_wave_bytes());
         PyBytes::new(py, &bytes_vec).into()
     }
-    fn save_to_file(&self, filename: &str) -> PySonataResult<()> {
-        Ok(self.0.save_to_file(&PathBuf::from(filename)).map_err(SonataError::from)?)
+    fn save_to_file(&self, filename: &str) -> PyDengjenResult<()> {
+        Ok(self.0.save_to_file(&PathBuf::from(filename)).map_err(DengjenError::from)?)
     }
     #[getter]
     fn sample_rate(&self) -> usize {
@@ -140,10 +140,10 @@ impl WaveSamples {
 }
 
 #[pyclass(weakref, module = "piper")]
-struct LazySpeechStream(SonataSpeechStreamLazy);
+struct LazySpeechStream(DengjenSpeechStreamLazy);
 
-impl From<SonataSpeechStreamLazy> for LazySpeechStream {
-    fn from(other: SonataSpeechStreamLazy) -> Self {
+impl From<DengjenSpeechStreamLazy> for LazySpeechStream {
+    fn from(other: DengjenSpeechStreamLazy) -> Self {
         Self(other)
     }
 }
@@ -160,7 +160,7 @@ impl LazySpeechStream {
         match audio_result {
             Ok(audio_data) => Some(WaveSamples(audio_data)),
             Err(e) => {
-                PyErr::from(PySonataError::from(e)).restore(py);
+                PyErr::from(PyDengjenError::from(e)).restore(py);
                 None
             }
         }
@@ -168,10 +168,10 @@ impl LazySpeechStream {
 }
 
 #[pyclass(weakref, module = "piper")]
-struct ParallelSpeechStream(SonataSpeechStreamParallel);
+struct ParallelSpeechStream(DengjenSpeechStreamParallel);
 
-impl From<SonataSpeechStreamParallel> for ParallelSpeechStream {
-    fn from(other: SonataSpeechStreamParallel) -> Self {
+impl From<DengjenSpeechStreamParallel> for ParallelSpeechStream {
+    fn from(other: DengjenSpeechStreamParallel) -> Self {
         Self(other)
     }
 }
@@ -188,7 +188,7 @@ impl ParallelSpeechStream {
         match audio_result {
             Ok(audio_data) => Some(WaveSamples(audio_data)),
             Err(e) => {
-                PyErr::from(PySonataError::from(e)).restore(py);
+                PyErr::from(PyDengjenError::from(e)).restore(py);
                 None
             }
         }
@@ -209,7 +209,7 @@ impl PyRealtimeSpeechStream {
         match result {
             Ok(samples) => Some(PyBytes::new(py, &samples.as_wave_bytes()).into()),
             Err(e) => {
-                PyErr::from(PySonataError::from(e)).restore(py);
+                PyErr::from(PyDengjenError::from(e)).restore(py);
                 None
             }
         }
@@ -229,7 +229,7 @@ struct PiperScales {
 #[pymethods]
 impl PiperScales {
     #[new]
-    fn new(length_scale: f32, noise_scale: f32, noise_w: f32) -> PySonataResult<Self> {
+    fn new(length_scale: f32, noise_scale: f32, noise_w: f32) -> PyDengjenResult<Self> {
         Ok(Self {
             length_scale,
             noise_scale,
@@ -240,18 +240,18 @@ impl PiperScales {
 
 #[pyclass(weakref, module = "piper")]
 #[pyo3(name = "PiperModel")]
-struct PiperModel(Arc<dyn SonataModel + Send + Sync>);
+struct PiperModel(Arc<dyn DengjenModel + Send + Sync>);
 
 #[pymethods]
 impl PiperModel {
     #[new]
-    fn new(config_path: &str) -> PySonataResult<Self> {
+    fn new(config_path: &str) -> PyDengjenResult<Self> {
         let vits =
-            sonata_piper::from_config_path(&PathBuf::from(config_path))?;
+            dengjen_piper::from_config_path(&PathBuf::from(config_path))?;
         Ok(Self(vits))
     }
     #[getter]
-    fn get_speaker(&self) -> PySonataResult<Option<String>> {
+    fn get_speaker(&self) -> PyDengjenResult<Option<String>> {
         match self
             .0
             .get_fallback_synthesis_config()?
@@ -265,11 +265,11 @@ impl PiperModel {
         }
     }
     #[setter]
-    fn set_speaker(&self, name: String) -> PySonataResult<()> {
+    fn set_speaker(&self, name: String) -> PyDengjenResult<()> {
         let sid = match self.0.speaker_name_to_id(&name)? {
             Some(sname) => sname,
             None => {
-                return Err(SonataError::OperationError(format!(
+                return Err(DengjenError::OperationError(format!(
                     "A speaker with the given name `{}` was not found",
                     name
                 ))
@@ -286,11 +286,11 @@ impl PiperModel {
                 Ok(self.0.set_fallback_synthesis_config(&synth_config)?)
             }
             Err(_) => {
-                Err(SonataError::OperationError("Cannot set synthesis config".to_string()).into())
+                Err(DengjenError::OperationError("Cannot set synthesis config".to_string()).into())
             }
         }
     }
-    fn get_scales(&self) -> PySonataResult<PiperScales> {
+    fn get_scales(&self) -> PyDengjenResult<PiperScales> {
         match self
             .0
             .get_fallback_synthesis_config()?
@@ -302,11 +302,11 @@ impl PiperModel {
                 noise_w: synth_config.noise_w,
             }),
             Err(_) => {
-                Err(SonataError::OperationError("Cannot set synthesis config".to_string()).into())
+                Err(DengjenError::OperationError("Cannot set synthesis config".to_string()).into())
             }
         }
     }
-    fn set_scales(&self, length_scale: f32, noise_scale: f32, noise_w: f32) -> PySonataResult<()> {
+    fn set_scales(&self, length_scale: f32, noise_scale: f32, noise_w: f32) -> PyDengjenResult<()> {
         match self
             .0
             .get_fallback_synthesis_config()?
@@ -319,28 +319,28 @@ impl PiperModel {
                 Ok(self.0.set_fallback_synthesis_config(&synth_config)?)
             }
             Err(_) => {
-                Err(SonataError::OperationError("Cannot set synthesis config".to_string()).into())
+                Err(DengjenError::OperationError("Cannot set synthesis config".to_string()).into())
             }
         }
     }
 }
 
 #[pyclass(weakref, module = "piper", frozen)]
-struct Sonata(Arc<SonataSpeechSynthesizer>);
+struct Dengjen(Arc<DengjenSpeechSynthesizer>);
 
 #[pymethods]
-impl Sonata {
+impl Dengjen {
     #[staticmethod]
-    fn with_piper(vits_model: &PiperModel) -> PySonataResult<Self> {
+    fn with_piper(vits_model: &PiperModel) -> PyDengjenResult<Self> {
         let model = Arc::clone(&vits_model.0);
-        let synthesizer = Arc::new(SonataSpeechSynthesizer::new(model)?);
+        let synthesizer = Arc::new(DengjenSpeechSynthesizer::new(model)?);
         Ok(Self(synthesizer))
     }
     fn synthesize(
         &self,
         text: String,
         audio_output_config: Option<PyAudioOutputConfig>,
-    ) -> PySonataResult<LazySpeechStream> {
+    ) -> PyDengjenResult<LazySpeechStream> {
         self.synthesize_lazy(text, audio_output_config)
     }
 
@@ -348,7 +348,7 @@ impl Sonata {
         &self,
         text: String,
         audio_output_config: Option<PyAudioOutputConfig>,
-    ) -> PySonataResult<LazySpeechStream> {
+    ) -> PyDengjenResult<LazySpeechStream> {
         Ok(self
             .0
             .synthesize_lazy(text, audio_output_config.map(|o| o.into()))?
@@ -359,7 +359,7 @@ impl Sonata {
         &self,
         text: String,
         audio_output_config: Option<PyAudioOutputConfig>,
-    ) -> PySonataResult<ParallelSpeechStream> {
+    ) -> PyDengjenResult<ParallelSpeechStream> {
         Ok(self
             .0
             .synthesize_parallel(text, audio_output_config.map(|o| o.into()))?
@@ -372,7 +372,7 @@ impl Sonata {
         audio_output_config: Option<PyAudioOutputConfig>,
         chunk_size: Option<usize>,
         chunk_padding: Option<usize>,
-    ) -> PySonataResult<PyRealtimeSpeechStream> {
+    ) -> PyDengjenResult<PyRealtimeSpeechStream> {
         let stream = self.0.synthesize_streamed(
             text,
             audio_output_config.map(|o| o.into()),
@@ -387,20 +387,20 @@ impl Sonata {
         filename: &str,
         text: String,
         audio_output_config: Option<PyAudioOutputConfig>,
-    ) -> PySonataResult<()> {
+    ) -> PyDengjenResult<()> {
         self.0
             .synthesize_to_file(&PathBuf::from(filename), text, audio_output_config.map(|o| o.into()))?;
         Ok(())
     }
     #[getter]
-    fn language(&self) -> PySonataResult<Option<String>> {
+    fn language(&self) -> PyDengjenResult<Option<String>> {
         Ok(self.0.get_language()?)
     }
     #[getter]
-    fn speakers(&self) -> PySonataResult<Option<HashMap<i64, String>>> {
+    fn speakers(&self) -> PyDengjenResult<Option<HashMap<i64, String>>> {
         Ok(self.0.get_speakers()?.cloned())
     }
-    fn get_audio_output_info(&self) -> PySonataResult<PyWaveInfo> {
+    fn get_audio_output_info(&self) -> PyDengjenResult<PyWaveInfo> {
         Ok(self.0.audio_output_info()?.into())
     }
 }
@@ -418,11 +418,11 @@ pub fn phonemize_text(
     let text = if use_tashkeel {
         let engine= match LIBTASHKEEL_ENGINE.as_ref() {
             Ok(eng) => eng,
-            Err(e) => return Err(SonataException::new_err(e.to_string()))
+            Err(e) => return Err(DengjenException::new_err(e.to_string()))
         };
         match do_tashkeel(engine, text, None, false) {
             Ok(mashkool) => std::borrow::Cow::from(mashkool),
-            Err(e) => return Err(SonataException::new_err(e.to_string()))
+            Err(e) => return Err(DengjenException::new_err(e.to_string()))
         }
     } else {
         std::borrow::Cow::from(text)
@@ -435,16 +435,16 @@ pub fn phonemize_text(
         remove_stress.unwrap_or(false)
     ) {
         Ok(phonemes) => Ok(phonemes),
-        Err(e) => Err(SonataException::new_err(e.to_string()))
+        Err(e) => Err(DengjenException::new_err(e.to_string()))
     }
 }
 
 
 /// A fast, local neural text-to-speech engine
 #[pymodule]
-fn pysonata(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add("SonataException", _py.get_type::<SonataException>())?;
-    m.add_class::<Sonata>()?;
+fn pydengjen(_py: Python, m: &PyModule) -> PyResult<()> {
+    m.add("DengjenException", _py.get_type::<DengjenException>())?;
+    m.add_class::<Dengjen>()?;
     m.add_class::<PiperModel>()?;
     m.add_class::<PiperScales>()?;
     m.add_class::<PyAudioOutputConfig>()?;

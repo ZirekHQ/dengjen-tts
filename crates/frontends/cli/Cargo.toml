@@ -1,10 +1,10 @@
 [package]
-name = "sonata-cli"
+name = "dengjen-cli"
 version = "0.2.0"
 edition = "2021"
 
 [[bin]]
-name = "sonata"
+name = "dengjen"
 path = "src/main.rs"
 
 [features]
@@ -12,8 +12,8 @@ cuda = ["ort/cuda"]
 ort-dylib = ["ort/load-dynamic"]
 
 [dependencies]
-sonata-synth = { version = "0.2.0", path = "../../sonata/synth" }
-sonata-piper = { version = "0.2.0", path = "../../sonata/models/piper" }
+dengjen-synth = { version = "0.2.0", path = "../../dengjen/synth" }
+dengjen-piper = { version = "0.2.0", path = "../../dengjen/models/piper" }
 anyhow = "1.0.79"
 env_logger = "0.10.0"
 log = "0.4.18"

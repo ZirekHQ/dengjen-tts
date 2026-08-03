@@ -2,4 +2,4 @@
 # Always run test sequencially, because functions are not thread safe
 RUST_TEST_THREADS = { value = "1", force = true }
 # Set espeak-ng-data directory
-SONATA_ESPEAKNG_DATA_DIRECTORY = "../deps/dev"
+DENGJEN_ESPEAKNG_DATA_DIRECTORY = "../deps/dev"

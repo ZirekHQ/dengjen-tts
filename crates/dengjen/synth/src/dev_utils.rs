@@ -1,8 +1,8 @@
 use core::hint::black_box;
 use once_cell::sync::Lazy;
-use sonata_piper::from_config_path as voice_from_config_path;
-use sonata_synth::{
-    AudioOutputConfig, AudioSamples, SonataModel, SonataResult, SonataSpeechSynthesizer,
+use dengjen_piper::from_config_path as voice_from_config_path;
+use dengjen_synth::{
+    AudioOutputConfig, AudioSamples, DengjenModel, DengjenResult, DengjenSpeechSynthesizer,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -13,11 +13,11 @@ const TEXT: &[&'static str] = &[
 "The first and most important driver is our demand for ever cheaper and easier communications, since all of human society depends on communications."
 ];
 const CRATE_DIR: &'static str = env!("CARGO_MANIFEST_DIR");
-static STD_VOICE: Lazy<Arc<dyn SonataModel + Send + Sync>> = Lazy::new(|| {
+static STD_VOICE: Lazy<Arc<dyn DengjenModel + Send + Sync>> = Lazy::new(|| {
     let config_path = model_directory("std").join("model.onnx.json");
     voice_from_config_path(&config_path).unwrap()
 });
-static RT_VOICE: Lazy<Arc<dyn SonataModel + Send + Sync>> = Lazy::new(|| {
+static RT_VOICE: Lazy<Arc<dyn DengjenModel + Send + Sync>> = Lazy::new(|| {
     let config_path = model_directory("rt").join("config.json");
     voice_from_config_path(&config_path).unwrap()
 });
@@ -33,7 +33,7 @@ fn model_directory(kind: &str) -> PathBuf {
     PathBuf::from(CRATE_DIR).join("models").join(kind)
 }
 
-pub fn gen_params(kind: &str) -> (SonataSpeechSynthesizer, String, Option<AudioOutputConfig>) {
+pub fn gen_params(kind: &str) -> (DengjenSpeechSynthesizer, String, Option<AudioOutputConfig>) {
     let output_config = Some(AudioOutputConfig {
         rate: Some(50),
         volume: Some(50),
@@ -43,11 +43,11 @@ pub fn gen_params(kind: &str) -> (SonataSpeechSynthesizer, String, Option<AudioO
     let text = TEXT.join("\n");
     if kind == "std" {
         let model = Arc::clone(&STD_VOICE);
-        let synth = SonataSpeechSynthesizer::new(model).unwrap();
+        let synth = DengjenSpeechSynthesizer::new(model).unwrap();
         (synth, text, output_config)
     } else if kind == "rt" {
         let model = Arc::clone(&RT_VOICE);
-        let synth = SonataSpeechSynthesizer::new(model).unwrap();
+        let synth = DengjenSpeechSynthesizer::new(model).unwrap();
         (synth, text, output_config)
     } else {
         panic!("Unknown parameterization  for function.")
@@ -56,8 +56,8 @@ pub fn gen_params(kind: &str) -> (SonataSpeechSynthesizer, String, Option<AudioO
 
 #[inline(always)]
 pub fn iterate_stream(
-    stream: impl Iterator<Item = SonataResult<AudioSamples>>,
-) -> SonataResult<()> {
+    stream: impl Iterator<Item = DengjenResult<AudioSamples>>,
+) -> DengjenResult<()> {
     for result in stream {
         let audio = result?;
         let wav_bytes = black_box(audio.as_wave_bytes());

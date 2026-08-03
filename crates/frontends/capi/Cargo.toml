@@ -1,26 +1,26 @@
 [package]
-name = "libsonata"
+name = "libdengjen"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "libsonata"
+name = "libdengjen"
 crate-type = ["staticlib", "cdylib"]
 
 [features]
 default = ["piper"]
-piper = ["dep:sonata-piper", "dep:ort"]
+piper = ["dep:dengjen-piper", "dep:ort"]
 ort-dylib = ["ort/load-dynamic"]
 
 [dependencies]
-sonata-core = { version = "0.2.0", path = "../../sonata/core" }
-sonata-synth = { version = "0.2.0", path = "../../sonata/synth" }
+dengjen-core = { version = "0.2.0", path = "../../dengjen/core" }
+dengjen-synth = { version = "0.2.0", path = "../../dengjen/synth" }
 ffi-support = "0.4.4"
 libc = "0.2.150"
 
-[dependencies.sonata-piper]
+[dependencies.dengjen-piper]
 version = "0.2.0"
-path = "../../sonata/models/piper"
+path = "../../dengjen/models/piper"
 optional = true
 
 [dependencies.ort]

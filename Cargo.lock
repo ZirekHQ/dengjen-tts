@@ -998,16 +998,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "libsonata"
+name = "libdengjen"
 version = "0.1.0"
 dependencies = [
  "cbindgen",
  "ffi-support",
  "libc",
  "ort",
- "sonata-core",
- "sonata-piper",
- "sonata-synth",
+ "dengjen-core",
+ "dengjen-piper",
+ "dengjen-synth",
 ]
 
 [[package]]
@@ -1771,7 +1771,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "sonata-cli"
+name = "dengjen-cli"
 version = "0.2.0"
 dependencies = [
  "anyhow",
@@ -1781,12 +1781,12 @@ dependencies = [
  "ort",
  "serde",
  "serde_json",
- "sonata-piper",
- "sonata-synth",
+ "dengjen-piper",
+ "dengjen-synth",
 ]
 
 [[package]]
-name = "sonata-core"
+name = "dengjen-core"
 version = "0.2.0"
 dependencies = [
  "audio-ops",
@@ -1794,7 +1794,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "sonata-grpc"
+name = "dengjen-grpc"
 version = "0.2.0"
 dependencies = [
  "async-stream",
@@ -1802,9 +1802,9 @@ dependencies = [
  "log",
  "ort",
  "prost",
- "sonata-core",
- "sonata-piper",
- "sonata-synth",
+ "dengjen-core",
+ "dengjen-piper",
+ "dengjen-synth",
  "tokio",
  "tokio-stream",
  "tonic",
@@ -1813,7 +1813,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "sonata-piper"
+name = "dengjen-piper"
 version = "0.2.0"
 dependencies = [
  "espeak-phonemizer",
@@ -1822,11 +1822,11 @@ dependencies = [
  "ort",
  "serde",
  "serde_json",
- "sonata-core",
+ "dengjen-core",
 ]
 
 [[package]]
-name = "sonata-python"
+name = "dengjen-python"
 version = "0.2.0"
 dependencies = [
  "espeak-phonemizer",
@@ -1835,13 +1835,13 @@ dependencies = [
  "once_cell",
  "ort",
  "pyo3",
- "sonata-core",
- "sonata-piper",
- "sonata-synth",
+ "dengjen-core",
+ "dengjen-piper",
+ "dengjen-synth",
 ]
 
 [[package]]
-name = "sonata-synth"
+name = "dengjen-synth"
 version = "0.2.0"
 dependencies = [
  "audio-ops",
@@ -1850,8 +1850,8 @@ dependencies = [
  "once_cell",
  "ort",
  "rayon",
- "sonata-core",
- "sonata-piper",
+ "dengjen-core",
+ "dengjen-piper",
  "sonic-sys",
 ]
 

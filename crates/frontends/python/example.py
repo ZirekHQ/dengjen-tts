@@ -1,8 +1,8 @@
 import os
-from sonata import Sonata, PiperModel, AudioOutputConfig
+from dengjen import Dengjen, PiperModel, AudioOutputConfig
 
 
-MODEL_PATH = "../sonata/synth/models/rt/config.json"
+MODEL_PATH = "../dengjen/synth/models/rt/config.json"
 SENTENCES = [
     "Technology is not inevitable.",
     "Powerful drivers must exist in order for people to keep pushing the envelope and continue demanding more and more from a particular field of knowledge.",
@@ -14,10 +14,10 @@ SENTENCES = [
 
 def main():
     os.environ["ORT_DYLIB_PATH"] = "../target/debug/onnxruntime.dll"
-    os.environ["SONATA_ESPEAKNG_DATA_DIRECTORY"] = "../deps/windows/espeak-ng-build"
+    os.environ["DENGJEN_ESPEAKNG_DATA_DIRECTORY"] = "../deps/windows/espeak-ng-build"
 
     piper_model = PiperModel(MODEL_PATH)
-    synth = Sonata.with_piper(piper_model)
+    synth = Dengjen.with_piper(piper_model)
 
     synth.synthesize_to_file(
         "output.wav",

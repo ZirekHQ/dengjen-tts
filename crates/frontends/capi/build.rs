@@ -15,5 +15,5 @@ fn main() {
         .with_language(cbindgen::Language::C)
         .generate()
         .expect("Unable to generate bindings")
-        .write_to_file("libsonata.h");
+        .write_to_file("libdengjen.h");
 }

@@ -1,3 +1,3 @@
-# sonata-python
+# dengjen-python
 
-Python bindings to `sonata-synth` using `pyo3`.
+Python bindings to `dengjen-synth` using `pyo3`.

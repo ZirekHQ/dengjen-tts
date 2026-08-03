@@ -2,9 +2,9 @@
 resolver = "2"
 
 members = [
-    "crates/sonata/core",
-    "crates/sonata/synth",
-    "crates/sonata/models/piper",
+    "crates/dengjen/core",
+    "crates/dengjen/synth",
+    "crates/dengjen/models/piper",
     "crates/frontends/grpc",
     "crates/frontends/python",
     "crates/frontends/capi",

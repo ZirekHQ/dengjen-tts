@@ -1,8 +1,8 @@
 use clap::Parser;
 use serde::Deserialize;
-use sonata_piper::PiperSynthesisConfig;
-use sonata_synth::{
-    AudioOutputConfig, AudioSamples, SonataModel, SonataResult, SonataSpeechSynthesizer,
+use dengjen_piper::PiperSynthesisConfig;
+use dengjen_synth::{
+    AudioOutputConfig, AudioSamples, DengjenModel, DengjenResult, DengjenSpeechSynthesizer,
 };
 use std::fs::File;
 use std::io::{self, prelude::*};
@@ -111,7 +111,7 @@ impl SynthesisRequest {
 }
 
 fn enable_logging() {
-    env_logger::Builder::from_env(env_logger::Env::default().filter_or("SONATA_LOG", "info"))
+    env_logger::Builder::from_env(env_logger::Env::default().filter_or("DENGJEN_LOG", "info"))
         .init();
 }
 
@@ -125,7 +125,7 @@ fn get_synthesis_request_from_stdin() -> anyhow::Result<SynthesisRequest> {
 
 fn process_synthesis_request(
     args: &Cli,
-    synth: &SonataSpeechSynthesizer,
+    synth: &DengjenSpeechSynthesizer,
     default_synth_config: &PiperSynthesisConfig,
     req: SynthesisRequest,
 ) -> anyhow::Result<()> {
@@ -172,7 +172,7 @@ fn write_to_stdout(data: &[u8]) -> anyhow::Result<()> {
 }
 
 #[inline(always)]
-fn consume_stream(stream: impl Iterator<Item = SonataResult<AudioSamples>>) -> anyhow::Result<()> {
+fn consume_stream(stream: impl Iterator<Item = DengjenResult<AudioSamples>>) -> anyhow::Result<()> {
     for result in stream {
         let audio = result?;
         let wav_bytes = audio.as_wave_bytes();
@@ -189,7 +189,7 @@ fn init_ort_environment() {
             ort::execution_providers::CPUExecutionProvider::default().build(),
         ];
         ort::init()
-            .with_name("sonata")
+            .with_name("dengjen")
             .with_execution_providers(execution_providers)
             .commit()
             .expect("Failed to initialize onnxruntime");
@@ -203,8 +203,8 @@ fn main() -> anyhow::Result<()> {
     let mut args = Cli::parse();
 
     let synth = {
-        let voice = sonata_piper::from_config_path(&args.config)?;
-        SonataSpeechSynthesizer::new(voice)?
+        let voice = dengjen_piper::from_config_path(&args.config)?;
+        DengjenSpeechSynthesizer::new(voice)?
     };
     log::info!("Using model config: `{}`", args.config.display());
     let default_synth_config: PiperSynthesisConfig = *synth

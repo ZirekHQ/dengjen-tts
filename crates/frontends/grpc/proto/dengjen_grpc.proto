@@ -4,12 +4,12 @@
 
 syntax = "proto3";
 
-package sonata_grpc;
+package dengjen_grpc;
 
-service sonata_grpc {
+service dengjen_grpc {
 
-  // Return sonata version
-  rpc GetSonataVersion(Empty) returns (Version) {}
+  // Return dengjen version
+  rpc GetDengjenVersion(Empty) returns (Version) {}
 
   // Load a voice from directory
   rpc LoadVoice(VoicePath) returns (VoiceInfo) {}

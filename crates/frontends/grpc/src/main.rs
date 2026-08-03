@@ -1,7 +1,7 @@
-use grpc::sonata_grpc_server::{SonataGrpc, SonataGrpcServer};
-use sonata_core::{SonataError, SonataModel, SonataResult};
-use sonata_synth::{AudioOutputConfig, SonataSpeechStreamLazy, SonataSpeechSynthesizer};
-use sonata_piper::PiperSynthesisConfig;
+use grpc::dengjen_grpc_server::{DengjenGrpc, DengjenGrpcServer};
+use dengjen_core::{DengjenError, DengjenModel, DengjenResult};
+use dengjen_synth::{AudioOutputConfig, DengjenSpeechStreamLazy, DengjenSpeechSynthesizer};
+use dengjen_piper::PiperSynthesisConfig;
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
@@ -12,74 +12,74 @@ use tonic::transport::Server;
 use tonic::{Request, Response, Status};
 use xxhash_rust::xxh3::xxh3_64;
 
-type SonataGrpcResult<T> = Result<T, SonataGrpcError>;
+type DengjenGrpcResult<T> = Result<T, DengjenGrpcError>;
 
-const DEFAULT_SONATA_GRPC_SERVER_PORT: u16 = 49314;
+const DEFAULT_DENGJEN_GRPC_SERVER_PORT: u16 = 49314;
 const VOICE_ID_REDUCTION_FACTOR: u64 = 10000000000000;
 
 pub mod grpc {
-    tonic::include_proto!("sonata_grpc");
+    tonic::include_proto!("dengjen_grpc");
 }
 
 #[derive(Debug)]
-enum SonataGrpcError {
-    SonataError(SonataError),
+enum DengjenGrpcError {
+    DengjenError(DengjenError),
     VoiceNotFound(String),
 }
 
-impl std::error::Error for SonataGrpcError {}
+impl std::error::Error for DengjenGrpcError {}
 
-impl std::fmt::Display for SonataGrpcError {
+impl std::fmt::Display for DengjenGrpcError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SonataGrpcError::SonataError(e) => e.fmt(f),
-            SonataGrpcError::VoiceNotFound(msg) => write!(f, "{}", msg),
+            DengjenGrpcError::DengjenError(e) => e.fmt(f),
+            DengjenGrpcError::VoiceNotFound(msg) => write!(f, "{}", msg),
         }
     }
 }
 
-impl From<SonataError> for SonataGrpcError {
-    fn from(other: SonataError) -> Self {
-        Self::SonataError(other)
+impl From<DengjenError> for DengjenGrpcError {
+    fn from(other: DengjenError) -> Self {
+        Self::DengjenError(other)
     }
 }
 
-impl From<SonataGrpcError> for Status {
-    fn from(other: SonataGrpcError) -> Self {
+impl From<DengjenGrpcError> for Status {
+    fn from(other: DengjenGrpcError) -> Self {
         match other {
-            SonataGrpcError::SonataError(sonata_error) => match sonata_error {
-                SonataError::FailedToLoadResource(msg) | SonataError::PhonemizationError(msg) => {
+            DengjenGrpcError::DengjenError(dengjen_error) => match dengjen_error {
+                DengjenError::FailedToLoadResource(msg) | DengjenError::PhonemizationError(msg) => {
                     Status::aborted(msg)
                 }
-                SonataError::OperationError(msg) => Status::unknown(msg),
+                DengjenError::OperationError(msg) => Status::unknown(msg),
             },
-            SonataGrpcError::VoiceNotFound(msg) => Status::not_found(msg),
+            DengjenGrpcError::VoiceNotFound(msg) => Status::not_found(msg),
         }
     }
 }
 
-struct Voice(Arc<SonataSpeechSynthesizer>);
+struct Voice(Arc<DengjenSpeechSynthesizer>);
 
 impl Voice {
-    fn new(model: Arc<dyn SonataModel + Send + Sync>) -> SonataResult<Self> {
-        let synth = Arc::new(SonataSpeechSynthesizer::new(model)?);
+    fn new(model: Arc<dyn DengjenModel + Send + Sync>) -> DengjenResult<Self> {
+        let synth = Arc::new(DengjenSpeechSynthesizer::new(model)?);
         Ok(Self(synth))
     }
-    fn model_ref(&self) -> &dyn SonataModel {
+    fn model_ref(&self) -> &dyn DengjenModel {
         self.synth_ref()
     }
-    fn synth_ref(&self) -> &SonataSpeechSynthesizer {
+    fn synth_ref(&self) -> &DengjenSpeechSynthesizer {
         self.0.as_ref()
     }
 }
 
-struct SonataGrpcService(RwLock<HashMap<String, Voice>>);
+struct DengjenGrpcService(RwLock<HashMap<String, Voice>>);
 
-impl SonataGrpcService {
+impl DengjenGrpcService {
     fn new() -> Self {
         Self(Default::default())
     }
-    fn _load_sonata_voice(&self, config_path: PathBuf) -> SonataGrpcResult<grpc::VoiceInfo> {
+    fn _load_dengjen_voice(&self, config_path: PathBuf) -> DengjenGrpcResult<grpc::VoiceInfo> {
         let voice_id = if config_path.is_file() {
             let voice_path = config_path
                 .canonicalize()
@@ -88,7 +88,7 @@ impl SonataGrpcService {
                 .into_owned();
             (xxh3_64(voice_path.as_bytes()) / VOICE_ID_REDUCTION_FACTOR).to_string()
         } else {
-            return Err(SonataGrpcError::VoiceNotFound(format!(
+            return Err(DengjenGrpcError::VoiceNotFound(format!(
                 "Config file does not exists: `{}`",
                 config_path.display()
             )));
@@ -96,7 +96,7 @@ impl SonataGrpcService {
         if let Some(voice) = (self.0.read().unwrap()).get(&voice_id) {
             return self._get_voice_info(voice_id, voice.model_ref());
         }
-        let piper_model = sonata_piper::from_config_path(&config_path)?;
+        let piper_model = dengjen_piper::from_config_path(&config_path)?;
         log::info!(
             "Loaded Vits voice from: `{}`. Voice ID: {}",
             config_path.display(),
@@ -112,10 +112,10 @@ impl SonataGrpcService {
         voice_id: &str,
         text: String,
         output_config: Option<AudioOutputConfig>,
-    ) -> SonataGrpcResult<SonataSpeechStreamLazy> {
+    ) -> DengjenGrpcResult<DengjenSpeechStreamLazy> {
         match (self.0.read().unwrap()).get(voice_id) {
             Some(voice) => Ok(voice.synth_ref().synthesize_lazy(text, output_config)?),
-            None => Err(SonataGrpcError::VoiceNotFound(format!(
+            None => Err(DengjenGrpcError::VoiceNotFound(format!(
                 "A voice with the key `{}` has not been loaded",
                 voice_id
             ))),
@@ -124,8 +124,8 @@ impl SonataGrpcService {
     fn _get_voice_info(
         &self,
         voice_id: String,
-        model: &(impl SonataModel + ?Sized),
-    ) -> SonataGrpcResult<grpc::VoiceInfo> {
+        model: &(impl DengjenModel + ?Sized),
+    ) -> DengjenGrpcResult<grpc::VoiceInfo> {
         let wav_info = model.audio_output_info()?;
         let speakers = model.get_speakers()?;
         let language = model.get_language()?;
@@ -141,7 +141,7 @@ impl SonataGrpcService {
             let default_synth_config = match config_cast {
                 Ok(synth_config) => synth_config,
                 Err(_) => {
-                    return Err(SonataError::OperationError(
+                    return Err(DengjenError::OperationError(
                         "Invalid synthesis config for Vits model".to_string(),
                     )
                     .into())
@@ -170,15 +170,15 @@ impl SonataGrpcService {
     }
     fn _get_synth_options_from_model(
         &self,
-        model: &(impl SonataModel + ?Sized),
-    ) -> SonataGrpcResult<grpc::SynthesisOptions> {
+        model: &(impl DengjenModel + ?Sized),
+    ) -> DengjenGrpcResult<grpc::SynthesisOptions> {
         let synth_config = match model
             .get_fallback_synthesis_config()?
             .downcast::<PiperSynthesisConfig>()
         {
             Ok(synth_config) => synth_config,
             Err(_) => {
-                return Err(SonataError::OperationError(
+                return Err(DengjenError::OperationError(
                     "Invalid synthesis config for Vits model".to_string(),
                 )
                 .into())
@@ -195,12 +195,12 @@ impl SonataGrpcService {
             noise_w: Some(synth_config.noise_w),
         })
     }
-    fn _get_synth_options(&self, voice_id: &str) -> SonataGrpcResult<grpc::SynthesisOptions> {
+    fn _get_synth_options(&self, voice_id: &str) -> DengjenGrpcResult<grpc::SynthesisOptions> {
         let voices = self.0.read().unwrap();
         let voice = match voices.get(voice_id) {
             Some(voice) => voice,
             None => {
-                return Err(SonataGrpcError::VoiceNotFound(format!(
+                return Err(DengjenGrpcError::VoiceNotFound(format!(
                     "A voice with the key `{}` has not been loaded",
                     voice_id
                 )))
@@ -212,12 +212,12 @@ impl SonataGrpcService {
         &self,
         voice_id: &str,
         synth_opts: grpc::SynthesisOptions,
-    ) -> SonataGrpcResult<grpc::SynthesisOptions> {
+    ) -> DengjenGrpcResult<grpc::SynthesisOptions> {
         let voices = self.0.read().unwrap();
         let voice = match voices.get(voice_id) {
             Some(voice) => voice,
             None => {
-                return Err(SonataGrpcError::VoiceNotFound(format!(
+                return Err(DengjenGrpcError::VoiceNotFound(format!(
                     "A voice with the key `{}` has not been loaded",
                     voice_id
                 )))
@@ -230,7 +230,7 @@ impl SonataGrpcService {
         {
             Ok(synth_config) => synth_config,
             Err(_) => {
-                return Err(SonataError::OperationError(
+                return Err(DengjenError::OperationError(
                     "Could not set synthesis parameters ".to_string(),
                 )
                 .into())
@@ -256,8 +256,8 @@ impl SonataGrpcService {
 }
 
 #[tonic::async_trait]
-impl SonataGrpc for SonataGrpcService {
-    async fn get_sonata_version(
+impl DengjenGrpc for DengjenGrpcService {
+    async fn get_dengjen_version(
         &self,
         _request: Request<grpc::Empty>,
     ) -> Result<Response<grpc::Version>, Status> {
@@ -272,7 +272,7 @@ impl SonataGrpc for SonataGrpcService {
     ) -> Result<Response<grpc::VoiceInfo>, Status> {
         let voice_path = _request.into_inner();
         let config_path = PathBuf::from(voice_path.config_path);
-        let voice_info = self._load_sonata_voice(config_path)?;
+        let voice_info = self._load_dengjen_voice(config_path)?;
         Ok(Response::new(voice_info))
     }
     async fn get_voice_info(
@@ -284,7 +284,7 @@ impl SonataGrpc for SonataGrpcService {
         let voice = match voices.get(&voice_id) {
             Some(voice) => voice,
             None => {
-                return Err(SonataGrpcError::VoiceNotFound(format!(
+                return Err(DengjenGrpcError::VoiceNotFound(format!(
                     "A voice with the key `{}` has not been loaded",
                     voice_id
                 )))?
@@ -329,15 +329,15 @@ impl SonataGrpc for SonataGrpcService {
             pitch: args.pitch.map(|i| i as u8),
             appended_silence_ms: args.appended_silence_ms,
         });
-        let sonata_stream =
+        let dengjen_stream =
             self._create_speech_synthesis_stream(&req.voice_id, req.text, output_config)?;
         let (tx, rx) = mpsc::channel(512);
         tokio::task::spawn_blocking(move || {
-            for wav_result in sonata_stream {
+            for wav_result in dengjen_stream {
                 let wav = match wav_result {
                     Ok(wav) => wav,
                     Err(e) => {
-                        let err = Err(SonataGrpcError::from(e).into());
+                        let err = Err(DengjenGrpcError::from(e).into());
                         tx.blocking_send(err).ok();
                         return;
                     }
@@ -370,7 +370,7 @@ impl SonataGrpc for SonataGrpcService {
         let voice = match voices.get(voice_id) {
             Some(voice) => voice,
             None => {
-                return Err(SonataGrpcError::VoiceNotFound(format!(
+                return Err(DengjenGrpcError::VoiceNotFound(format!(
                     "A voice with the key `{}` has not been loaded",
                     voice_id
                 ))
@@ -384,7 +384,7 @@ impl SonataGrpc for SonataGrpcService {
             let realtime_speech_stream = match stream_result {
                 Ok(stream) => stream,
                 Err(e) => {
-                    let err = Err(SonataGrpcError::from(e).into());
+                    let err = Err(DengjenGrpcError::from(e).into());
                     tx.blocking_send(err).ok();
                     return;
                 }
@@ -393,7 +393,7 @@ impl SonataGrpc for SonataGrpcService {
                 let wav = match wav_result {
                     Ok(wav) => wav,
                     Err(e) => {
-                        let err = Err(SonataGrpcError::from(e).into());
+                        let err = Err(DengjenGrpcError::from(e).into());
                         tx.blocking_send(err).ok();
                         return;
                     }
@@ -411,13 +411,13 @@ impl SonataGrpc for SonataGrpcService {
 }
 
 fn setup_logging() {
-    env_logger::Builder::from_env(env_logger::Env::default().filter_or("SONATA_GRPC", "info"))
+    env_logger::Builder::from_env(env_logger::Env::default().filter_or("DENGJEN_GRPC", "info"))
         .init();
 }
 
 fn init_ort_environment() -> bool {
     ort::init()
-        .with_name("sonata")
+        .with_name("dengjen")
         .with_execution_providers([
             ort::execution_providers::CPUExecutionProvider::default().build()
         ])
@@ -434,15 +434,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         log::error!("Could not initialize onnxruntime environment");
     }
 
-    let port = std::env::var("SONATA_GRPC_SERVER_PORT")
-        .map(|val| val.parse().unwrap_or(DEFAULT_SONATA_GRPC_SERVER_PORT))
-        .unwrap_or(DEFAULT_SONATA_GRPC_SERVER_PORT);
+    let port = std::env::var("DENGJEN_GRPC_SERVER_PORT")
+        .map(|val| val.parse().unwrap_or(DEFAULT_DENGJEN_GRPC_SERVER_PORT))
+        .unwrap_or(DEFAULT_DENGJEN_GRPC_SERVER_PORT);
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
 
-    let service = SonataGrpcService::new();
-    let server = SonataGrpcServer::new(service);
+    let service = DengjenGrpcService::new();
+    let server = DengjenGrpcServer::new(service);
 
-    log::info!("Starting Sonata GRPC server at address: {}", addr);
+    log::info!("Starting Dengjen GRPC server at address: {}", addr);
 
     Server::builder().add_service(server).serve(addr).await?;
 

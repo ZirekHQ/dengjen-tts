@@ -1,4 +1,4 @@
-# Sonata
+# Dengjen
 
 A cross-platform Rust engine for neural TTS models.
 
@@ -11,11 +11,11 @@ A cross-platform Rust engine for neural TTS models.
 # Crates
 
 - `espeak-phonemizer`: Converts text to `IPA` phonemes using a patched version of eSpeak-ng
-- `sonata-model`: Handles model loading and inference using `onnxruntime` via `ort`
-- `sonata-synth`: Wraps `SonataModel` and adds synthesized speech post-processing, including changing prosody. Also provides different modes of parallelism.
-- `sonata-grpc`: [GRPC](https://grpc.io/) frontend for sonata
-- `libsonata`: C-API binding to sonata
-- `sonata-python`: Python bindings to `sonata-synth` using `pyo3`
+- `dengjen-model`: Handles model loading and inference using `onnxruntime` via `ort`
+- `dengjen-synth`: Wraps `DengjenModel` and adds synthesized speech post-processing, including changing prosody. Also provides different modes of parallelism.
+- `dengjen-grpc`: [GRPC](https://grpc.io/) frontend for dengjen
+- `libdengjen`: C-API binding to dengjen
+- `dengjen-python`: Python bindings to `dengjen-synth` using `pyo3`
 - `sonic-sys`: Rust FFI bindings to [Sonic](https://github.com/waywardgeek/sonic): a `C` library for controlling various aspects of generated speech, such as rate, volume, and pitch
 
 # A note on testing

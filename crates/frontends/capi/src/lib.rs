@@ -1,6 +1,6 @@
 use ffi_support::{call_with_result, define_string_destructor, ErrorCode, ExternError, FfiStr};
-use sonata_core::{AudioSamples, SonataError, SonataModel, SonataResult};
-use sonata_synth::{AudioOutputConfig, SonataSpeechSynthesizer, SYNTHESIS_THREAD_POOL};
+use dengjen_core::{AudioSamples, DengjenError, DengjenModel, DengjenResult};
+use dengjen_synth::{AudioOutputConfig, DengjenSpeechSynthesizer, SYNTHESIS_THREAD_POOL};
 use std::any::Any;
 use std::ops::Deref;
 use std::panic::AssertUnwindSafe;
@@ -8,11 +8,11 @@ use std::path::PathBuf;
 use std::sync::{Arc, Once};
 
 pub type SpeechSynthesisCallback = extern "C" fn(SynthesisEvent) -> u8;
-define_string_destructor!(_internal_libsonataFreeString);
-ffi_support::implement_into_ffi_by_pointer!(SonataVoice);
-ffi_support::define_box_destructor!(SonataVoice, _internal_libsonataUnloadSonataVoice);
+define_string_destructor!(_internal_libdengjenFreeString);
+ffi_support::implement_into_ffi_by_pointer!(DengjenVoice);
+ffi_support::define_box_destructor!(DengjenVoice, _internal_libdengjenUnloadDengjenVoice);
 ffi_support::implement_into_ffi_by_pointer!(PiperSynthConfig);
-ffi_support::define_box_destructor!(PiperSynthConfig, _internal_libsonataFreePiperSynthConfig);
+ffi_support::define_box_destructor!(PiperSynthConfig, _internal_libdengjenFreePiperSynthConfig);
 
 static INIT_ORT_ENVIRONMENT: Once = Once::new();
 
@@ -37,26 +37,26 @@ pub mod synth_mode {
     pub const SYNTH_MODE_REALTIME: i32 = 2;
 }
 
-pub struct SonataVoice(AssertUnwindSafe<Arc<SonataSpeechSynthesizer>>);
+pub struct DengjenVoice(AssertUnwindSafe<Arc<DengjenSpeechSynthesizer>>);
 
-impl From<SonataSpeechSynthesizer> for SonataVoice {
-    fn from(other: SonataSpeechSynthesizer) -> Self {
+impl From<DengjenSpeechSynthesizer> for DengjenVoice {
+    fn from(other: DengjenSpeechSynthesizer) -> Self {
         Self(AssertUnwindSafe(Arc::new(other)))
     }
 }
 
-impl Deref for SonataVoice {
-    type Target = SonataSpeechSynthesizer;
+impl Deref for DengjenVoice {
+    type Target = DengjenSpeechSynthesizer;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl<T> AsRef<T> for SonataVoice
+impl<T> AsRef<T> for DengjenVoice
 where
     T: ?Sized,
-    <SonataVoice as Deref>::Target: AsRef<T>,
+    <DengjenVoice as Deref>::Target: AsRef<T>,
 {
     fn as_ref(&self) -> &T {
         self.deref().as_ref()
@@ -64,9 +64,9 @@ where
 }
 
 #[derive(Debug)]
-pub struct SonataFFIError(i32, String);
+pub struct DengjenFFIError(i32, String);
 
-impl SonataFFIError {
+impl DengjenFFIError {
     fn invalid_utf8() -> Self {
         Self(
             error_codes::INVALID_UTF8_SEQUENCE,
@@ -78,25 +78,25 @@ impl SonataFFIError {
     }
 }
 
-impl From<SonataError> for SonataFFIError {
-    fn from(other: SonataError) -> Self {
+impl From<DengjenError> for DengjenFFIError {
+    fn from(other: DengjenError) -> Self {
         let (code, message) = match other {
-            SonataError::FailedToLoadResource(msg) => (error_codes::FAILED_TO_LOAD_RESOURCE, msg),
-            SonataError::PhonemizationError(msg) => (error_codes::PHONEMIZATION_ERROR, msg),
-            SonataError::OperationError(msg) => (error_codes::OPERATION_ERROR, msg),
+            DengjenError::FailedToLoadResource(msg) => (error_codes::FAILED_TO_LOAD_RESOURCE, msg),
+            DengjenError::PhonemizationError(msg) => (error_codes::PHONEMIZATION_ERROR, msg),
+            DengjenError::OperationError(msg) => (error_codes::OPERATION_ERROR, msg),
         };
         Self(code, message)
     }
 }
 
-impl From<SonataFFIError> for ExternError {
-    fn from(other: SonataFFIError) -> Self {
+impl From<DengjenFFIError> for ExternError {
+    fn from(other: DengjenFFIError) -> Self {
         let err_code = ErrorCode::new(other.0);
         ExternError::new_error(err_code, other.1)
     }
 }
 
-pub type SonataFFIResult<T> = Result<T, SonataFFIError>;
+pub type DengjenFFIResult<T> = Result<T, DengjenFFIError>;
 
 #[repr(C)]
 pub struct SynthesisEvent {
@@ -172,8 +172,8 @@ pub struct PiperSynthConfig {
 }
 
 impl PiperSynthConfig {
-    fn as_piper_synth_config(&self) -> sonata_piper::PiperSynthesisConfig {
-        sonata_piper::PiperSynthesisConfig {
+    fn as_piper_synth_config(&self) -> dengjen_piper::PiperSynthesisConfig {
+        dengjen_piper::PiperSynthesisConfig {
             speaker: Some(self.speaker.into()),
             noise_scale: self.noise_scale,
             length_scale: self.length_scale,
@@ -186,22 +186,22 @@ impl PiperSynthConfig {
 /// Pointer must be non-null and well alighned
 #[no_mangle]
 #[allow(non_snake_case)]
-pub unsafe extern "C" fn libsonataFreeString(string_ptr: *mut i8) {
-    _internal_libsonataFreeString(string_ptr)
+pub unsafe extern "C" fn libdengjenFreeString(string_ptr: *mut i8) {
+    _internal_libdengjenFreeString(string_ptr)
 }
 
 /// # Safety
 /// Pointer must be non-null and well alighned
 #[no_mangle]
 #[allow(non_snake_case)]
-pub unsafe extern "C" fn libsonataFreePiperSynthConfig(synth_config: *mut PiperSynthConfig) {
-    _internal_libsonataFreePiperSynthConfig(synth_config)
+pub unsafe extern "C" fn libdengjenFreePiperSynthConfig(synth_config: *mut PiperSynthConfig) {
+    _internal_libdengjenFreePiperSynthConfig(synth_config)
 }
 /// # Safety
 /// Pointer must be non-null and well alighned
 #[no_mangle]
 #[allow(non_snake_case)]
-pub unsafe extern "C" fn libsonataFreeSynthesisEvent(event: SynthesisEvent) {
+pub unsafe extern "C" fn libdengjenFreeSynthesisEvent(event: SynthesisEvent) {
     ffi_support::abort_on_panic::with_abort_on_panic(|| {
         if !event.error_ptr.is_null() {
             drop(Box::from_raw(event.error_ptr));
@@ -213,10 +213,10 @@ pub unsafe extern "C" fn libsonataFreeSynthesisEvent(event: SynthesisEvent) {
 
 #[no_mangle]
 #[allow(non_snake_case)]
-pub extern "C" fn libsonataLoadVoiceFromConfigPath(
+pub extern "C" fn libdengjenLoadVoiceFromConfigPath(
     config_path_ptr: FfiStr,
     out_error: &mut ExternError,
-) -> *mut SonataVoice {
+) -> *mut DengjenVoice {
     call_with_result(out_error, move || _load_piper_voice(config_path_ptr))
 }
 
@@ -224,16 +224,16 @@ pub extern "C" fn libsonataLoadVoiceFromConfigPath(
 /// Pointer must be non-null and well alighned
 #[no_mangle]
 #[allow(non_snake_case)]
-pub unsafe extern "C" fn libsonataUnloadSonataVoice(voice_ptr: *mut SonataVoice) {
-    _internal_libsonataUnloadSonataVoice(voice_ptr)
+pub unsafe extern "C" fn libdengjenUnloadDengjenVoice(voice_ptr: *mut DengjenVoice) {
+    _internal_libdengjenUnloadDengjenVoice(voice_ptr)
 }
 
 /// # Safety
 /// Pointer must be non-null and well alighned
 #[no_mangle]
 #[allow(non_snake_case)]
-pub unsafe extern "C" fn libsonataGetAudioInfo(
-    voice_ptr: *mut SonataVoice,
+pub unsafe extern "C" fn libdengjenGetAudioInfo(
+    voice_ptr: *mut DengjenVoice,
     audio_info_ptr: *mut AudioInfo,
     out_error: &mut ExternError,
 ) {
@@ -248,7 +248,7 @@ pub unsafe extern "C" fn libsonataGetAudioInfo(
                 audio_info.num_channels = a.num_channels as u32;
                 audio_info.sample_width = a.sample_width as u32;
             })
-            .map_err(SonataFFIError::from)
+            .map_err(DengjenFFIError::from)
     })
 }
 
@@ -256,23 +256,23 @@ pub unsafe extern "C" fn libsonataGetAudioInfo(
 /// Pointer must be non-null and well alighned
 #[no_mangle]
 #[allow(non_snake_case)]
-pub unsafe extern "C" fn libsonataGetPiperDefaultSynthConfig(
-    voice_ptr: *mut SonataVoice,
+pub unsafe extern "C" fn libdengjenGetPiperDefaultSynthConfig(
+    voice_ptr: *mut DengjenVoice,
     out_error: &mut ExternError,
 ) -> *mut PiperSynthConfig {
     let voice = voice_ptr.as_ref().unwrap();
     call_with_result(out_error, move || {
         let synth_config = voice
             .get_default_synthesis_config()
-            .map_err(SonataFFIError::from)?;
-        match synth_config.downcast_ref::<sonata_piper::PiperSynthesisConfig>() {
+            .map_err(DengjenFFIError::from)?;
+        match synth_config.downcast_ref::<dengjen_piper::PiperSynthesisConfig>() {
             Some(config) => Ok(PiperSynthConfig {
                 speaker: config.speaker.map(|sid| sid as u32).unwrap_or_default(),
                 length_scale: config.length_scale,
                 noise_scale: config.noise_scale,
                 noise_w: config.noise_w,
             }),
-            None => Err(SonataFFIError(
+            None => Err(DengjenFFIError(
                 error_codes::UNKNOWN_ERROR,
                 "Cannot retrieve Piper's default synthesis config".to_string(),
             )),
@@ -284,8 +284,8 @@ pub unsafe extern "C" fn libsonataGetPiperDefaultSynthConfig(
 /// Pointer must be non-null and well alighned
 #[no_mangle]
 #[allow(non_snake_case)]
-pub unsafe extern "C" fn libsonataSetPiperSynthConfig(
-    voice_ptr: *mut SonataVoice,
+pub unsafe extern "C" fn libdengjenSetPiperSynthConfig(
+    voice_ptr: *mut DengjenVoice,
     synth_config: PiperSynthConfig,
     out_error: &mut ExternError,
 ) {
@@ -295,7 +295,7 @@ pub unsafe extern "C" fn libsonataSetPiperSynthConfig(
         let config = &piper_synth_config as &dyn Any;
         voice
             .set_fallback_synthesis_config(config)
-            .map_err(SonataFFIError::from)
+            .map_err(DengjenFFIError::from)
     })
 }
 
@@ -303,8 +303,8 @@ pub unsafe extern "C" fn libsonataSetPiperSynthConfig(
 /// Pointer must be non-null and well alighned
 #[no_mangle]
 #[allow(non_snake_case)]
-pub unsafe extern "C" fn libsonataSpeak(
-    voice_ptr: *mut SonataVoice,
+pub unsafe extern "C" fn libdengjenSpeak(
+    voice_ptr: *mut DengjenVoice,
     text_ptr: FfiStr,
     params: SynthesisParams,
     out_error: &mut ExternError,
@@ -318,8 +318,8 @@ pub unsafe extern "C" fn libsonataSpeak(
 /// Pointer must be non-null and well alighned
 #[no_mangle]
 #[allow(non_snake_case)]
-pub unsafe extern "C" fn libsonataSpeakToFile(
-    voice_ptr: *mut SonataVoice,
+pub unsafe extern "C" fn libdengjenSpeakToFile(
+    voice_ptr: *mut DengjenVoice,
     text_ptr: FfiStr,
     params: SynthesisParams,
     out_filename_ptr: FfiStr,
@@ -328,7 +328,7 @@ pub unsafe extern "C" fn libsonataSpeakToFile(
     let voice = voice_ptr.as_ref().unwrap();
     let synth = AssertUnwindSafe(Arc::clone(&voice.0));
     call_with_result(out_error, move || {
-        Ok::<u8, SonataFFIError>(
+        Ok::<u8, DengjenFFIError>(
             _synthesize_to_file(synth, text_ptr, params, out_filename_ptr).is_ok() as u8,
         )
     })
@@ -344,32 +344,32 @@ fn init_ort_environment()  {
             ort::execution_providers::CPUExecutionProvider::default().build(),
         ];
         ort::init()
-            .with_name("sonata")
+            .with_name("dengjen")
             .with_execution_providers(execution_providers)
             .commit()
             .unwrap();
     });
 }
 
-fn _load_piper_voice(config_path_ptr: FfiStr) -> SonataFFIResult<SonataVoice> {
+fn _load_piper_voice(config_path_ptr: FfiStr) -> DengjenFFIResult<DengjenVoice> {
     init_ort_environment();
     let config_path = config_path_ptr
         .into_opt_string()
-        .ok_or_else(SonataFFIError::invalid_utf8)?;
+        .ok_or_else(DengjenFFIError::invalid_utf8)?;
     let config_path = PathBuf::from(config_path);
-    let piper_model = sonata_piper::from_config_path(&config_path)?;
-    let synth = SonataSpeechSynthesizer::new(piper_model)?;
+    let piper_model = dengjen_piper::from_config_path(&config_path)?;
+    let synth = DengjenSpeechSynthesizer::new(piper_model)?;
     Ok(synth.into())
 }
 
 fn _synthesize(
-    synth: AssertUnwindSafe<Arc<SonataSpeechSynthesizer>>,
+    synth: AssertUnwindSafe<Arc<DengjenSpeechSynthesizer>>,
     text_ptr: FfiStr,
     params: SynthesisParams,
-) -> SonataFFIResult<()> {
+) -> DengjenFFIResult<()> {
     let text = text_ptr
         .into_opt_string()
-        .ok_or_else(SonataFFIError::invalid_utf8)?;
+        .ok_or_else(DengjenFFIError::invalid_utf8)?;
     if params.nonblocking != 0 {
         SYNTHESIS_THREAD_POOL.spawn(move || {
             let callback = params.callback;
@@ -385,10 +385,10 @@ fn _synthesize(
 }
 
 fn _do_synthesize(
-    synth: AssertUnwindSafe<Arc<SonataSpeechSynthesizer>>,
+    synth: AssertUnwindSafe<Arc<DengjenSpeechSynthesizer>>,
     text: String,
     params: SynthesisParams,
-) -> SonataFFIResult<()> {
+) -> DengjenFFIResult<()> {
     let audio_output_config = Some(params.as_synth_output_config());
     match params.mode {
         synth_mode::SYNTH_MODE_LAZY => {
@@ -407,15 +407,15 @@ fn _do_synthesize(
             let stream = synth.synthesize_streamed(text, audio_output_config, 72, 3)?;
             iterate_stream(stream, params.callback)
         }
-        _ => Err(SonataFFIError::invalid_synthesis_mode())
+        _ => Err(DengjenFFIError::invalid_synthesis_mode())
     }
 }
 
 #[inline(always)]
 fn iterate_stream(
-    stream: impl Iterator<Item = SonataResult<AudioSamples>> + Send + Sync + 'static,
+    stream: impl Iterator<Item = DengjenResult<AudioSamples>> + Send + Sync + 'static,
     callback: SpeechSynthesisCallback,
-) -> SonataFFIResult<()> {
+) -> DengjenFFIResult<()> {
     for result in stream {
         match result {
             Ok(audio) => {
@@ -426,7 +426,7 @@ fn iterate_stream(
                 }
             }
             Err(e) => {
-                let event = SynthesisEvent::with_error(SonataFFIError::from(e));
+                let event = SynthesisEvent::with_error(DengjenFFIError::from(e));
                 callback(event);
                 return Ok(());
             }
@@ -437,17 +437,17 @@ fn iterate_stream(
 }
 
 fn _synthesize_to_file(
-    synth: AssertUnwindSafe<Arc<SonataSpeechSynthesizer>>,
+    synth: AssertUnwindSafe<Arc<DengjenSpeechSynthesizer>>,
     text_ptr: FfiStr,
     params: SynthesisParams,
     out_filename_ptr: FfiStr,
-) -> SonataFFIResult<()> {
+) -> DengjenFFIResult<()> {
     let text = text_ptr
         .into_opt_string()
-        .ok_or_else(SonataFFIError::invalid_utf8)?;
+        .ok_or_else(DengjenFFIError::invalid_utf8)?;
     let out_filename = out_filename_ptr
         .into_opt_string()
-        .ok_or_else(SonataFFIError::invalid_utf8)
+        .ok_or_else(DengjenFFIError::invalid_utf8)
         .map(PathBuf::from)?;
     synth.synthesize_to_file(&out_filename, text, Some(params.as_synth_output_config()))?;
     Ok(())

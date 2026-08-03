@@ -1,4 +1,4 @@
-# sonata-piper
+# dengjen-piper
 
 Implements [Piper](https://github.com/rhasspy/piper)  flavor of [Vits}(https://github.com/jaywalnut310/vits/)
 

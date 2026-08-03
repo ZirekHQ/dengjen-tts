@@ -29,7 +29,7 @@
 
 #define SYNTH_MODE_REALTIME 2
 
-typedef struct SonataVoice SonataVoice;
+typedef struct DengjenVoice DengjenVoice;
 
 typedef struct PiperSynthConfig {
   uint32_t speaker;
@@ -75,34 +75,34 @@ typedef struct SynthesisParams {
   uint8_t nonblocking;
 } SynthesisParams;
 
-void libsonataFreeString(int8_t *string_ptr);
+void libdengjenFreeString(int8_t *string_ptr);
 
-void libsonataFreePiperSynthConfig(struct PiperSynthConfig *synth_config);
+void libdengjenFreePiperSynthConfig(struct PiperSynthConfig *synth_config);
 
-void libsonataFreeSynthesisEvent(struct SynthesisEvent event);
+void libdengjenFreeSynthesisEvent(struct SynthesisEvent event);
 
-struct SonataVoice *libsonataLoadVoiceFromConfigPath(FfiStr config_path_ptr,
+struct DengjenVoice *libdengjenLoadVoiceFromConfigPath(FfiStr config_path_ptr,
                                                      struct ExternError *out_error);
 
-void libsonataUnloadSonataVoice(struct SonataVoice *voice_ptr);
+void libdengjenUnloadDengjenVoice(struct DengjenVoice *voice_ptr);
 
-void libsonataGetAudioInfo(struct SonataVoice *voice_ptr,
+void libdengjenGetAudioInfo(struct DengjenVoice *voice_ptr,
                            struct AudioInfo *audio_info_ptr,
                            struct ExternError *out_error);
 
-struct PiperSynthConfig *libsonataGetPiperDefaultSynthConfig(struct SonataVoice *voice_ptr,
+struct PiperSynthConfig *libdengjenGetPiperDefaultSynthConfig(struct DengjenVoice *voice_ptr,
                                                              struct ExternError *out_error);
 
-void libsonataSetPiperSynthConfig(struct SonataVoice *voice_ptr,
+void libdengjenSetPiperSynthConfig(struct DengjenVoice *voice_ptr,
                                   struct PiperSynthConfig synth_config,
                                   struct ExternError *out_error);
 
-void libsonataSpeak(struct SonataVoice *voice_ptr,
+void libdengjenSpeak(struct DengjenVoice *voice_ptr,
                     FfiStr text_ptr,
                     struct SynthesisParams params,
                     struct ExternError *out_error);
 
-uint8_t libsonataSpeakToFile(struct SonataVoice *voice_ptr,
+uint8_t libdengjenSpeakToFile(struct DengjenVoice *voice_ptr,
                              FfiStr text_ptr,
                              struct SynthesisParams params,
                              FfiStr out_filename_ptr,

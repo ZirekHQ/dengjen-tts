@@ -1,9 +1,9 @@
 mod dev_utils;
 
-use sonata_synth::SonataResult;
+use dengjen_synth::DengjenResult;
 
 #[test]
-fn test_lazy_stream() -> SonataResult<()> {
+fn test_lazy_stream() -> DengjenResult<()> {
     let (synth, text, output_config) = dev_utils::gen_params("std");
     let stream = synth
         .synthesize_lazy(text, output_config)?
@@ -12,7 +12,7 @@ fn test_lazy_stream() -> SonataResult<()> {
 }
 
 #[test]
-fn test_parallel_stream() -> SonataResult<()> {
+fn test_parallel_stream() -> DengjenResult<()> {
     let (synth, text, output_config) = dev_utils::gen_params("std");
     let stream = synth
         .synthesize_parallel(text, output_config)?
@@ -21,7 +21,7 @@ fn test_parallel_stream() -> SonataResult<()> {
 }
 
 #[test]
-fn test_realtime_stream() -> SonataResult<()> {
+fn test_realtime_stream() -> DengjenResult<()> {
     let (synth, text, output_config) = dev_utils::gen_params("rt");
     let stream = synth.synthesize_streamed(text, output_config, 72, 3)?;
     dev_utils::iterate_stream(stream)

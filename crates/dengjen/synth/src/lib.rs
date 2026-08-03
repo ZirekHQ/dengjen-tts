@@ -1,5 +1,5 @@
 mod utils;
-pub use sonata_core::*;
+pub use dengjen_core::*;
 
 use flume::{Receiver, SendError, Sender};
 use once_cell::sync::Lazy;
@@ -19,7 +19,7 @@ pub static SYNTHESIS_THREAD_POOL: Lazy<ThreadPool> = Lazy::new(|| {
         .map(usize::from)
         .unwrap_or(4);
     ThreadPoolBuilder::new()
-        .thread_name(|i| format!("sonata_synth_{}", i))
+        .thread_name(|i| format!("dengjen_synth_{}", i))
         .num_threads(num_cpus * 4)
         .build()
         .unwrap()
@@ -34,7 +34,7 @@ pub struct AudioOutputConfig {
 }
 
 impl AudioOutputConfig {
-    fn apply(&self, mut audio: Audio) -> SonataAudioResult {
+    fn apply(&self, mut audio: Audio) -> DengjenAudioResult {
         let mut samples = audio.samples.take();
         if let Some(time_ms) = self.appended_silence_ms {
             let mut silence_samples = self.generate_silence(
@@ -57,7 +57,7 @@ impl AudioOutputConfig {
         samples: AudioSamples,
         sample_rate: usize,
         num_channels: usize,
-    ) -> SonataResult<AudioSamples> {
+    ) -> DengjenResult<AudioSamples> {
         let samples = samples.into_vec();
         let input_len = samples.len();
         if input_len == 0 {
@@ -89,7 +89,7 @@ impl AudioOutputConfig {
             let num_samples = sonic_sys::sonicSamplesAvailable(stream);
             if num_samples <= 0 {
                 return Err(
-                    SonataError::OperationError("Sonic Error: failed to apply audio config. Invalid parameter value for rate, volume, or pitch".to_string())
+                    DengjenError::OperationError("Sonic Error: failed to apply audio config. Invalid parameter value for rate, volume, or pitch".to_string())
                 );
             }
             out_buf.reserve_exact(num_samples as usize);
@@ -109,17 +109,17 @@ impl AudioOutputConfig {
         time_ms: usize,
         sample_rate: usize,
         num_channels: usize,
-    ) -> SonataResult<AudioSamples> {
+    ) -> DengjenResult<AudioSamples> {
         let num_samples = (time_ms * sample_rate) / 1000;
         let silence_samples = vec![0f32; num_samples];
         self.apply_to_raw_samples(silence_samples.into(), sample_rate, num_channels)
     }
 }
 
-pub struct SonataSpeechSynthesizer(Arc<dyn SonataModel + Sync + Send>);
+pub struct DengjenSpeechSynthesizer(Arc<dyn DengjenModel + Sync + Send>);
 
-impl SonataSpeechSynthesizer {
-    pub fn new(model: Arc<dyn SonataModel + Sync + Send>) -> SonataResult<Self> {
+impl DengjenSpeechSynthesizer {
+    pub fn new(model: Arc<dyn DengjenModel + Sync + Send>) -> DengjenResult<Self> {
         Ok(Self(model))
     }
 
@@ -139,15 +139,15 @@ impl SonataSpeechSynthesizer {
         &self,
         text: String,
         output_config: Option<AudioOutputConfig>,
-    ) -> SonataResult<SonataSpeechStreamLazy> {
-        SonataSpeechStreamLazy::new(self.create_synthesis_task_provider(text, output_config))
+    ) -> DengjenResult<DengjenSpeechStreamLazy> {
+        DengjenSpeechStreamLazy::new(self.create_synthesis_task_provider(text, output_config))
     }
     pub fn synthesize_parallel(
         &self,
         text: String,
         output_config: Option<AudioOutputConfig>,
-    ) -> SonataResult<SonataSpeechStreamParallel> {
-        SonataSpeechStreamParallel::new(self.create_synthesis_task_provider(text, output_config))
+    ) -> DengjenResult<DengjenSpeechStreamParallel> {
+        DengjenSpeechStreamParallel::new(self.create_synthesis_task_provider(text, output_config))
     }
     pub fn synthesize_streamed(
         &self,
@@ -155,7 +155,7 @@ impl SonataSpeechSynthesizer {
         output_config: Option<AudioOutputConfig>,
         chunk_size: usize,
         chunk_padding: usize,
-    ) -> SonataResult<RealtimeSpeechStream> {
+    ) -> DengjenResult<RealtimeSpeechStream> {
         let provider = self.create_synthesis_task_provider(text, output_config);
         let wavinfo = self.0.audio_output_info()?;
         RealtimeSpeechStream::new(
@@ -172,14 +172,14 @@ impl SonataSpeechSynthesizer {
         filename: &Path,
         text: String,
         output_config: Option<AudioOutputConfig>,
-    ) -> SonataResult<()> {
+    ) -> DengjenResult<()> {
         let mut samples: Vec<f32> = Vec::new();
         for result in self.synthesize_parallel(text, output_config)? {
             let ws = result?;
             samples.append(&mut ws.into_vec());
         }
         if samples.is_empty() {
-            return Err(SonataError::OperationError(
+            return Err(DengjenError::OperationError(
                 "No speech data to write".to_string(),
             ));
         }
@@ -193,40 +193,40 @@ impl SonataSpeechSynthesizer {
         )?)
     }
     #[inline(always)]
-    pub fn clone_model(&self) -> Arc<dyn SonataModel + Send + Sync> {
+    pub fn clone_model(&self) -> Arc<dyn DengjenModel + Send + Sync> {
         Arc::clone(&self.0)
     }
 }
 
-impl SonataModel for SonataSpeechSynthesizer {
-    fn audio_output_info(&self) -> SonataResult<AudioInfo> {
+impl DengjenModel for DengjenSpeechSynthesizer {
+    fn audio_output_info(&self) -> DengjenResult<AudioInfo> {
         self.0.audio_output_info()
     }
-    fn phonemize_text(&self, text: &str) -> SonataResult<Phonemes> {
+    fn phonemize_text(&self, text: &str) -> DengjenResult<Phonemes> {
         self.0.phonemize_text(text)
     }
-    fn speak_batch(&self, phoneme_batches: Vec<String>) -> SonataResult<Vec<Audio>> {
+    fn speak_batch(&self, phoneme_batches: Vec<String>) -> DengjenResult<Vec<Audio>> {
         self.0.speak_batch(phoneme_batches)
     }
-    fn speak_one_sentence(&self, phonemes: String) -> SonataAudioResult {
+    fn speak_one_sentence(&self, phonemes: String) -> DengjenAudioResult {
         self.0.speak_one_sentence(phonemes)
     }
-    fn get_default_synthesis_config(&self) -> SonataResult<Box<dyn Any>> {
+    fn get_default_synthesis_config(&self) -> DengjenResult<Box<dyn Any>> {
         self.0.get_default_synthesis_config()
     }
-    fn get_fallback_synthesis_config(&self) -> SonataResult<Box<dyn Any>> {
+    fn get_fallback_synthesis_config(&self) -> DengjenResult<Box<dyn Any>> {
         self.0.get_fallback_synthesis_config()
     }
-    fn set_fallback_synthesis_config(&self, synthesis_config: &dyn Any) -> SonataResult<()> {
+    fn set_fallback_synthesis_config(&self, synthesis_config: &dyn Any) -> DengjenResult<()> {
         self.0.set_fallback_synthesis_config(synthesis_config)
     }
-    fn get_language(&self) -> SonataResult<Option<String>> {
+    fn get_language(&self) -> DengjenResult<Option<String>> {
         self.0.get_language()
     }
-    fn get_speakers(&self) -> SonataResult<Option<&HashMap<i64, String>>> {
+    fn get_speakers(&self) -> DengjenResult<Option<&HashMap<i64, String>>> {
         self.0.get_speakers()
     }
-    fn properties(&self) -> SonataResult<HashMap<String, String>> {
+    fn properties(&self) -> DengjenResult<HashMap<String, String>> {
         self.0.properties()
     }
     fn supports_streaming_output(&self) -> bool {
@@ -237,22 +237,22 @@ impl SonataModel for SonataSpeechSynthesizer {
         #[allow(unused_variables)] phonemes: String,
         #[allow(unused_variables)] chunk_size: usize,
         #[allow(unused_variables)] chunk_padding: usize,
-    ) -> SonataResult<Box<dyn Iterator<Item = SonataResult<AudioSamples>> + Send + Sync + 'a>> {
+    ) -> DengjenResult<Box<dyn Iterator<Item = DengjenResult<AudioSamples>> + Send + Sync + 'a>> {
         self.0.stream_synthesis(phonemes, chunk_size, chunk_padding)
     }
 }
 
 struct SpeechSynthesisTaskProvider {
-    model: Arc<dyn SonataModel + Sync + Send>,
+    model: Arc<dyn DengjenModel + Sync + Send>,
     text: String,
     output_config: Option<AudioOutputConfig>,
 }
 
 impl SpeechSynthesisTaskProvider {
-    fn get_phonemes(&self) -> SonataResult<Vec<String>> {
+    fn get_phonemes(&self) -> DengjenResult<Vec<String>> {
         Ok(self.model.phonemize_text(&self.text)?.to_vec())
     }
-    fn process_one_sentence(&self, phonemes: String) -> SonataAudioResult {
+    fn process_one_sentence(&self, phonemes: String) -> DengjenAudioResult {
         let wave_samples = self.model.speak_one_sentence(phonemes)?;
         match self.output_config {
             Some(ref config) => config.apply(wave_samples),
@@ -260,7 +260,7 @@ impl SpeechSynthesisTaskProvider {
         }
     }
     #[allow(dead_code)]
-    fn process_batches(&self, phonemes: Vec<String>) -> SonataResult<Vec<Audio>> {
+    fn process_batches(&self, phonemes: Vec<String>) -> DengjenResult<Vec<Audio>> {
         let wave_samples = self.model.speak_batch(phonemes)?;
         match self.output_config {
             Some(ref config) => {
@@ -275,13 +275,13 @@ impl SpeechSynthesisTaskProvider {
     }
 }
 
-pub struct SonataSpeechStreamLazy {
+pub struct DengjenSpeechStreamLazy {
     provider: SpeechSynthesisTaskProvider,
     sentence_phonemes: std::vec::IntoIter<String>,
 }
 
-impl SonataSpeechStreamLazy {
-    fn new(provider: SpeechSynthesisTaskProvider) -> SonataResult<Self> {
+impl DengjenSpeechStreamLazy {
+    fn new(provider: SpeechSynthesisTaskProvider) -> DengjenResult<Self> {
         let sentence_phonemes = provider.get_phonemes()?.into_iter();
         Ok(Self {
             provider,
@@ -290,8 +290,8 @@ impl SonataSpeechStreamLazy {
     }
 }
 
-impl Iterator for SonataSpeechStreamLazy {
-    type Item = SonataAudioResult;
+impl Iterator for DengjenSpeechStreamLazy {
+    type Item = DengjenAudioResult;
 
     fn next(&mut self) -> Option<Self::Item> {
         let phonemes = self.sentence_phonemes.next()?;
@@ -303,13 +303,13 @@ impl Iterator for SonataSpeechStreamLazy {
 }
 
 #[must_use]
-pub struct SonataSpeechStreamParallel {
-    precalculated_results: std::vec::IntoIter<SonataAudioResult>,
+pub struct DengjenSpeechStreamParallel {
+    precalculated_results: std::vec::IntoIter<DengjenAudioResult>,
 }
 
-impl SonataSpeechStreamParallel {
-    fn new(provider: SpeechSynthesisTaskProvider) -> SonataResult<Self> {
-        let calculated_result: Vec<SonataAudioResult> = provider
+impl DengjenSpeechStreamParallel {
+    fn new(provider: SpeechSynthesisTaskProvider) -> DengjenResult<Self> {
+        let calculated_result: Vec<DengjenAudioResult> = provider
             .get_phonemes()?
             .par_iter()
             .map(|ph| provider.process_one_sentence(ph.to_string()))
@@ -320,15 +320,15 @@ impl SonataSpeechStreamParallel {
     }
 }
 
-impl Iterator for SonataSpeechStreamParallel {
-    type Item = SonataAudioResult;
+impl Iterator for DengjenSpeechStreamParallel {
+    type Item = DengjenAudioResult;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.precalculated_results.next()
     }
 }
 
-pub struct RealtimeSpeechStream(Receiver<SonataResult<AudioSamples>>);
+pub struct RealtimeSpeechStream(Receiver<DengjenResult<AudioSamples>>);
 
 impl RealtimeSpeechStream {
     fn new(
@@ -337,7 +337,7 @@ impl RealtimeSpeechStream {
         chunk_padding: usize,
         sample_rate: usize,
         num_channels: usize,
-    ) -> SonataResult<Self> {
+    ) -> DengjenResult<Self> {
         let phonemes = provider.get_phonemes()?.into_iter();
         let (tx, rx) = flume::unbounded();
         SYNTHESIS_THREAD_POOL.spawn(move || {
@@ -379,11 +379,11 @@ impl RealtimeSpeechStream {
     #[inline(always)]
     fn process_rt_stream(
         stream: AudioStreamIterator,
-        tx: &Sender<SonataResult<AudioSamples>>,
+        tx: &Sender<DengjenResult<AudioSamples>>,
         audio_output_config: Option<&AudioOutputConfig>,
         sample_rate: usize,
         num_channels: usize,
-    ) -> Result<usize, SendError<SonataResult<AudioSamples>>> {
+    ) -> Result<usize, SendError<DengjenResult<AudioSamples>>> {
         let mut num_chunks = 0;
         if let Some(output_config) = audio_output_config {
             for result in stream {
@@ -418,7 +418,7 @@ impl RealtimeSpeechStream {
 }
 
 impl Iterator for RealtimeSpeechStream {
-    type Item = SonataResult<AudioSamples>;
+    type Item = DengjenResult<AudioSamples>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.0.recv().ok()
