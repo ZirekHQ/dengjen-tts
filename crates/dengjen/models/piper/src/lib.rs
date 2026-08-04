@@ -17,9 +17,9 @@ use std::sync::{Arc, RwLock};
 
 const MIN_CHUNK_SIZE: isize = 44;
 const MAX_CHUNK_SIZE: usize = 1024;
-const BOS: char = '^';
-const EOS: char = '$';
-const PAD: char = '_';
+const BOS: &str = "^";
+const EOS: &str = "$";
+const PAD: &str = "_";
 
 #[inline(always)]
 fn reversed_mapping<K, V>(input: &HashMap<K, V>) -> HashMap<V, K>
@@ -58,6 +58,61 @@ fn load_model_config(config_path: &Path) -> DengjenResult<(ModelConfig, PiperSyn
         noise_w: model_config.inference.noise_w,
     };
     Ok((model_config, synth_config))
+}
+
+fn map_phonemes_to_ids(
+    phoneme_id_map: &HashMap<String, Vec<i64>>,
+    phonemes: &str,
+    pad_id: i64,
+    bos_id: i64,
+    eos_id: i64,
+) -> Vec<i64> {
+    let max_cluster_len = phoneme_id_map
+        .keys()
+        .map(|k| k.chars().count())
+        .max()
+        .unwrap_or(1)
+        .max(1);
+    let chars: Vec<char> = phonemes.chars().collect();
+    let mut phoneme_ids: Vec<i64> = Vec::with_capacity((chars.len() + 1) * 2);
+    phoneme_ids.push(bos_id);
+    let mut i = 0;
+    while i < chars.len() {
+        let max_len = max_cluster_len.min(chars.len() - i);
+        let matched_len = (1..=max_len).rev().find(|&len| {
+            let candidate: String = chars[i..i + len].iter().collect();
+            phoneme_id_map.contains_key(&candidate)
+        });
+        match matched_len {
+            Some(len) => {
+                let candidate: String = chars[i..i + len].iter().collect();
+                let id = *phoneme_id_map.get(&candidate).unwrap().first().unwrap();
+                phoneme_ids.push(id);
+                phoneme_ids.push(pad_id);
+                i += len;
+            }
+            None => i += 1,
+        }
+    }
+    phoneme_ids.push(eos_id);
+    phoneme_ids
+}
+
+fn resolve_default_speaker_id(config: &ModelConfig) -> i64 {
+    config.default_speaker_id.unwrap_or(0)
+}
+
+// Returns `None` when the caller should fall through to the espeak-based phonemization
+// path; `Some(_)` when this phoneme_type is fully handled here.
+fn phonemize_dispatch(phoneme_type: PhonemeType, text: &str) -> Option<DengjenResult<Phonemes>> {
+    match phoneme_type {
+        PhonemeType::Espeak => None,
+        PhonemeType::Text => Some(Ok(vec![text.to_string()].into())),
+        other => Some(Err(DengjenError::PhonemizationError(format!(
+            "Phonemization for phoneme_type `{:?}` is not yet supported",
+            other
+        )))),
+    }
 }
 
 fn create_tashkeel_engine(
@@ -140,6 +195,16 @@ pub struct Language {
     name_english: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum PhonemeType {
+    #[default]
+    Espeak,
+    Text,
+    Pinyin,
+    Hebrew,
+}
+
 #[derive(Deserialize, Default)]
 pub struct ModelConfig {
     pub key: Option<String>,
@@ -153,8 +218,11 @@ pub struct ModelConfig {
     #[allow(dead_code)]
     num_symbols: u32,
     #[allow(dead_code)]
-    phoneme_map: HashMap<i64, char>,
-    phoneme_id_map: HashMap<char, Vec<i64>>,
+    phoneme_map: HashMap<i64, String>,
+    phoneme_id_map: HashMap<String, Vec<i64>>,
+    phoneme_type: Option<PhonemeType>,
+    default_speaker_id: Option<i64>,
+    hop_length: Option<usize>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -172,9 +240,9 @@ trait VitsModelCommons {
     fn get_tashkeel_engine(&self) -> Option<&libtashkeel_core::DynamicInferenceEngine>;
     fn get_meta_ids(&self) -> (i64, i64, i64) {
         let config = self.get_config();
-        let pad_id = *config.phoneme_id_map.get(&PAD).unwrap().first().unwrap();
-        let bos_id = *config.phoneme_id_map.get(&BOS).unwrap().first().unwrap();
-        let eos_id = *config.phoneme_id_map.get(&EOS).unwrap().first().unwrap();
+        let pad_id = *config.phoneme_id_map.get(PAD).unwrap().first().unwrap();
+        let bos_id = *config.phoneme_id_map.get(BOS).unwrap().first().unwrap();
+        let eos_id = *config.phoneme_id_map.get(EOS).unwrap().first().unwrap();
         (pad_id, bos_id, eos_id)
     }
     fn language(&self) -> Option<String> {
@@ -204,7 +272,7 @@ trait VitsModelCommons {
         let config = self.get_config();
 
         let speaker = if config.num_speakers > 0 {
-            Some(0)
+            Some(resolve_default_speaker_id(config))
         } else {
             None
         };
@@ -245,20 +313,13 @@ trait VitsModelCommons {
         bos_id: i64,
         eos_id: i64,
     ) -> Vec<i64> {
-        let config = self.get_config();
-        let mut phoneme_ids: Vec<i64> = Vec::with_capacity((phonemes.len() + 1) * 2);
-        phoneme_ids.push(bos_id);
-        for phoneme in phonemes.chars() {
-            if let Some(id) = config.phoneme_id_map.get(&phoneme) {
-                phoneme_ids.push(*id.first().unwrap());
-                phoneme_ids.push(pad_id);
-            }
-        }
-        phoneme_ids.push(eos_id);
-        phoneme_ids
+        map_phonemes_to_ids(&self.get_config().phoneme_id_map, phonemes, pad_id, bos_id, eos_id)
     }
     fn do_phonemize_text(&self, text: &str) -> DengjenResult<Phonemes> {
         let config = self.get_config();
+        if let Some(result) = phonemize_dispatch(config.phoneme_type.unwrap_or_default(), text) {
+            return result;
+        }
         let text = if config.espeak.voice == "ar" {
             let diacritized = self.diacritize_text(text)?;
             Cow::from(diacritized)
@@ -452,7 +513,7 @@ impl DengjenModel for VitsModel {
     }
     fn get_default_synthesis_config(&self) -> DengjenResult<Box<dyn Any>> {
         Ok(Box::new(PiperSynthesisConfig {
-            speaker: Some(0),
+            speaker: Some(resolve_default_speaker_id(&self.config)),
             noise_scale: self.config.inference.noise_scale,
             noise_w: self.config.inference.noise_w,
             length_scale: self.config.inference.length_scale,
@@ -623,7 +684,7 @@ impl DengjenModel for VitsStreamingModel {
     }
     fn get_default_synthesis_config(&self) -> DengjenResult<Box<dyn Any>> {
         Ok(Box::new(PiperSynthesisConfig {
-            speaker: Some(0),
+            speaker: Some(resolve_default_speaker_id(&self.config)),
             noise_scale: self.config.inference.noise_scale,
             noise_w: self.config.inference.noise_w,
             length_scale: self.config.inference.length_scale,
@@ -672,6 +733,7 @@ impl DengjenModel for VitsStreamingModel {
             encoder_outputs,
             chunk_size,
             chunk_padding,
+            self.config.hop_length.unwrap_or(256),
         ));
         Ok(streamer)
     }
@@ -784,12 +846,14 @@ impl SpeechStreamer {
         encoder_outputs: EncoderOutputs,
         chunk_size: usize,
         chunk_padding: usize,
+        hop_length: usize,
     ) -> Self {
         let num_frames = encoder_outputs.z.shape()[2];
         let mel_chunker = AdaptiveMelChunker::new(
             num_frames as isize,
             chunk_size as isize,
             chunk_padding as isize,
+            hop_length as isize,
         );
         let one_shot = num_frames <= (chunk_size * 2 + (chunk_padding * 2));
         Self {
@@ -870,16 +934,18 @@ struct AdaptiveMelChunker {
     num_frames: isize,
     chunk_size: usize,
     chunk_padding: isize,
+    hop_length: isize,
     last_end_index: Option<isize>,
     step: usize
 }
 
 impl AdaptiveMelChunker {
-    fn new(num_frames: isize, chunk_size: isize, chunk_padding: isize) -> Self {
+    fn new(num_frames: isize, chunk_size: isize, chunk_padding: isize, hop_length: isize) -> Self {
         Self {
             num_frames,
             chunk_size: chunk_size as usize,
             chunk_padding,
+            hop_length,
             last_end_index: Some(0),
             step: 1
         }
@@ -916,7 +982,160 @@ impl Iterator for AdaptiveMelChunker {
         self.step += 1;
         self.last_end_index = end_index;
         let chunk_index = ndarray::Slice::new(start_index, end_index, 1);
-        let audio_index = ndarray::Slice::new(start_padding * 256, end_padding.map(|i| i * 256), 1);
+        let audio_index = ndarray::Slice::new(
+            start_padding * self.hop_length,
+            end_padding.map(|i| i * self.hop_length),
+            1,
+        );
         Some((chunk_index, audio_index))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const BASE_CONFIG_JSON: &str = r#"{
+        "key": null,
+        "language": null,
+        "audio": {"sample_rate": 22050, "quality": null},
+        "num_speakers": 1,
+        "speaker_id_map": {},
+        "streaming": false,
+        "espeak": {"voice": "en-us"},
+        "inference": {"noise_scale": 0.667, "length_scale": 1.0, "noise_w": 0.8},
+        "num_symbols": 256,
+        "phoneme_map": {},
+        "phoneme_id_map": {"^": [1], "$": [2], "_": [3], "a": [4], "aɪ": [5]}
+    }"#;
+
+    #[test]
+    fn model_config_parses_multi_char_phoneme_cluster_keys() {
+        let config: ModelConfig = serde_json::from_str(BASE_CONFIG_JSON).unwrap();
+        assert_eq!(config.phoneme_id_map.get("aɪ"), Some(&vec![5]));
+    }
+
+    #[test]
+    fn model_config_defaults_phoneme_type_default_speaker_id_and_hop_length_when_absent() {
+        let config: ModelConfig = serde_json::from_str(BASE_CONFIG_JSON).unwrap();
+        assert_eq!(config.phoneme_type, None);
+        assert_eq!(config.default_speaker_id, None);
+        assert_eq!(config.hop_length, None);
+    }
+
+    #[test]
+    fn model_config_parses_phoneme_type_default_speaker_id_and_hop_length_when_present() {
+        let json = r#"{
+            "key": null,
+            "language": null,
+            "audio": {"sample_rate": 22050, "quality": null},
+            "num_speakers": 2,
+            "speaker_id_map": {},
+            "streaming": false,
+            "espeak": {"voice": "en-us"},
+            "inference": {"noise_scale": 0.667, "length_scale": 1.0, "noise_w": 0.8},
+            "num_symbols": 256,
+            "phoneme_map": {},
+            "phoneme_id_map": {"^": [1], "$": [2], "_": [3]},
+            "phoneme_type": "hebrew",
+            "default_speaker_id": 3,
+            "hop_length": 512
+        }"#;
+        let config: ModelConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.phoneme_type, Some(PhonemeType::Hebrew));
+        assert_eq!(config.default_speaker_id, Some(3));
+        assert_eq!(config.hop_length, Some(512));
+    }
+
+    fn single_char_phoneme_map() -> HashMap<String, Vec<i64>> {
+        HashMap::from([
+            ("^".to_string(), vec![1]),
+            ("$".to_string(), vec![2]),
+            ("_".to_string(), vec![3]),
+            ("a".to_string(), vec![4]),
+            ("b".to_string(), vec![5]),
+        ])
+    }
+
+    #[test]
+    fn map_phonemes_to_ids_wraps_with_bos_pad_and_eos() {
+        let map = single_char_phoneme_map();
+        let ids = map_phonemes_to_ids(&map, "ab", 3, 1, 2);
+        assert_eq!(ids, vec![1, 4, 3, 5, 3, 2]);
+    }
+
+    #[test]
+    fn map_phonemes_to_ids_skips_unknown_chars() {
+        let map = single_char_phoneme_map();
+        let ids = map_phonemes_to_ids(&map, "azb", 3, 1, 2);
+        assert_eq!(ids, vec![1, 4, 3, 5, 3, 2]);
+    }
+
+    #[test]
+    fn map_phonemes_to_ids_greedily_matches_multi_char_cluster_over_single_chars() {
+        let mut map = single_char_phoneme_map();
+        map.insert("aɪ".to_string(), vec![161]);
+        map.insert("ɪ".to_string(), vec![99]);
+        let ids = map_phonemes_to_ids(&map, "aɪ", 3, 1, 2);
+        assert_eq!(ids, vec![1, 161, 3, 2]);
+    }
+
+    #[test]
+    fn resolve_default_speaker_id_uses_configured_value() {
+        let config = ModelConfig {
+            default_speaker_id: Some(7),
+            ..Default::default()
+        };
+        assert_eq!(resolve_default_speaker_id(&config), 7);
+    }
+
+    #[test]
+    fn resolve_default_speaker_id_falls_back_to_zero_when_unset() {
+        let config = ModelConfig {
+            default_speaker_id: None,
+            ..Default::default()
+        };
+        assert_eq!(resolve_default_speaker_id(&config), 0);
+    }
+
+    #[test]
+    fn adaptive_mel_chunker_scales_audio_index_by_default_hop_length() {
+        let mut chunker = AdaptiveMelChunker::new(5000, 100, 10, 256);
+        let _first = chunker.next().unwrap();
+        let (_, audio_index) = chunker.next().unwrap();
+        assert_eq!(audio_index.start, 10 * 256);
+        assert_eq!(audio_index.end, Some(-10 * 256));
+    }
+
+    #[test]
+    fn adaptive_mel_chunker_scales_audio_index_by_custom_hop_length() {
+        let mut chunker = AdaptiveMelChunker::new(5000, 100, 10, 100);
+        let _first = chunker.next().unwrap();
+        let (_, audio_index) = chunker.next().unwrap();
+        assert_eq!(audio_index.start, 10 * 100);
+        assert_eq!(audio_index.end, Some(-10 * 100));
+    }
+
+    #[test]
+    fn phonemize_dispatch_falls_through_to_espeak_for_espeak_phoneme_type() {
+        assert!(phonemize_dispatch(PhonemeType::Espeak, "hello").is_none());
+    }
+
+    #[test]
+    fn phonemize_dispatch_passes_text_through_unchanged_for_text_phoneme_type() {
+        let result = phonemize_dispatch(PhonemeType::Text, "hello").unwrap().unwrap();
+        assert_eq!(result.sentences(), &vec!["hello".to_string()]);
+    }
+
+    #[test]
+    fn phonemize_dispatch_errors_on_unsupported_pinyin_phoneme_type() {
+        let result = phonemize_dispatch(PhonemeType::Pinyin, "hello").unwrap();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn phonemize_dispatch_errors_on_unsupported_hebrew_phoneme_type() {
+        let result = phonemize_dispatch(PhonemeType::Hebrew, "hello").unwrap();
+        assert!(result.is_err());
     }
 }
