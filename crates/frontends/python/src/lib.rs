@@ -10,7 +10,9 @@ use dengjen_synth::{
     DengjenSpeechSynthesizer, RealtimeSpeechStream
 };
 use dengjen_piper::PiperSynthesisConfig;
+#[cfg(feature = "tashkeel")]
 use libtashkeel_core::{LibtashkeelResult, DynamicInferenceEngine as TashkeelInferenceEngine, do_tashkeel};
+#[cfg(feature = "tashkeel")]
 use once_cell::sync::Lazy;
 use pyo3::create_exception;
 use pyo3::exceptions::PyException;
@@ -20,8 +22,18 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+#[cfg(feature = "tashkeel")]
 static LIBTASHKEEL_ENGINE: Lazy<LibtashkeelResult<TashkeelInferenceEngine>>=
     Lazy::new(|| libtashkeel_core::create_inference_engine(None));
+
+#[cfg(feature = "tashkeel")]
+fn should_diacritize(language: &str, use_tashkeel: Option<bool>) -> bool {
+    (language == "ar") && use_tashkeel.unwrap_or(true)
+}
+#[cfg(not(feature = "tashkeel"))]
+fn should_diacritize(_language: &str, _use_tashkeel: Option<bool>) -> bool {
+    false
+}
 type PyDengjenResult<T> = Result<T, PyDengjenError>;
 
 create_exception!(
@@ -405,6 +417,23 @@ impl Dengjen {
     }
 }
 
+#[cfg(feature = "tashkeel")]
+fn diacritize_text(text: &str) -> PyResult<std::borrow::Cow<'_, str>> {
+    let engine = match LIBTASHKEEL_ENGINE.as_ref() {
+        Ok(eng) => eng,
+        Err(e) => return Err(DengjenException::new_err(e.to_string()))
+    };
+    match do_tashkeel(engine, text, None, false) {
+        Ok(mashkool) => Ok(std::borrow::Cow::from(mashkool)),
+        Err(e) => Err(DengjenException::new_err(e.to_string()))
+    }
+}
+// should_diacritize() is always false without this feature, so this is unreachable.
+#[cfg(not(feature = "tashkeel"))]
+fn diacritize_text(_text: &str) -> PyResult<std::borrow::Cow<'_, str>> {
+    unreachable!("diacritize_text called with the `tashkeel` feature disabled")
+}
+
 #[pyfunction]
 pub fn phonemize_text(
     text: &str,
@@ -414,16 +443,8 @@ pub fn phonemize_text(
     remove_stress: Option<bool>,
     use_tashkeel: Option<bool>
 ) -> PyResult<Vec<String>> {
-    let use_tashkeel = (language  == "ar") && use_tashkeel.unwrap_or(true);
-    let text = if use_tashkeel {
-        let engine= match LIBTASHKEEL_ENGINE.as_ref() {
-            Ok(eng) => eng,
-            Err(e) => return Err(DengjenException::new_err(e.to_string()))
-        };
-        match do_tashkeel(engine, text, None, false) {
-            Ok(mashkool) => std::borrow::Cow::from(mashkool),
-            Err(e) => return Err(DengjenException::new_err(e.to_string()))
-        }
+    let text = if should_diacritize(language, use_tashkeel) {
+        diacritize_text(text)?
     } else {
         std::borrow::Cow::from(text)
     };
@@ -439,6 +460,36 @@ pub fn phonemize_text(
     }
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(feature = "tashkeel")]
+    #[test]
+    fn should_diacritize_true_for_arabic_language_by_default() {
+        assert!(should_diacritize("ar", None));
+    }
+
+    #[cfg(feature = "tashkeel")]
+    #[test]
+    fn should_diacritize_false_for_non_arabic_language() {
+        assert!(!should_diacritize("en-us", None));
+    }
+
+    #[cfg(feature = "tashkeel")]
+    #[test]
+    fn should_diacritize_false_for_arabic_language_when_explicitly_disabled() {
+        assert!(!should_diacritize("ar", Some(false)));
+    }
+
+    #[cfg(not(feature = "tashkeel"))]
+    #[test]
+    fn should_diacritize_always_false_when_tashkeel_disabled() {
+        assert!(!should_diacritize("ar", None));
+        assert!(!should_diacritize("ar", Some(true)));
+    }
+}
 
 /// A fast, local neural text-to-speech engine
 #[pymodule]

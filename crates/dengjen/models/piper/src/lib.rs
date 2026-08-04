@@ -1,4 +1,5 @@
 use espeak_phonemizer::text_to_phonemes;
+#[cfg(feature = "tashkeel")]
 use libtashkeel_core::do_tashkeel;
 use ndarray::{Array, Array1, Array2, ArrayView, Axis, Dim, IxDynImpl};
 use ort::session::Session;
@@ -20,6 +21,20 @@ const MAX_CHUNK_SIZE: usize = 1024;
 const BOS: &str = "^";
 const EOS: &str = "$";
 const PAD: &str = "_";
+
+#[cfg(feature = "tashkeel")]
+type TashkeelEngine = libtashkeel_core::DynamicInferenceEngine;
+#[cfg(not(feature = "tashkeel"))]
+type TashkeelEngine = ();
+
+#[cfg(feature = "tashkeel")]
+fn should_diacritize(voice: &str) -> bool {
+    voice == "ar"
+}
+#[cfg(not(feature = "tashkeel"))]
+fn should_diacritize(_voice: &str) -> bool {
+    false
+}
 
 #[inline(always)]
 fn reversed_mapping<K, V>(input: &HashMap<K, V>) -> HashMap<V, K>
@@ -115,10 +130,9 @@ fn phonemize_dispatch(phoneme_type: PhonemeType, text: &str) -> Option<DengjenRe
     }
 }
 
-fn create_tashkeel_engine(
-    config: &ModelConfig,
-) -> DengjenResult<Option<libtashkeel_core::DynamicInferenceEngine>> {
-    if config.espeak.voice == "ar" {
+#[cfg(feature = "tashkeel")]
+fn create_tashkeel_engine(config: &ModelConfig) -> DengjenResult<Option<TashkeelEngine>> {
+    if should_diacritize(&config.espeak.voice) {
         match libtashkeel_core::create_inference_engine(None) {
             Ok(engine) => Ok(Some(engine)),
             Err(msg) => Err(DengjenError::OperationError(format!(
@@ -129,6 +143,10 @@ fn create_tashkeel_engine(
     } else {
         Ok(None)
     }
+}
+#[cfg(not(feature = "tashkeel"))]
+fn create_tashkeel_engine(_config: &ModelConfig) -> DengjenResult<Option<TashkeelEngine>> {
+    Ok(None)
 }
 
 fn create_inference_session(model_path: &Path) -> Result<Session, ort::Error> {
@@ -237,7 +255,8 @@ trait VitsModelCommons {
     fn get_synth_config(&self) -> &RwLock<PiperSynthesisConfig>;
     fn get_config(&self) -> &ModelConfig;
     fn get_speaker_map(&self) -> &HashMap<i64, String>;
-    fn get_tashkeel_engine(&self) -> Option<&libtashkeel_core::DynamicInferenceEngine>;
+    #[cfg_attr(not(feature = "tashkeel"), allow(dead_code))]
+    fn get_tashkeel_engine(&self) -> Option<&TashkeelEngine>;
     fn get_meta_ids(&self) -> (i64, i64, i64) {
         let config = self.get_config();
         let pad_id = *config.phoneme_id_map.get(PAD).unwrap().first().unwrap();
@@ -320,7 +339,7 @@ trait VitsModelCommons {
         if let Some(result) = phonemize_dispatch(config.phoneme_type.unwrap_or_default(), text) {
             return result;
         }
-        let text = if config.espeak.voice == "ar" {
+        let text = if should_diacritize(&config.espeak.voice) {
             let diacritized = self.diacritize_text(text)?;
             Cow::from(diacritized)
         } else {
@@ -337,17 +356,20 @@ trait VitsModelCommons {
         };
         Ok(phonemes.into())
     }
+    #[cfg(feature = "tashkeel")]
     fn diacritize_text(&self, text: &str) -> DengjenResult<String> {
-        let diacritized_text = match do_tashkeel(self.get_tashkeel_engine().unwrap(), text, None, false) {
-            Ok(d_text) => d_text,
-            Err(msg) => {
-                return Err(DengjenError::OperationError(format!(
-                    "Failed to diacritize text using  libtashkeel. {}",
-                    msg
-                )))
-            }
-        };
-        Ok(diacritized_text)
+        match do_tashkeel(self.get_tashkeel_engine().unwrap(), text, None, false) {
+            Ok(diacritized_text) => Ok(diacritized_text),
+            Err(msg) => Err(DengjenError::OperationError(format!(
+                "Failed to diacritize text using  libtashkeel. {}",
+                msg
+            ))),
+        }
+    }
+    // should_diacritize() is always false without this feature, so this is unreachable.
+    #[cfg(not(feature = "tashkeel"))]
+    fn diacritize_text(&self, _text: &str) -> DengjenResult<String> {
+        unreachable!("diacritize_text called with the `tashkeel` feature disabled")
     }
     fn get_audio_output_info(&self) -> DengjenResult<AudioInfo> {
         Ok(AudioInfo {
@@ -363,7 +385,8 @@ pub struct VitsModel {
     config: ModelConfig,
     speaker_map: HashMap<i64, String>,
     session: Session,
-    tashkeel_engine: Option<libtashkeel_core::DynamicInferenceEngine>,
+    #[cfg_attr(not(feature = "tashkeel"), allow(dead_code))]
+    tashkeel_engine: Option<TashkeelEngine>,
 }
 
 impl VitsModel {
@@ -388,19 +411,7 @@ impl VitsModel {
             }
         };
         let speaker_map = reversed_mapping(&config.speaker_id_map);
-        let tashkeel_engine = if config.espeak.voice == "ar" {
-            match libtashkeel_core::create_inference_engine(None) {
-                Ok(engine) => Some(engine),
-                Err(msg) => {
-                    return Err(DengjenError::OperationError(format!(
-                        "Failed to create inference engine for libtashkeel. {}",
-                        msg
-                    )))
-                }
-            }
-        } else {
-            None
-        };
+        let tashkeel_engine = create_tashkeel_engine(&config)?;
         Ok(Self {
             synth_config: RwLock::new(synth_config),
             config,
@@ -482,7 +493,7 @@ impl VitsModelCommons for VitsModel {
     fn get_speaker_map(&self) -> &HashMap<i64, String> {
         &self.speaker_map
     }
-    fn get_tashkeel_engine(&self) -> Option<&libtashkeel_core::DynamicInferenceEngine> {
+    fn get_tashkeel_engine(&self) -> Option<&TashkeelEngine> {
         self.tashkeel_engine.as_ref()
     }
 }
@@ -553,7 +564,8 @@ pub struct VitsStreamingModel {
     speaker_map: HashMap<i64, String>,
     encoder_model: Session,
     decoder_model: Arc<Session>,
-    tashkeel_engine: Option<libtashkeel_core::DynamicInferenceEngine>,
+    #[cfg_attr(not(feature = "tashkeel"), allow(dead_code))]
+    tashkeel_engine: Option<TashkeelEngine>,
 }
 
 impl VitsStreamingModel {
@@ -654,7 +666,7 @@ impl VitsModelCommons for VitsStreamingModel {
     fn get_speaker_map(&self) -> &HashMap<i64, String> {
         &self.speaker_map
     }
-    fn get_tashkeel_engine(&self) -> Option<&libtashkeel_core::DynamicInferenceEngine> {
+    fn get_tashkeel_engine(&self) -> Option<&TashkeelEngine> {
         self.tashkeel_engine.as_ref()
     }
 }
@@ -1137,5 +1149,24 @@ mod tests {
     fn phonemize_dispatch_errors_on_unsupported_hebrew_phoneme_type() {
         let result = phonemize_dispatch(PhonemeType::Hebrew, "hello").unwrap();
         assert!(result.is_err());
+    }
+
+    #[cfg(feature = "tashkeel")]
+    #[test]
+    fn should_diacritize_true_for_arabic_voice_when_tashkeel_enabled() {
+        assert!(should_diacritize("ar"));
+    }
+
+    #[cfg(feature = "tashkeel")]
+    #[test]
+    fn should_diacritize_false_for_non_arabic_voice_when_tashkeel_enabled() {
+        assert!(!should_diacritize("en-us"));
+    }
+
+    #[cfg(not(feature = "tashkeel"))]
+    #[test]
+    fn should_diacritize_always_false_when_tashkeel_disabled() {
+        assert!(!should_diacritize("ar"));
+        assert!(!should_diacritize("en-us"));
     }
 }
