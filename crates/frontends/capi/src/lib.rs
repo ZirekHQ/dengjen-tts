@@ -338,16 +338,16 @@ fn init_ort_environment()  {
     INIT_ORT_ENVIRONMENT.call_once(|| {
         let execution_providers = [
             #[cfg(target_os = "android")]
-            ort::execution_providers::NNAPIExecutionProvider::default().build(),
+            ort::execution_providers::NNAPI::default().build(),
             #[cfg(target_os = "ios")]
-            ort::execution_providers::CoreMLExecutionProvider::default().build(),
-            ort::execution_providers::CPUExecutionProvider::default().build(),
+            ort::execution_providers::CoreML::default().build(),
+            ort::execution_providers::CPU::default().build(),
         ];
-        ort::init()
+        let committed = ort::init()
             .with_name("dengjen")
             .with_execution_providers(execution_providers)
-            .commit()
-            .unwrap();
+            .commit();
+        assert!(committed, "Failed to initialize onnxruntime");
     });
 }
 

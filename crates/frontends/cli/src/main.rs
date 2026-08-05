@@ -185,14 +185,14 @@ fn init_ort_environment() {
     INIT_ORT_ENVIRONMENT.call_once(|| {
         let execution_providers = [
             #[cfg(feature = "cuda")]
-            ort::execution_providers::CUDAExecutionProvider::default().build(),
-            ort::execution_providers::CPUExecutionProvider::default().build(),
+            ort::execution_providers::CUDA::default().build(),
+            ort::execution_providers::CPU::default().build(),
         ];
-        ort::init()
+        let committed = ort::init()
             .with_name("dengjen")
             .with_execution_providers(execution_providers)
-            .commit()
-            .expect("Failed to initialize onnxruntime");
+            .commit();
+        assert!(committed, "Failed to initialize onnxruntime");
     });
 }
 
@@ -252,7 +252,7 @@ fn main() -> anyhow::Result<()> {
                         log::info!("Wrote output to file: {}", file.display());
                     }
                 }
-                Err(e) => log::error!("Invalid json input. Error: {}", e.to_string()),
+                Err(e) => log::error!("Invalid json input. Error: {}", e),
             };
         }
     }

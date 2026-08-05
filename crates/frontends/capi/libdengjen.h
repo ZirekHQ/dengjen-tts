@@ -1,4 +1,4 @@
-/* Generated with cbindgen:0.26.0 */
+/* Generated with cbindgen:0.29.4 */
 
 #include <stdarg.h>
 #include <stdbool.h>
@@ -82,28 +82,28 @@ void libdengjenFreePiperSynthConfig(struct PiperSynthConfig *synth_config);
 void libdengjenFreeSynthesisEvent(struct SynthesisEvent event);
 
 struct DengjenVoice *libdengjenLoadVoiceFromConfigPath(FfiStr config_path_ptr,
-                                                     struct ExternError *out_error);
+                                                       struct ExternError *out_error);
 
 void libdengjenUnloadDengjenVoice(struct DengjenVoice *voice_ptr);
 
 void libdengjenGetAudioInfo(struct DengjenVoice *voice_ptr,
-                           struct AudioInfo *audio_info_ptr,
-                           struct ExternError *out_error);
+                            struct AudioInfo *audio_info_ptr,
+                            struct ExternError *out_error);
 
 struct PiperSynthConfig *libdengjenGetPiperDefaultSynthConfig(struct DengjenVoice *voice_ptr,
-                                                             struct ExternError *out_error);
+                                                              struct ExternError *out_error);
 
 void libdengjenSetPiperSynthConfig(struct DengjenVoice *voice_ptr,
-                                  struct PiperSynthConfig synth_config,
-                                  struct ExternError *out_error);
+                                   struct PiperSynthConfig synth_config,
+                                   struct ExternError *out_error);
 
 void libdengjenSpeak(struct DengjenVoice *voice_ptr,
-                    FfiStr text_ptr,
-                    struct SynthesisParams params,
-                    struct ExternError *out_error);
+                     FfiStr text_ptr,
+                     struct SynthesisParams params,
+                     struct ExternError *out_error);
 
 uint8_t libdengjenSpeakToFile(struct DengjenVoice *voice_ptr,
-                             FfiStr text_ptr,
-                             struct SynthesisParams params,
-                             FfiStr out_filename_ptr,
-                             struct ExternError *out_error);
+                              FfiStr text_ptr,
+                              struct SynthesisParams params,
+                              FfiStr out_filename_ptr,
+                              struct ExternError *out_error);

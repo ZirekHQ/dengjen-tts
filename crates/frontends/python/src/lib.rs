@@ -84,7 +84,7 @@ impl From<AudioInfo> for PyWaveInfo {
     }
 }
 
-#[pyclass(weakref, module = "piper", frozen)]
+#[pyclass(weakref, module = "piper", frozen, from_py_object)]
 #[pyo3(name = "AudioOutputConfig")]
 #[derive(Clone)]
 struct PyAudioOutputConfig(AudioOutputConfig);
@@ -118,8 +118,8 @@ struct WaveSamples(Audio);
 
 #[pymethods]
 impl WaveSamples {
-    fn get_wave_bytes(&self, py: Python) -> PyObject {
-        let bytes_vec = py.allow_threads(move || self.0.as_wave_bytes());
+    fn get_wave_bytes(&self, py: Python) -> Py<PyAny> {
+        let bytes_vec = py.detach(move || self.0.as_wave_bytes());
         PyBytes::new(py, &bytes_vec).into()
     }
     fn save_to_file(&self, filename: &str) -> PyDengjenResult<()> {
@@ -167,7 +167,7 @@ impl LazySpeechStream {
     }
 
     fn __next__(&mut self, py: Python) -> Option<WaveSamples> {
-        let next_item = py.allow_threads(|| self.0.next());
+        let next_item = py.detach(|| self.0.next());
         let audio_result = next_item?;
         match audio_result {
             Ok(audio_data) => Some(WaveSamples(audio_data)),
@@ -195,7 +195,7 @@ impl ParallelSpeechStream {
     }
 
     fn __next__(&mut self, py: Python) -> Option<WaveSamples> {
-        let next_item = py.allow_threads(|| self.0.next());
+        let next_item = py.detach(|| self.0.next());
         let audio_result = next_item?;
         match audio_result {
             Ok(audio_data) => Some(WaveSamples(audio_data)),
@@ -216,8 +216,8 @@ impl PyRealtimeSpeechStream {
         slf
     }
 
-    fn __next__(&mut self, py: Python) -> Option<PyObject> {
-        let result = py.allow_threads(|| self.0.next())?;
+    fn __next__(&mut self, py: Python) -> Option<Py<PyAny>> {
+        let result = py.detach(|| self.0.next())?;
         match result {
             Ok(samples) => Some(PyBytes::new(py, &samples.as_wave_bytes()).into()),
             Err(e) => {
@@ -493,8 +493,8 @@ mod tests {
 
 /// A fast, local neural text-to-speech engine
 #[pymodule]
-fn pydengjen(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add("DengjenException", _py.get_type::<DengjenException>())?;
+fn pydengjen(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add("DengjenException", m.py().get_type::<DengjenException>())?;
     m.add_class::<Dengjen>()?;
     m.add_class::<PiperModel>()?;
     m.add_class::<PiperScales>()?;
