@@ -1,3 +1,4 @@
+#[cfg(feature = "espeak")]
 use espeak_phonemizer::text_to_phonemes;
 #[cfg(feature = "tashkeel")]
 use libtashkeel_core::do_tashkeel;
@@ -11,6 +12,7 @@ use dengjen_core::{
     DengjenModel, DengjenResult,
 };
 use std::any::Any;
+#[cfg(feature = "espeak")]
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs::File;
@@ -33,6 +35,7 @@ fn should_diacritize(voice: &str) -> bool {
     voice == "ar"
 }
 #[cfg(not(feature = "tashkeel"))]
+#[cfg_attr(not(feature = "espeak"), allow(dead_code))]
 fn should_diacritize(_voice: &str) -> bool {
     false
 }
@@ -256,7 +259,7 @@ trait VitsModelCommons {
     fn get_synth_config(&self) -> &RwLock<PiperSynthesisConfig>;
     fn get_config(&self) -> &ModelConfig;
     fn get_speaker_map(&self) -> &HashMap<i64, String>;
-    #[cfg_attr(not(feature = "tashkeel"), allow(dead_code))]
+    #[cfg_attr(not(all(feature = "tashkeel", feature = "espeak")), allow(dead_code))]
     fn get_tashkeel_engine(&self) -> Option<&TashkeelEngine>;
     fn get_meta_ids(&self) -> (i64, i64, i64) {
         let config = self.get_config();
@@ -335,6 +338,7 @@ trait VitsModelCommons {
     ) -> Vec<i64> {
         map_phonemes_to_ids(&self.get_config().phoneme_id_map, phonemes, pad_id, bos_id, eos_id)
     }
+    #[cfg(feature = "espeak")]
     fn do_phonemize_text(&self, text: &str) -> DengjenResult<Phonemes> {
         let config = self.get_config();
         if let Some(result) = phonemize_dispatch(config.phoneme_type.unwrap_or_default(), text) {
@@ -357,7 +361,18 @@ trait VitsModelCommons {
         };
         Ok(phonemes.into())
     }
+    #[cfg(not(feature = "espeak"))]
+    fn do_phonemize_text(&self, text: &str) -> DengjenResult<Phonemes> {
+        let config = self.get_config();
+        if let Some(result) = phonemize_dispatch(config.phoneme_type.unwrap_or_default(), text) {
+            return result;
+        }
+        Err(DengjenError::PhonemizationError(
+            "This voice requires espeak-based phonemization, but the `espeak` feature (GPL-3.0-or-later, via espeak-ng) is disabled".to_string(),
+        ))
+    }
     #[cfg(feature = "tashkeel")]
+    #[cfg_attr(not(feature = "espeak"), allow(dead_code))]
     fn diacritize_text(&self, text: &str) -> DengjenResult<String> {
         match do_tashkeel(self.get_tashkeel_engine().unwrap(), text, None, false) {
             Ok(diacritized_text) => Ok(diacritized_text),
@@ -369,6 +384,7 @@ trait VitsModelCommons {
     }
     // should_diacritize() is always false without this feature, so this is unreachable.
     #[cfg(not(feature = "tashkeel"))]
+    #[cfg_attr(not(feature = "espeak"), allow(dead_code))]
     fn diacritize_text(&self, _text: &str) -> DengjenResult<String> {
         unreachable!("diacritize_text called with the `tashkeel` feature disabled")
     }
@@ -386,7 +402,7 @@ pub struct VitsModel {
     config: ModelConfig,
     speaker_map: HashMap<i64, String>,
     session: Mutex<Session>,
-    #[cfg_attr(not(feature = "tashkeel"), allow(dead_code))]
+    #[cfg_attr(not(all(feature = "tashkeel", feature = "espeak")), allow(dead_code))]
     tashkeel_engine: Option<TashkeelEngine>,
 }
 
@@ -574,7 +590,7 @@ pub struct VitsStreamingModel {
     speaker_map: HashMap<i64, String>,
     encoder_model: Mutex<Session>,
     decoder_model: Arc<Mutex<Session>>,
-    #[cfg_attr(not(feature = "tashkeel"), allow(dead_code))]
+    #[cfg_attr(not(all(feature = "tashkeel", feature = "espeak")), allow(dead_code))]
     tashkeel_engine: Option<TashkeelEngine>,
 }
 

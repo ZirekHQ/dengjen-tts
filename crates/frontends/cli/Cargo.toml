@@ -8,6 +8,8 @@ name = "dengjen"
 path = "src/main.rs"
 
 [features]
+default = ["espeak"]
+espeak = ["dengjen-piper/espeak"]
 cuda = ["ort/cuda"]
 ort-dylib = ["ort/load-dynamic"]
 

@@ -434,6 +434,7 @@ fn diacritize_text(_text: &str) -> PyResult<std::borrow::Cow<'_, str>> {
     unreachable!("diacritize_text called with the `tashkeel` feature disabled")
 }
 
+#[cfg(feature = "espeak")]
 #[pyfunction]
 pub fn phonemize_text(
     text: &str,
@@ -503,6 +504,7 @@ fn pydengjen(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<LazySpeechStream>()?;
     m.add_class::<ParallelSpeechStream>()?;
     m.add_class::<PyRealtimeSpeechStream>()?;
+    #[cfg(feature = "espeak")]
     m.add_function(wrap_pyfunction!(phonemize_text, m)?)?;
     Ok(())
 }

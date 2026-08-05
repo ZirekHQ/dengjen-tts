@@ -4,11 +4,14 @@ version = "0.2.0"
 edition = "2021"
 
 [features]
-default = ["tashkeel"]
+default = ["tashkeel", "espeak"]
 tashkeel = ["dep:libtashkeel_core"]
+# espeak-ng is GPL-3.0-or-later. Default-on for now to avoid breaking existing users;
+# disable with --no-default-features/--features tashkeel for a pure-MIT build. See #10.
+espeak = ["dep:espeak-phonemizer"]
 
 [dependencies]
-espeak-phonemizer = { path = "../../../text/espeak-phonemizer" }
+espeak-phonemizer = { path = "../../../text/espeak-phonemizer", optional = true }
 dengjen-core = { path = "../../core" }
 ndarray = "0.17"
 serde = { version = "1.0.160", features = ["derive"] }
