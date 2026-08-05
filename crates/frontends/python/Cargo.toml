@@ -8,12 +8,13 @@ name = "pydengjen"
 crate-type = ["cdylib"]
 
 [features]
-default = ["tashkeel"]
+default = ["tashkeel", "espeak"]
 ort-dylib = ["ort/load-dynamic"]
 tashkeel = ["dep:libtashkeel_core", "dengjen-piper/tashkeel"]
+espeak = ["dep:espeak-phonemizer", "dengjen-piper/espeak"]
 
 [dependencies]
-espeak-phonemizer = { path = "../../text/espeak-phonemizer" }
+espeak-phonemizer = { path = "../../text/espeak-phonemizer", optional = true }
 dengjen-core = { path = "../../dengjen/core" }
 dengjen-synth = { path = "../../dengjen/synth" }
 dengjen-piper = { path = "../../dengjen/models/piper", default-features = false }

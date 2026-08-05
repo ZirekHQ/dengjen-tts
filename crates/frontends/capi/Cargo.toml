@@ -8,8 +8,9 @@ name = "libdengjen"
 crate-type = ["staticlib", "cdylib"]
 
 [features]
-default = ["piper"]
+default = ["piper", "espeak"]
 piper = ["dep:dengjen-piper", "dep:ort"]
+espeak = ["dengjen-piper/espeak"]
 ort-dylib = ["ort/load-dynamic"]
 
 [dependencies]
