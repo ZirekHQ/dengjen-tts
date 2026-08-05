@@ -130,3 +130,81 @@ pub trait DengjenModel {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Minimal stand-in for `DengjenModel` so this crate's default trait-method
+    // logic (speaker lookup, stream_synthesis fallback) can be tested without a
+    // real ONNX-backed implementor. Not the shared Tier 2 mock fixture.
+    struct NullModel;
+
+    impl DengjenModel for NullModel {
+        fn audio_output_info(&self) -> DengjenResult<AudioInfo> {
+            Ok(AudioInfo { sample_rate: 22050, num_channels: 1, sample_width: 2 })
+        }
+        fn phonemize_text(&self, _text: &str) -> DengjenResult<Phonemes> {
+            Ok(Phonemes::from(Vec::new()))
+        }
+        fn speak_batch(&self, _phoneme_batches: Vec<String>) -> DengjenResult<Vec<Audio>> {
+            Ok(Vec::new())
+        }
+        fn speak_one_sentence(&self, _phonemes: String) -> DengjenAudioResult {
+            Err(DengjenError::OperationError("not implemented".to_string()))
+        }
+        fn get_default_synthesis_config(&self) -> DengjenResult<Box<dyn Any>> {
+            Ok(Box::new(()))
+        }
+        fn get_fallback_synthesis_config(&self) -> DengjenResult<Box<dyn Any>> {
+            Ok(Box::new(()))
+        }
+        fn set_fallback_synthesis_config(&self, _synthesis_config: &dyn Any) -> DengjenResult<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn error_display_formats_each_variant() {
+        assert_eq!(
+            DengjenError::FailedToLoadResource("disk full".to_string()).to_string(),
+            "Failed to load resource from. Error `disk full`"
+        );
+        assert_eq!(
+            DengjenError::PhonemizationError("bad text".to_string()).to_string(),
+            "bad text"
+        );
+        assert_eq!(
+            DengjenError::OperationError("boom".to_string()).to_string(),
+            "boom"
+        );
+    }
+
+    #[test]
+    fn phonemes_display_joins_sentences_with_a_space() {
+        let phonemes = Phonemes::from(vec!["hh ə l ˈoʊ".to_string(), "w ˈɜːld".to_string()]);
+        assert_eq!(phonemes.to_string(), "hh ə l ˈoʊ w ˈɜːld");
+    }
+
+    #[test]
+    fn phonemes_display_is_empty_string_for_no_sentences() {
+        let phonemes = Phonemes::from(Vec::<String>::new());
+        assert_eq!(phonemes.to_string(), "");
+    }
+
+    #[test]
+    fn default_stream_synthesis_returns_operation_error() {
+        let result = NullModel.stream_synthesis("phonemes".to_string(), 100, 3);
+        assert!(matches!(result, Err(DengjenError::OperationError(_))));
+    }
+
+    #[test]
+    fn default_speaker_id_to_name_returns_none_without_speakers() {
+        assert_eq!(NullModel.speaker_id_to_name(&0).unwrap(), None);
+    }
+
+    #[test]
+    fn default_speaker_name_to_id_returns_none_without_speakers() {
+        assert_eq!(NullModel.speaker_name_to_id("foo").unwrap(), None);
+    }
+}
+
