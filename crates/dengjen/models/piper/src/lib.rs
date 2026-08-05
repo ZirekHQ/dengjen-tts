@@ -1336,4 +1336,19 @@ mod tests {
         let result = commons.do_phonemize_text("hello").unwrap();
         assert_eq!(result.to_vec(), vec!["hello".to_string()]);
     }
+
+    #[cfg(not(feature = "espeak"))]
+    #[test]
+    fn do_phonemize_text_errors_when_espeak_feature_is_disabled() {
+        let commons = TestVitsCommons {
+            synth_config: RwLock::new(PiperSynthesisConfig::default()),
+            config: ModelConfig {
+                phoneme_type: Some(PhonemeType::Espeak),
+                ..Default::default()
+            },
+            speaker_map: HashMap::new(),
+        };
+        let result = commons.do_phonemize_text("hello");
+        assert!(matches!(result, Err(DengjenError::PhonemizationError(_))));
+    }
 }
