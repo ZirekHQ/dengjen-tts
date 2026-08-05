@@ -24,17 +24,21 @@ path = "../../dengjen/models/piper"
 optional = true
 
 [dependencies.ort]
-version = "2.0.0-rc.9"
+version = "2.0.0-rc.13"
+default-features = false
+features = ["std", "ndarray", "tracing", "download-binaries", "tls-rustls", "copy-dylibs", "api-27"]
 optional = true
 
 [target.'cfg(target_os="android")'.dependencies.ort]
-version = "2.0.0-rc.9"
-features = ["nnapi"]
+version = "2.0.0-rc.13"
+default-features = false
+features = ["std", "ndarray", "tracing", "download-binaries", "tls-rustls", "copy-dylibs", "api-27", "nnapi"]
 optional = true
 
 [target.'cfg(target_os="ios")'.dependencies.ort]
-version = "2.0.0-rc.9"
-features = ["coreml"]
+version = "2.0.0-rc.13"
+default-features = false
+features = ["std", "ndarray", "tracing", "download-binaries", "tls-rustls", "copy-dylibs", "api-27", "coreml"]
 optional = true
 
 [build-dependencies]

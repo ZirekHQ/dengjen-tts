@@ -3,7 +3,8 @@ use espeak_phonemizer::text_to_phonemes;
 use libtashkeel_core::do_tashkeel;
 use ndarray::{Array, Array1, Array2, ArrayView, Axis, Dim, IxDynImpl};
 use ort::session::Session;
-use ort::session::output::SessionOutputs;
+use ort::session::SessionOutputs;
+use ort::value::{Tensor, TensorRef};
 use serde::Deserialize;
 use dengjen_core::{
     Audio, AudioInfo, AudioSamples, AudioStreamIterator, Phonemes, DengjenAudioResult, DengjenError,
@@ -14,7 +15,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 const MIN_CHUNK_SIZE: isize = 44;
 const MAX_CHUNK_SIZE: usize = 1024;
@@ -384,7 +385,7 @@ pub struct VitsModel {
     synth_config: RwLock<PiperSynthesisConfig>,
     config: ModelConfig,
     speaker_map: HashMap<i64, String>,
-    session: Session,
+    session: Mutex<Session>,
     #[cfg_attr(not(feature = "tashkeel"), allow(dead_code))]
     tashkeel_engine: Option<TashkeelEngine>,
 }
@@ -416,7 +417,7 @@ impl VitsModel {
             synth_config: RwLock::new(synth_config),
             config,
             speaker_map,
-            session,
+            session: Mutex::new(session),
             tashkeel_engine,
         })
     }
@@ -438,14 +439,23 @@ impl VitsModel {
             None
         };
 
-        let session = &self.session;
+        let mut session = self.session.lock().unwrap();
         let timer = std::time::Instant::now();
         let outputs = {
             let outputs = if let Some(sid_tensor) = speaker_id.clone() {
-                let inputs = ort::inputs![phoneme_inputs, input_lengths, scales, sid_tensor].unwrap();
+                let inputs = ort::inputs![
+                    Tensor::from_array(phoneme_inputs).unwrap(),
+                    Tensor::from_array(input_lengths).unwrap(),
+                    Tensor::from_array(scales).unwrap(),
+                    Tensor::from_array(sid_tensor).unwrap(),
+                ];
                 session.run(inputs)
             } else {
-                let inputs = ort::inputs![phoneme_inputs, input_lengths, scales].unwrap();
+                let inputs = ort::inputs![
+                    Tensor::from_array(phoneme_inputs).unwrap(),
+                    Tensor::from_array(input_lengths).unwrap(),
+                    Tensor::from_array(scales).unwrap(),
+                ];
                 session.run(inputs)
             };
             match outputs {
@@ -460,7 +470,7 @@ impl VitsModel {
         };
         let inference_ms = timer.elapsed().as_millis() as f32;
 
-        let outputs = match outputs[0].try_extract_tensor::<f32>() {
+        let (_, outputs) = match outputs[0].try_extract_tensor::<f32>() {
             Ok(out) => out,
             Err(e) => {
                 return Err(DengjenError::OperationError(format!(
@@ -470,7 +480,7 @@ impl VitsModel {
             }
         };
 
-        let audio = Vec::from(outputs.view().as_slice().unwrap());
+        let audio = Vec::from(outputs);
 
         Ok(Audio::new(
             audio.into(),
@@ -562,8 +572,8 @@ pub struct VitsStreamingModel {
     synth_config: RwLock<PiperSynthesisConfig>,
     config: ModelConfig,
     speaker_map: HashMap<i64, String>,
-    encoder_model: Session,
-    decoder_model: Arc<Session>,
+    encoder_model: Mutex<Session>,
+    decoder_model: Arc<Mutex<Session>>,
     #[cfg_attr(not(feature = "tashkeel"), allow(dead_code))]
     tashkeel_engine: Option<TashkeelEngine>,
 }
@@ -585,7 +595,7 @@ impl VitsStreamingModel {
             }
         };
         let decoder_model = match create_inference_session(decoder_path) {
-            Ok(model) => Arc::new(model),
+            Ok(model) => Arc::new(Mutex::new(model)),
             Err(err) => {
                 return Err(DengjenError::OperationError(format!(
                     "Failed to initialize onnxruntime inference session: `{}`",
@@ -599,7 +609,7 @@ impl VitsStreamingModel {
             synth_config: RwLock::new(synth_config),
             config,
             speaker_map,
-            encoder_model,
+            encoder_model: Mutex::new(encoder_model),
             decoder_model,
             tashkeel_engine,
         })
@@ -636,13 +646,22 @@ impl VitsStreamingModel {
             None
         };
 
-        let session = &self.encoder_model;
+        let mut session = self.encoder_model.lock().unwrap();
         {
             let outputs = if let Some(sid_tensor) = speaker_id.clone() {
-                let inputs = ort::inputs![phoneme_inputs, input_lengths, scales, sid_tensor].unwrap();
+                let inputs = ort::inputs![
+                    Tensor::from_array(phoneme_inputs).unwrap(),
+                    Tensor::from_array(input_lengths).unwrap(),
+                    Tensor::from_array(scales).unwrap(),
+                    Tensor::from_array(sid_tensor).unwrap(),
+                ];
                 session.run(inputs)
             } else {
-                let inputs = ort::inputs![phoneme_inputs, input_lengths, scales].unwrap();
+                let inputs = ort::inputs![
+                    Tensor::from_array(phoneme_inputs).unwrap(),
+                    Tensor::from_array(input_lengths).unwrap(),
+                    Tensor::from_array(scales).unwrap(),
+                ];
                 session.run(inputs)
             };
             match outputs {
@@ -763,7 +782,7 @@ impl EncoderOutputs {
     #[inline(always)]
     fn from_values(values: SessionOutputs) -> DengjenResult<Self> {
         let z = {
-            let z_t = match values["z"].try_extract_tensor::<f32>() {
+            let (shape, data) = match values["z"].try_extract_tensor::<f32>() {
                 Ok(out) => out,
                 Err(e) => {
                     return Err(DengjenError::OperationError(format!(
@@ -772,10 +791,10 @@ impl EncoderOutputs {
                     )))
                 }
             };
-            z_t.view().clone().into_owned()
+            Array::from_shape_vec(shape.to_ixdyn(), data.to_vec()).unwrap()
         };
         let y_mask = {
-            let y_mask_t = match values["y_mask"].try_extract_tensor::<f32>() {
+            let (shape, data) = match values["y_mask"].try_extract_tensor::<f32>() {
                 Ok(out) => out,
                 Err(e) => {
                     return Err(DengjenError::OperationError(format!(
@@ -784,10 +803,10 @@ impl EncoderOutputs {
                     )))
                 }
             };
-            y_mask_t.view().clone().into_owned()
+            Array::from_shape_vec(shape.to_ixdyn(), data.to_vec()).unwrap()
         };
         let p_duration = if values.contains_key("p_duration") {
-            let p_duration_t = match values["p_duration"].try_extract_tensor::<f32>() {
+            let (shape, data) = match values["p_duration"].try_extract_tensor::<f32>() {
                 Ok(out) => out,
                 Err(e) => {
                     return Err(DengjenError::OperationError(format!(
@@ -796,12 +815,12 @@ impl EncoderOutputs {
                     )))
                 }
             };
-            Some(p_duration_t.view().clone().into_owned())
+            Some(Array::from_shape_vec(shape.to_ixdyn(), data.to_vec()).unwrap())
         } else {
             None
         };
         let g = if values.contains_key("g") {
-            let g_t = match values["g"].try_extract_tensor::<f32>() {
+            let (shape, data) = match values["g"].try_extract_tensor::<f32>() {
                 Ok(out) => out,
                 Err(e) => {
                     return Err(DengjenError::OperationError(format!(
@@ -810,33 +829,39 @@ impl EncoderOutputs {
                     )))
                 }
             };
-            g_t.view().clone().into_owned()
+            Array::from_shape_vec(shape.to_ixdyn(), data.to_vec()).unwrap()
         } else {
             Array1::<f32>::from_iter([]).into_dyn()
         };
         Ok(Self { z, y_mask, p_duration, g })
     }
-    fn infer_decoder(&self, session: &Session) -> DengjenResult<AudioSamples> {
-        let outputs = {
-            let session_outputs = if self.g.is_empty() {
-                let inputs = ort::inputs![self.z.view(), self.y_mask.view()].unwrap();
-                session.run(inputs)
-            } else {
-                let inputs = ort::inputs![self.z.view(), self.y_mask.view(), self.g.view()].unwrap();
-                session.run(inputs)
-            };
-            match session_outputs {
-                Ok(out) => out,
-                Err(e) => {
-                    return Err(DengjenError::OperationError(format!(
-                        "Failed to run model inference. Error: {}",
-                        e
-                    )))
-                }
+    fn infer_decoder(&self, session: &Mutex<Session>) -> DengjenResult<AudioSamples> {
+        let mut session = session.lock().unwrap();
+        let session_outputs = if self.g.is_empty() {
+            let inputs = ort::inputs![
+                TensorRef::from_array_view(self.z.view()).unwrap(),
+                TensorRef::from_array_view(self.y_mask.view()).unwrap(),
+            ];
+            session.run(inputs)
+        } else {
+            let inputs = ort::inputs![
+                TensorRef::from_array_view(self.z.view()).unwrap(),
+                TensorRef::from_array_view(self.y_mask.view()).unwrap(),
+                TensorRef::from_array_view(self.g.view()).unwrap(),
+            ];
+            session.run(inputs)
+        };
+        let outputs = match session_outputs {
+            Ok(out) => out,
+            Err(e) => {
+                return Err(DengjenError::OperationError(format!(
+                    "Failed to run model inference. Error: {}",
+                    e
+                )))
             }
         };
         match outputs[0].try_extract_tensor::<f32>() {
-            Ok(out) => Ok(Vec::from(out.view().as_slice().unwrap()).into()),
+            Ok((_, out)) => Ok(Vec::from(out).into()),
             Err(e) => Err(DengjenError::OperationError(format!(
                 "Failed to run model inference. Error: {}",
                 e
@@ -846,7 +871,7 @@ impl EncoderOutputs {
 }
 
 struct SpeechStreamer {
-    decoder_model: Arc<Session>,
+    decoder_model: Arc<Mutex<Session>>,
     encoder_outputs: EncoderOutputs,
     mel_chunker: AdaptiveMelChunker,
     one_shot: bool,
@@ -854,7 +879,7 @@ struct SpeechStreamer {
 
 impl SpeechStreamer {
     fn new(
-        decoder_model: Arc<Session>,
+        decoder_model: Arc<Mutex<Session>>,
         encoder_outputs: EncoderOutputs,
         chunk_size: usize,
         chunk_padding: usize,
@@ -882,16 +907,24 @@ impl SpeechStreamer {
     ) -> DengjenResult<AudioSamples> {
         // println!("Mel index: {:?}\nAudio Index: {:?}", mel_index, audio_index);
         let audio = {
-            let session: Arc<Session> = Arc::clone(&self.decoder_model);
+            let session: Arc<Mutex<Session>> = Arc::clone(&self.decoder_model);
+            let mut session = session.lock().unwrap();
             let z_view = self.encoder_outputs.z.view();
             let y_mask_view = self.encoder_outputs.y_mask.view();
             let z_chunk = z_view.slice_axis(Axis(2), mel_index);
             let y_mask_chunk = y_mask_view.slice_axis(Axis(2), mel_index);
             let outputs = if self.encoder_outputs.g.is_empty() {
-                let inputs = ort::inputs![z_chunk, y_mask_chunk].unwrap();
+                let inputs = ort::inputs![
+                    TensorRef::from_array_view(z_chunk).unwrap(),
+                    TensorRef::from_array_view(y_mask_chunk).unwrap(),
+                ];
                 session.run(inputs)
             } else {
-                let inputs = ort::inputs![z_chunk, y_mask_chunk, self.encoder_outputs.g.view()].unwrap();
+                let inputs = ort::inputs![
+                    TensorRef::from_array_view(z_chunk).unwrap(),
+                    TensorRef::from_array_view(y_mask_chunk).unwrap(),
+                    TensorRef::from_array_view(self.encoder_outputs.g.view()).unwrap(),
+                ];
                 session.run(inputs)
             };
             let outputs = outputs
@@ -901,10 +934,12 @@ impl SpeechStreamer {
                         e
                     ))
                 })?;
-            let audio_t = outputs[0].try_extract_tensor::<f32>().map_err(|e| {
+            let (shape, data) = outputs[0].try_extract_tensor::<f32>().map_err(|e| {
                 DengjenError::OperationError(format!("Failed to run model inference. Error: {}", e))
             })?;
-            self.process_chunk_audio(audio_t.view().view(), audio_index)?
+            let audio_view = ArrayView::from_shape(shape.to_ixdyn(), data)
+                .map_err(|e| DengjenError::with_message(format!("Invalid model audio output shape: {}", e)))?;
+            self.process_chunk_audio(audio_view, audio_index)?
         };
         Ok(audio)
     }

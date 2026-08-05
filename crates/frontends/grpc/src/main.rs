@@ -419,10 +419,9 @@ fn init_ort_environment() -> bool {
     ort::init()
         .with_name("dengjen")
         .with_execution_providers([
-            ort::execution_providers::CPUExecutionProvider::default().build()
+            ort::execution_providers::CPU::default().build()
         ])
         .commit()
-        .is_ok()
 }
 
 

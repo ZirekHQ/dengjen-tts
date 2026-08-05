@@ -21,7 +21,9 @@ tonic = "0.12.3"
 xxhash-rust = { version = "0.8.12", features = ["xxh3"] }
 
 [dependencies.ort]
-version = "2.0.0-rc.9"
+version = "2.0.0-rc.13"
+default-features = false
+features = ["std", "ndarray", "tracing", "download-binaries", "tls-rustls", "copy-dylibs", "api-27"]
 
 [build-dependencies]
 tonic-build = "0.12.3"
