@@ -347,4 +347,88 @@ mod tests {
         s1.strip_silence(0..s1.len());
         assert_eq!(s1.len(), 4);
     }
+
+    #[test]
+    fn to_i16_vec_returns_empty_for_empty_samples() {
+        let samples = AudioSamples::from(Vec::<f32>::new());
+        assert_eq!(samples.to_i16_vec(), Vec::<i16>::new());
+    }
+
+    #[test]
+    fn to_i16_vec_scales_all_zero_samples_without_dividing_by_zero() {
+        let samples = AudioSamples::from(vec![0.0, 0.0, 0.0]);
+        assert_eq!(samples.to_i16_vec(), vec![0, 0, 0]);
+    }
+
+    #[test]
+    fn take_range_clamps_end_to_available_length() {
+        let mut samples = AudioSamples::from(vec![1.0, 2.0, 3.0]);
+        let taken = samples.take_range(1..100);
+        assert_eq!(taken, vec![2.0, 3.0]);
+        assert_eq!(samples.len(), 1);
+    }
+
+    #[test]
+    fn merge_appends_other_samples_in_order() {
+        let mut a = AudioSamples::from(vec![1.0, 2.0]);
+        let b = AudioSamples::from(vec![3.0, 4.0]);
+        a.merge(b);
+        assert_eq!(a.into_vec(), vec![1.0, 2.0, 3.0, 4.0]);
+    }
+
+    #[test]
+    fn apply_hanning_window_tapers_first_sample_to_zero() {
+        let mut samples = AudioSamples::from(vec![1.0; 10]);
+        samples.apply_hanning_window();
+        let v = samples.as_vec();
+        assert_eq!(v[0], 0.0);
+        assert!(v[5] > v[0]);
+    }
+
+    #[test]
+    fn crossfade_attenuates_both_edges_symmetrically_and_leaves_the_middle_untouched() {
+        let mut samples = AudioSamples::from(vec![1.0; 10]);
+        samples.crossfade(4);
+        let v = samples.as_vec();
+        assert_eq!(v[0], v[9]);
+        assert_eq!(v[1], v[8]);
+        assert!(v[0] < 1.0);
+        assert_eq!(v[4], 1.0);
+        assert_eq!(v[5], 1.0);
+    }
+
+    #[test]
+    fn crossfade_clamps_fade_length_to_half_of_total_samples() {
+        let mut samples = AudioSamples::from(vec![1.0; 6]);
+        samples.crossfade(100);
+        let v = samples.as_vec();
+        assert_eq!(v.len(), 6);
+        assert!(v.iter().all(|f| f.is_finite()));
+    }
+
+    // KNOWN GAP (see docs/superpowers/specs/2026-08-05-test-coverage-design.md and this
+    // plan's Task 2 commit): crossfade divides by (fade_samples - 1), so fade_samples <= 1
+    // produces NaN instead of a defined result. This test characterizes the current
+    // behavior; it is not a fix. Flag to the user before changing it, since callers may
+    // depend on the current (broken) shape.
+    #[test]
+    fn crossfade_with_one_fade_sample_currently_produces_nan() {
+        let mut samples = AudioSamples::from(vec![1.0, 2.0, 3.0, 4.0]);
+        samples.crossfade(1);
+        assert!(samples.as_vec()[0].is_nan());
+    }
+
+    #[test]
+    fn to_decibel_converts_full_scale_amplitude_to_zero_db() {
+        let samples = AudioSamples::from(vec![1.0, 0.5]);
+        let db = samples.to_decibel();
+        assert_eq!(db[0], 0.0);
+        assert!(db[1] < 0.0);
+    }
+
+    #[test]
+    fn to_decibel_of_zero_amplitude_is_negative_infinity() {
+        let samples = AudioSamples::from(vec![0.0]);
+        assert_eq!(samples.to_decibel()[0], f32::NEG_INFINITY);
+    }
 }
