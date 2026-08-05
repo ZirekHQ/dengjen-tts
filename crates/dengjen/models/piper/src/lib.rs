@@ -1180,6 +1180,19 @@ mod tests {
     }
 
     #[test]
+    fn adaptive_mel_chunker_terminates_when_remaining_frames_fall_below_minimum() {
+        // num_frames=50, chunk_size=10, chunk_padding=5, hop_length=10:
+        // chunk_end = 0 + 10 + 5 = 15; remaining = 50 - 15 = 35 <= MIN_CHUNK_SIZE (44),
+        // so this chunk is terminal (end_index/end_padding = None) and the next
+        // call must return None (iterator exhausted).
+        let mut chunker = AdaptiveMelChunker::new(50, 10, 5, 10);
+        let (mel_index, audio_index) = chunker.next().unwrap();
+        assert_eq!(mel_index.end, None);
+        assert_eq!(audio_index.end, None);
+        assert!(chunker.next().is_none());
+    }
+
+    #[test]
     fn phonemize_dispatch_falls_through_to_espeak_for_espeak_phoneme_type() {
         assert!(phonemize_dispatch(PhonemeType::Espeak, "hello").is_none());
     }
