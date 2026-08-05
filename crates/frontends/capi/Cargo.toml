@@ -42,4 +42,4 @@ features = ["std", "ndarray", "tracing", "download-binaries", "tls-rustls", "cop
 optional = true
 
 [build-dependencies]
-cbindgen = "0.26.0"
+cbindgen = "0.29.4"
