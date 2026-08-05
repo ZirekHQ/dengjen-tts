@@ -1220,4 +1220,21 @@ mod tests {
         assert!(!should_diacritize("ar"));
         assert!(!should_diacritize("en-us"));
     }
+
+    #[test]
+    fn load_model_config_errors_when_file_does_not_exist() {
+        let path = std::path::Path::new("/nonexistent-piper-config-xyz.json");
+        let result = load_model_config(path);
+        assert!(matches!(result, Err(DengjenError::FailedToLoadResource(_))));
+    }
+
+    #[test]
+    fn load_model_config_errors_on_malformed_json() {
+        let mut path = std::env::temp_dir();
+        path.push(format!("dengjen-piper-test-malformed-{}.json", std::process::id()));
+        std::fs::write(&path, b"{ not valid json").unwrap();
+        let result = load_model_config(&path);
+        std::fs::remove_file(&path).ok();
+        assert!(matches!(result, Err(DengjenError::FailedToLoadResource(_))));
+    }
 }
