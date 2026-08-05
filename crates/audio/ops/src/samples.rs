@@ -431,4 +431,23 @@ mod tests {
         let samples = AudioSamples::from(vec![0.0]);
         assert_eq!(samples.to_decibel()[0], f32::NEG_INFINITY);
     }
+
+    #[test]
+    fn real_time_factor_returns_none_without_inference_time() {
+        let audio = Audio::new(AudioSamples::from(vec![0.0; 100]), 100, None);
+        assert_eq!(audio.real_time_factor(), None);
+    }
+
+    #[test]
+    fn real_time_factor_returns_zero_for_zero_duration_audio() {
+        let audio = Audio::new(AudioSamples::from(Vec::new()), 100, Some(5.0));
+        assert_eq!(audio.real_time_factor(), Some(0.0));
+    }
+
+    #[test]
+    fn real_time_factor_divides_inference_ms_by_duration_ms() {
+        // 100 samples @ 100Hz = 1000ms duration; 50ms inference => rtf 0.05
+        let audio = Audio::new(AudioSamples::from(vec![0.0; 100]), 100, Some(50.0));
+        assert_eq!(audio.real_time_factor(), Some(0.05));
+    }
 }

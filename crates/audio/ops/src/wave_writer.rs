@@ -85,3 +85,32 @@ where
         ))),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn write_wave_samples_to_buffer_produces_a_valid_riff_wave_header() {
+        let samples: Vec<i16> = vec![0, 100, -100, 32767, -32768];
+        let mut buf: Vec<u8> = Vec::new();
+        let result = write_wave_samples_to_buffer(
+            std::io::Cursor::new(&mut buf),
+            samples.iter(),
+            22050,
+            1,
+            2,
+        );
+        assert!(result.is_ok());
+        assert_eq!(&buf[0..4], b"RIFF");
+        assert_eq!(&buf[8..12], b"WAVE");
+    }
+
+    #[test]
+    fn write_wave_samples_to_file_errors_when_parent_directory_does_not_exist() {
+        let path = Path::new("/nonexistent-dengjen-test-dir-xyz/out.wav");
+        let samples: Vec<i16> = vec![0, 1, 2];
+        let result = write_wave_samples_to_file(path, samples.iter(), 22050, 1, 2);
+        assert!(result.is_err());
+    }
+}
