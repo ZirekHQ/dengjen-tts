@@ -104,6 +104,8 @@ void libdengjenSpeak(struct DengjenVoice *voice_ptr,
                      struct SynthesisParams params,
                      struct ExternError *out_error);
 
+void libdengjenCancel(struct DengjenVoice *voice_ptr, struct ExternError *out_error);
+
 uint8_t libdengjenSpeakToFile(struct DengjenVoice *voice_ptr,
                               FfiStr text_ptr,
                               struct SynthesisParams params,

@@ -23,6 +23,12 @@ fn test_parallel_stream() -> DengjenResult<()> {
 #[test]
 fn test_realtime_stream() -> DengjenResult<()> {
     let (synth, text, output_config) = dev_utils::gen_params("rt");
-    let stream = synth.synthesize_streamed(text, output_config, 72, 3)?;
+    let stream = synth.synthesize_streamed(
+        text,
+        output_config,
+        72,
+        3,
+        dengjen_core::CancellationToken::new(),
+    )?;
     dev_utils::iterate_stream(stream)
 }

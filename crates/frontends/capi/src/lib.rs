@@ -1,11 +1,11 @@
 use ffi_support::{call_with_result, define_string_destructor, ErrorCode, ExternError, FfiStr};
-use dengjen_core::{AudioSamples, DengjenError, DengjenModel, DengjenResult};
+use dengjen_core::{AudioSamples, CancellationToken, DengjenError, DengjenModel, DengjenResult};
 use dengjen_synth::{AudioOutputConfig, DengjenSpeechSynthesizer, SYNTHESIS_THREAD_POOL};
 use std::any::Any;
 use std::ops::Deref;
 use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
-use std::sync::{Arc, Once};
+use std::sync::{Arc, Mutex, Once};
 
 pub type SpeechSynthesisCallback = extern "C" fn(SynthesisEvent) -> u8;
 define_string_destructor!(_internal_libdengjenFreeString);
@@ -38,11 +38,17 @@ pub mod synth_mode {
     pub const SYNTH_MODE_REALTIME: i32 = 2;
 }
 
-pub struct DengjenVoice(AssertUnwindSafe<Arc<DengjenSpeechSynthesizer>>);
+pub struct DengjenVoice {
+    synth: AssertUnwindSafe<Arc<DengjenSpeechSynthesizer>>,
+    active_cancel_token: Arc<Mutex<Option<CancellationToken>>>,
+}
 
 impl From<DengjenSpeechSynthesizer> for DengjenVoice {
     fn from(other: DengjenSpeechSynthesizer) -> Self {
-        Self(AssertUnwindSafe(Arc::new(other)))
+        Self {
+            synth: AssertUnwindSafe(Arc::new(other)),
+            active_cancel_token: Arc::new(Mutex::new(None)),
+        }
     }
 }
 
@@ -50,7 +56,7 @@ impl Deref for DengjenVoice {
     type Target = DengjenSpeechSynthesizer;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.synth
     }
 }
 
@@ -334,8 +340,34 @@ pub unsafe extern "C" fn libdengjenSpeak(
         *out_error = DengjenFFIError::null_pointer("voice_ptr").into();
         return;
     };
-    let synth = AssertUnwindSafe(Arc::clone(&voice.0));
-    call_with_result(out_error, move || _synthesize(synth, text_ptr, params))
+    let synth = AssertUnwindSafe(Arc::clone(&voice.synth));
+    let cancel_slot = Arc::clone(&voice.active_cancel_token);
+    call_with_result(out_error, move || _synthesize(synth, cancel_slot, text_ptr, params))
+}
+
+/// # Safety
+/// If non-null, the pointer must be well-aligned and point to a valid `DengjenVoice`. A null
+/// pointer is handled gracefully (returns a NULL_POINTER error via `out_error`). Safe to call
+/// from a different thread than the one that called `libdengjenSpeak` — that's the point.
+/// Because of that, the caller must guarantee the voice is not unloaded (via
+/// `libdengjenUnloadDengjenVoice`) concurrently with, or during, a call to this function —
+/// doing so is a use-after-free.
+///
+/// # Behaviour
+/// - No-op unless the voice's current synthesis is in realtime mode; lazy and parallel
+///   syntheses are not cancellable.
+/// - Only the most recently started realtime synthesis on this voice is cancellable. If two
+///   were started concurrently (nonblocking mode), the earlier one is not reachable here.
+/// - `SYNTH_EVENT_FINISHED` is still delivered to the callback after a cancellation: the
+///   callback sequence alone does not distinguish a cancelled stream from a completed one.
+#[no_mangle]
+#[allow(non_snake_case)]
+pub unsafe extern "C" fn libdengjenCancel(voice_ptr: *mut DengjenVoice, out_error: &mut ExternError) {
+    let Some(voice) = voice_ptr.as_ref() else {
+        *out_error = DengjenFFIError::null_pointer("voice_ptr").into();
+        return;
+    };
+    call_with_result(out_error, move || _cancel(&voice.active_cancel_token))
 }
 
 /// # Safety
@@ -354,7 +386,7 @@ pub unsafe extern "C" fn libdengjenSpeakToFile(
         *out_error = DengjenFFIError::null_pointer("voice_ptr").into();
         return 0;
     };
-    let synth = AssertUnwindSafe(Arc::clone(&voice.0));
+    let synth = AssertUnwindSafe(Arc::clone(&voice.synth));
     call_with_result(out_error, move || {
         Ok::<u8, DengjenFFIError>(
             _synthesize_to_file(synth, text_ptr, params, out_filename_ptr).is_ok() as u8,
@@ -390,8 +422,37 @@ fn _load_piper_voice(config_path_ptr: FfiStr) -> DengjenFFIResult<DengjenVoice> 
     Ok(synth.into())
 }
 
+fn _cancel(cancel_slot: &Arc<Mutex<Option<CancellationToken>>>) -> DengjenFFIResult<()> {
+    if let Some(token) = cancel_slot.lock().unwrap().as_ref() {
+        token.cancel();
+    }
+    Ok(())
+}
+
+/// Clears `slot` back to `None` on drop, but only if it still holds the token this guard
+/// was created for — protects against two concurrent realtime speaks on the same voice
+/// (nonblocking mode) where a finishing call must not clobber a still-in-flight sibling's
+/// token. Clearing on `Drop` (rather than after `iterate_stream` returns) also covers the
+/// early-return-on-error path through `?`.
+struct CancelSlotGuard {
+    slot: Arc<Mutex<Option<CancellationToken>>>,
+    token: CancellationToken,
+}
+
+impl Drop for CancelSlotGuard {
+    fn drop(&mut self) {
+        let mut slot = self.slot.lock().unwrap();
+        if let Some(current) = slot.as_ref() {
+            if current.points_to_same_flag(&self.token) {
+                *slot = None;
+            }
+        }
+    }
+}
+
 fn _synthesize(
     synth: AssertUnwindSafe<Arc<DengjenSpeechSynthesizer>>,
+    cancel_slot: Arc<Mutex<Option<CancellationToken>>>,
     text_ptr: FfiStr,
     params: SynthesisParams,
 ) -> DengjenFFIResult<()> {
@@ -401,19 +462,20 @@ fn _synthesize(
     if params.nonblocking != 0 {
         SYNTHESIS_THREAD_POOL.spawn(move || {
             let callback = params.callback;
-            if let Err(e) = _do_synthesize(synth, text, params) {
+            if let Err(e) = _do_synthesize(synth, cancel_slot, text, params) {
                 let event = SynthesisEvent::with_error(e);
                 callback(event);
             }
         });
     } else {
-        _do_synthesize(synth, text, params)?;
+        _do_synthesize(synth, cancel_slot, text, params)?;
     }
     Ok(())
 }
 
 fn _do_synthesize(
     synth: AssertUnwindSafe<Arc<DengjenSpeechSynthesizer>>,
+    cancel_slot: Arc<Mutex<Option<CancellationToken>>>,
     text: String,
     params: SynthesisParams,
 ) -> DengjenFFIResult<()> {
@@ -432,7 +494,10 @@ fn _do_synthesize(
             iterate_stream(stream, params.callback)
         }
         synth_mode::SYNTH_MODE_REALTIME => {
-            let stream = synth.synthesize_streamed(text, audio_output_config, 72, 3)?;
+            let cancel_token = CancellationToken::new();
+            *cancel_slot.lock().unwrap() = Some(cancel_token.clone());
+            let _clear_on_drop = CancelSlotGuard { slot: Arc::clone(&cancel_slot), token: cancel_token.clone() };
+            let stream = synth.synthesize_streamed(text, audio_output_config, 72, 3, cancel_token)?;
             iterate_stream(stream, params.callback)
         }
         _ => Err(DengjenFFIError::invalid_synthesis_mode())
@@ -563,6 +628,62 @@ mod tests {
         };
         assert_eq!(result, 0);
         assert_eq!(out_error.get_code().code(), error_codes::NULL_POINTER);
+    }
+
+    #[test]
+    fn cancel_null_voice_returns_null_pointer_error_without_panicking() {
+        let mut out_error = ExternError::default();
+        unsafe {
+            libdengjenCancel(std::ptr::null_mut(), &mut out_error);
+        }
+        assert_eq!(out_error.get_code().code(), error_codes::NULL_POINTER);
+    }
+
+    #[test]
+    fn cancel_cancels_the_token_held_in_the_slot() {
+        let token = CancellationToken::new();
+        let slot = Arc::new(Mutex::new(Some(token.clone())));
+
+        assert!(_cancel(&slot).is_ok());
+
+        assert!(token.is_cancelled());
+    }
+
+    #[test]
+    fn cancel_on_an_empty_slot_is_a_noop() {
+        let slot: Arc<Mutex<Option<CancellationToken>>> = Arc::new(Mutex::new(None));
+
+        assert!(_cancel(&slot).is_ok());
+
+        assert!(slot.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn cancel_slot_guard_clears_the_slot_when_it_still_holds_its_own_token() {
+        let slot = Arc::new(Mutex::new(None));
+        let token = CancellationToken::new();
+        *slot.lock().unwrap() = Some(token.clone());
+
+        drop(CancelSlotGuard { slot: Arc::clone(&slot), token });
+
+        assert!(slot.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn cancel_slot_guard_does_not_clobber_a_different_tokens_slot() {
+        // Simulates two concurrent nonblocking realtime speaks on one voice: A's guard must
+        // not clear the slot once B has taken it over, or B silently becomes uncancellable.
+        let slot = Arc::new(Mutex::new(None));
+        let token_a = CancellationToken::new();
+        let token_b = CancellationToken::new();
+        *slot.lock().unwrap() = Some(token_a.clone());
+        let guard_a = CancelSlotGuard { slot: Arc::clone(&slot), token: token_a };
+
+        *slot.lock().unwrap() = Some(token_b.clone());
+        drop(guard_a);
+
+        let held = slot.lock().unwrap();
+        assert!(held.as_ref().unwrap().points_to_same_flag(&token_b));
     }
 
     #[test]

@@ -11,6 +11,7 @@ use dengjen_core::{
     Audio, AudioInfo, AudioSamples, AudioStreamIterator, Phonemes, DengjenAudioResult, DengjenError,
     DengjenModel, DengjenResult,
 };
+use dengjen_core::CancellationToken;
 use std::any::Any;
 #[cfg(feature = "espeak")]
 use std::borrow::Cow;
@@ -771,7 +772,12 @@ impl DengjenModel for VitsStreamingModel {
         phonemes: String,
         chunk_size: usize,
         chunk_padding: usize,
+        cancel_token: CancellationToken,
     ) -> DengjenResult<AudioStreamIterator<'_>> {
+        // Skip the encoder pass entirely rather than erroring: a cancellation must stay silent.
+        if cancel_token.is_cancelled() {
+            return Ok(Box::new(std::iter::empty()));
+        }
         let (pad_id, bos_id, eos_id) = self.get_meta_ids();
         let phonemes = self.phonemes_to_input_ids(&phonemes, pad_id, bos_id, eos_id);
         let encoder_outputs = self.infer_encoder(phonemes)?;
@@ -781,6 +787,7 @@ impl DengjenModel for VitsStreamingModel {
             chunk_size,
             chunk_padding,
             self.config.hop_length.unwrap_or(256),
+            cancel_token,
         ));
         Ok(streamer)
     }
@@ -891,6 +898,7 @@ struct SpeechStreamer {
     encoder_outputs: EncoderOutputs,
     mel_chunker: AdaptiveMelChunker,
     one_shot: bool,
+    cancel_token: CancellationToken,
 }
 
 impl SpeechStreamer {
@@ -900,6 +908,7 @@ impl SpeechStreamer {
         chunk_size: usize,
         chunk_padding: usize,
         hop_length: usize,
+        cancel_token: CancellationToken,
     ) -> Self {
         let num_frames = encoder_outputs.z.shape()[2];
         let mel_chunker = AdaptiveMelChunker::new(
@@ -914,6 +923,7 @@ impl SpeechStreamer {
             encoder_outputs,
             mel_chunker,
             one_shot,
+            cancel_token,
         }
     }
     fn synthesize_chunk(
@@ -980,6 +990,9 @@ impl Iterator for SpeechStreamer {
     type Item = DengjenResult<AudioSamples>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        if self.cancel_token.is_cancelled() {
+            return None;
+        }
         let (mel_index, audio_index) = self.mel_chunker.next()?;
         if self.one_shot {
             self.mel_chunker.consume();
