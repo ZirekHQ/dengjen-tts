@@ -233,7 +233,9 @@ pub unsafe extern "C" fn libdengjenUnloadDengjenVoice(voice_ptr: *mut DengjenVoi
 }
 
 /// # Safety
-/// Pointer must be non-null and well alighned
+/// If non-null, `voice_ptr` and `audio_info_ptr` must be well-aligned and point to a valid
+/// `DengjenVoice` and `AudioInfo` respectively. A null pointer is handled gracefully (returns a
+/// NULL_POINTER error via `out_error`).
 #[no_mangle]
 #[allow(non_snake_case)]
 pub unsafe extern "C" fn libdengjenGetAudioInfo(
@@ -263,7 +265,8 @@ pub unsafe extern "C" fn libdengjenGetAudioInfo(
 }
 
 /// # Safety
-/// Pointer must be non-null and well alighned
+/// If non-null, the pointer must be well-aligned and point to a valid `DengjenVoice`. A null
+/// pointer is handled gracefully (returns a NULL_POINTER error via `out_error`).
 #[no_mangle]
 #[allow(non_snake_case)]
 pub unsafe extern "C" fn libdengjenGetPiperDefaultSynthConfig(
@@ -294,7 +297,8 @@ pub unsafe extern "C" fn libdengjenGetPiperDefaultSynthConfig(
 }
 
 /// # Safety
-/// Pointer must be non-null and well alighned
+/// If non-null, the pointer must be well-aligned and point to a valid `DengjenVoice`. A null
+/// pointer is handled gracefully (returns a NULL_POINTER error via `out_error`).
 #[no_mangle]
 #[allow(non_snake_case)]
 pub unsafe extern "C" fn libdengjenSetPiperSynthConfig(
@@ -316,7 +320,8 @@ pub unsafe extern "C" fn libdengjenSetPiperSynthConfig(
 }
 
 /// # Safety
-/// Pointer must be non-null and well alighned
+/// If non-null, the pointer must be well-aligned and point to a valid `DengjenVoice`. A null
+/// pointer is handled gracefully (returns a NULL_POINTER error via `out_error`).
 #[no_mangle]
 #[allow(non_snake_case)]
 pub unsafe extern "C" fn libdengjenSpeak(
@@ -334,7 +339,8 @@ pub unsafe extern "C" fn libdengjenSpeak(
 }
 
 /// # Safety
-/// Pointer must be non-null and well alighned
+/// If non-null, the pointer must be well-aligned and point to a valid `DengjenVoice`. A null
+/// pointer is handled gracefully (returns a NULL_POINTER error via `out_error`).
 #[no_mangle]
 #[allow(non_snake_case)]
 pub unsafe extern "C" fn libdengjenSpeakToFile(

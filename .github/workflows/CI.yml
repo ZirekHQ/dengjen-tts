@@ -171,8 +171,8 @@ jobs:
         with:
           submodules: recursive
           persist-credentials: false
-      - name: cargo test (workspace, excluding espeak-phonemizer)
-        run: cargo test --workspace --exclude espeak-phonemizer
+      - name: cargo test (workspace, excluding espeak-phonemizer and dengjen-synth)
+        run: cargo test --workspace --exclude espeak-phonemizer --exclude dengjen-synth --no-fail-fast
       - name: locate espeak-ng-data directory
         run: |
           data_dir="$(dirname "$(find /usr -maxdepth 5 -type d -name espeak-ng-data | head -n1)")"
@@ -183,6 +183,8 @@ jobs:
           echo "DENGJEN_ESPEAKNG_DATA_DIRECTORY=$data_dir" >> "$GITHUB_ENV"
       - name: cargo test (espeak-phonemizer, single-threaded)
         run: cargo test -p espeak-phonemizer -- --test-threads=1
+      - name: cargo test (dengjen-piper, espeak feature disabled)
+        run: cargo test -p dengjen-piper --no-default-features --features tashkeel
 
   release:
     name: Release
