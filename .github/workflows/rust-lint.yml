@@ -27,11 +27,9 @@ jobs:
         with:
           components: clippy
       - name: cargo clippy
-        # istft-sys (deps/nanosnap) has no other member depending on it and its
-        # CMake build is currently broken (nanosnap defines no `install`
-        # target); benches/tests are excluded too since crates/audio/ops's
-        # bench has a pre-existing broken import. Scoped to what actually ships.
-        run: cargo clippy --workspace --exclude istft-sys --lib --bins -- -D warnings
+        # benches/tests are excluded since crates/audio/ops's bench has a
+        # pre-existing broken import. Scoped to what actually ships.
+        run: cargo clippy --workspace --lib --bins -- -D warnings
 
   audit:
     runs-on: ubuntu-latest

@@ -10,7 +10,6 @@ members = [
     "crates/frontends/capi",
     "crates/frontends/cli",
     "crates/text/espeak-phonemizer",
-    "crates/audio/istft-sys",
     "crates/audio/sonic-sys",
     "crates/audio/ops",
 ]

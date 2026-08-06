@@ -249,4 +249,11 @@ mod tests {
         assert_eq!(phoneme_paragraphs.len(), 4);
         Ok(())
     }
+
+    #[test]
+    fn test_empty_input_returns_no_phonemes() -> ESpeakResult<()> {
+        let phonemes = text_to_phonemes("", "en-US", None, false, false)?;
+        assert_eq!(phonemes, Vec::<String>::new());
+        Ok(())
+    }
 }

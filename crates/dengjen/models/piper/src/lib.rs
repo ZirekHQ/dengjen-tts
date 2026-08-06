@@ -1180,6 +1180,19 @@ mod tests {
     }
 
     #[test]
+    fn adaptive_mel_chunker_terminates_when_remaining_frames_fall_below_minimum() {
+        // num_frames=50, chunk_size=10, chunk_padding=5, hop_length=10:
+        // chunk_end = 0 + 10 + 5 = 15; remaining = 50 - 15 = 35 <= MIN_CHUNK_SIZE (44),
+        // so this chunk is terminal (end_index/end_padding = None) and the next
+        // call must return None (iterator exhausted).
+        let mut chunker = AdaptiveMelChunker::new(50, 10, 5, 10);
+        let (mel_index, audio_index) = chunker.next().unwrap();
+        assert_eq!(mel_index.end, None);
+        assert_eq!(audio_index.end, None);
+        assert!(chunker.next().is_none());
+    }
+
+    #[test]
     fn phonemize_dispatch_falls_through_to_espeak_for_espeak_phoneme_type() {
         assert!(phonemize_dispatch(PhonemeType::Espeak, "hello").is_none());
     }
@@ -1219,5 +1232,123 @@ mod tests {
     fn should_diacritize_always_false_when_tashkeel_disabled() {
         assert!(!should_diacritize("ar"));
         assert!(!should_diacritize("en-us"));
+    }
+
+    #[test]
+    fn load_model_config_errors_when_file_does_not_exist() {
+        let path = std::path::Path::new("/nonexistent-piper-config-xyz.json");
+        let result = load_model_config(path);
+        assert!(matches!(result, Err(DengjenError::FailedToLoadResource(_))));
+    }
+
+    #[test]
+    fn load_model_config_errors_on_malformed_json() {
+        let mut path = std::env::temp_dir();
+        path.push(format!("dengjen-piper-test-malformed-{}.json", std::process::id()));
+        std::fs::write(&path, b"{ not valid json").unwrap();
+        let result = load_model_config(&path);
+        std::fs::remove_file(&path).ok();
+        assert!(matches!(result, Err(DengjenError::FailedToLoadResource(_))));
+    }
+
+    struct TestVitsCommons {
+        synth_config: RwLock<PiperSynthesisConfig>,
+        config: ModelConfig,
+        speaker_map: HashMap<i64, String>,
+    }
+
+    impl VitsModelCommons for TestVitsCommons {
+        fn get_synth_config(&self) -> &RwLock<PiperSynthesisConfig> {
+            &self.synth_config
+        }
+        fn get_config(&self) -> &ModelConfig {
+            &self.config
+        }
+        fn get_speaker_map(&self) -> &HashMap<i64, String> {
+            &self.speaker_map
+        }
+        fn get_tashkeel_engine(&self) -> Option<&TashkeelEngine> {
+            None
+        }
+    }
+
+    #[test]
+    fn get_meta_ids_reads_bos_pad_eos_from_phoneme_id_map() {
+        let commons = TestVitsCommons {
+            synth_config: RwLock::new(PiperSynthesisConfig::default()),
+            config: ModelConfig {
+                phoneme_id_map: HashMap::from([
+                    (PAD.to_string(), vec![3]),
+                    (BOS.to_string(), vec![1]),
+                    (EOS.to_string(), vec![2]),
+                ]),
+                ..Default::default()
+            },
+            speaker_map: HashMap::new(),
+        };
+        assert_eq!(commons.get_meta_ids(), (3, 1, 2));
+    }
+
+    #[test]
+    fn do_set_default_synth_config_updates_scales_and_accepts_a_known_speaker() {
+        let commons = TestVitsCommons {
+            synth_config: RwLock::new(PiperSynthesisConfig::default()),
+            config: ModelConfig::default(),
+            speaker_map: HashMap::from([(5, "narrator".to_string())]),
+        };
+        let new_config = PiperSynthesisConfig {
+            speaker: Some(5),
+            noise_scale: 0.5,
+            length_scale: 1.2,
+            noise_w: 0.9,
+        };
+        commons._do_set_default_synth_config(&new_config).unwrap();
+        let synth_config = commons.synth_config.read().unwrap();
+        assert_eq!(synth_config.speaker, Some(5));
+        assert_eq!(synth_config.length_scale, 1.2);
+    }
+
+    #[test]
+    fn do_set_default_synth_config_errors_for_an_unknown_speaker_id() {
+        let commons = TestVitsCommons {
+            synth_config: RwLock::new(PiperSynthesisConfig::default()),
+            config: ModelConfig::default(),
+            speaker_map: HashMap::new(),
+        };
+        let new_config = PiperSynthesisConfig {
+            speaker: Some(99),
+            ..Default::default()
+        };
+        let result = commons._do_set_default_synth_config(&new_config);
+        assert!(matches!(result, Err(DengjenError::OperationError(_))));
+    }
+
+    #[test]
+    fn do_phonemize_text_passes_through_unchanged_for_text_phoneme_type() {
+        let commons = TestVitsCommons {
+            synth_config: RwLock::new(PiperSynthesisConfig::default()),
+            config: ModelConfig {
+                phoneme_type: Some(PhonemeType::Text),
+                ..Default::default()
+            },
+            speaker_map: HashMap::new(),
+        };
+        let result = commons.do_phonemize_text("hello").unwrap();
+        assert_eq!(result.to_vec(), vec!["hello".to_string()]);
+    }
+
+    #[cfg(not(feature = "espeak"))]
+    #[test]
+    fn do_phonemize_text_errors_when_espeak_feature_is_disabled() {
+        let commons = TestVitsCommons {
+            synth_config: RwLock::new(PiperSynthesisConfig::default()),
+            config: ModelConfig {
+                phoneme_type: Some(PhonemeType::Espeak),
+                ..Default::default()
+            },
+            speaker_map: HashMap::new(),
+        };
+        let result = commons.do_phonemize_text("hello");
+        assert!(matches!(result, Err(DengjenError::PhonemizationError(_))));
     }
 }

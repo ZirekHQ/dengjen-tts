@@ -76,3 +76,41 @@ fn calculate_hann_window(window_length: usize) -> Vec<f32> {
   window
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[should_panic(expected = "Invalid window length: 0")]
+    fn get_hann_window_panics_on_zero_length() {
+        get_hann_window(0);
+    }
+
+    #[test]
+    fn get_hann_window_starts_and_ends_at_zero_and_peaks_near_the_center() {
+        let window = get_hann_window(64);
+        assert_eq!(window.len(), 64);
+        assert_eq!(window[0], 0.0);
+        assert_eq!(window[63], 0.0);
+        let max = window.iter().cloned().fold(f32::MIN, f32::max);
+        let max_index = window.iter().position(|&v| v == max).unwrap();
+        assert!((28..36).contains(&max_index), "expected peak near center, got index {max_index}");
+    }
+
+    #[test]
+    fn get_hann_window_lookup_table_matches_direct_computation() {
+        // 64 is one of the precomputed lengths; verify the cached table entry
+        // wasn't corrupted or stored under the wrong key.
+        assert_eq!(get_hann_window(64), calculate_hann_window(64));
+    }
+
+    #[test]
+    fn get_hann_window_computes_on_the_fly_for_a_length_not_in_the_lookup_table() {
+        // 10 is not one of the precomputed lengths (64, 128, 256, 512, 1024, 2048, 4096).
+        let window = get_hann_window(10);
+        assert_eq!(window.len(), 10);
+        assert_eq!(window[0], 0.0);
+        assert_eq!(window[9], 0.0);
+    }
+}
+
