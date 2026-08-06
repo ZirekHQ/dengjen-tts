@@ -160,6 +160,30 @@ jobs:
           name: wheels-sdist
           path: dist
 
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: git-submodule-fix
+        run: git config --global protocol.file.allow always
+      - name: install libclang and espeak-ng
+        run: sudo apt-get update && sudo apt-get install -y llvm llvm-dev llvm-runtime libclang-dev espeak-ng
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: cargo test (workspace, excluding espeak-phonemizer)
+        run: cargo test --workspace --exclude espeak-phonemizer
+      - name: locate espeak-ng-data directory
+        run: |
+          data_dir="$(dirname "$(find /usr -maxdepth 5 -type d -name espeak-ng-data | head -n1)")"
+          if [ -z "$data_dir" ] || [ "$data_dir" = "." ]; then
+            echo "Could not locate an espeak-ng-data directory" >&2
+            exit 1
+          fi
+          echo "DENGJEN_ESPEAKNG_DATA_DIRECTORY=$data_dir" >> "$GITHUB_ENV"
+      - name: cargo test (espeak-phonemizer, single-threaded)
+        run: cargo test -p espeak-phonemizer -- --test-threads=1
+
   release:
     name: Release
     runs-on: ubuntu-latest
