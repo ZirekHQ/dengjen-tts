@@ -125,6 +125,7 @@ pub trait DengjenModel {
         #[allow(unused_variables)] phonemes: String,
         #[allow(unused_variables)] chunk_size: usize,
         #[allow(unused_variables)] chunk_padding: usize,
+        #[allow(unused_variables)] cancel_token: CancellationToken,
     ) -> DengjenResult<AudioStreamIterator<'_>> {
         Err(DengjenError::OperationError(
                 "Streaming synthesis is not supported for this model".to_string(),
@@ -195,7 +196,12 @@ mod tests {
 
     #[test]
     fn default_stream_synthesis_returns_operation_error() {
-        let result = NullModel.stream_synthesis("phonemes".to_string(), 100, 3);
+        let result = NullModel.stream_synthesis(
+            "phonemes".to_string(),
+            100,
+            3,
+            CancellationToken::new(),
+        );
         assert!(matches!(result, Err(DengjenError::OperationError(_))));
     }
 
