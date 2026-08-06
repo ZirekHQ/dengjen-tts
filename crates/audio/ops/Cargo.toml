@@ -2,6 +2,7 @@
 name = "audio-ops"
 version = "1.0.0"
 edition = "2021"
+license.workspace = true
 
 [dependencies]
 once_cell = "1.18.0"
