@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 static INIT_ORT_ENVIRONMENT: std::sync::Once = std::sync::Once::new();
 
-#[derive(Clone, Default, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
 enum SynthesisMode {
     #[default]
     Lazy,
@@ -18,13 +18,15 @@ enum SynthesisMode {
     Realtime,
 }
 
-impl<'s> From<&'s str> for SynthesisMode {
-    fn from(other: &'s str) -> Self {
+impl std::str::FromStr for SynthesisMode {
+    type Err = String;
+
+    fn from_str(other: &str) -> Result<Self, Self::Err> {
         match other.to_lowercase().as_str() {
-            "lazy" => Self::Lazy,
-            "parallel" => Self::Parallel,
-            "realtime" => Self::Realtime,
-            _ => panic!("Unknown synthesis mode: `{}`", other),
+            "lazy" => Ok(Self::Lazy),
+            "parallel" => Ok(Self::Parallel),
+            "realtime" => Ok(Self::Realtime),
+            _ => Err(format!("Unknown synthesis mode: `{}`", other)),
         }
     }
 }
@@ -257,4 +259,72 @@ fn main() -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::str::FromStr;
+
+    #[test]
+    fn synthesis_mode_from_str_parses_known_values_case_insensitively() {
+        assert!(matches!(SynthesisMode::from_str("Lazy"), Ok(SynthesisMode::Lazy)));
+        assert!(matches!(SynthesisMode::from_str("PARALLEL"), Ok(SynthesisMode::Parallel)));
+        assert!(matches!(SynthesisMode::from_str("realtime"), Ok(SynthesisMode::Realtime)));
+    }
+
+    #[test]
+    fn synthesis_mode_from_str_returns_an_error_instead_of_panicking_on_unknown_value() {
+        assert!(SynthesisMode::from_str("bogus").is_err());
+    }
+
+    #[test]
+    fn as_piper_synth_config_falls_back_to_defaults_when_fields_are_none() {
+        let default_config = PiperSynthesisConfig {
+            speaker: Some(0),
+            length_scale: 1.0,
+            noise_scale: 0.667,
+            noise_w: 0.8,
+        };
+        let req = SynthesisRequest {
+            text: "hello".to_string(),
+            ..Default::default()
+        };
+        let result = req.as_piper_synth_config(&default_config);
+        assert_eq!(result.speaker, None);
+        assert_eq!(result.length_scale, 1.0);
+        assert_eq!(result.noise_scale, 0.667);
+        assert_eq!(result.noise_w, 0.8);
+    }
+
+    #[test]
+    fn as_piper_synth_config_overrides_defaults_when_fields_are_set() {
+        let default_config = PiperSynthesisConfig::default();
+        let req = SynthesisRequest {
+            text: "hello".to_string(),
+            speaker_id: Some(3),
+            length_scale: Some(2.0),
+            ..Default::default()
+        };
+        let result = req.as_piper_synth_config(&default_config);
+        assert_eq!(result.speaker, Some(3));
+        assert_eq!(result.length_scale, 2.0);
+    }
+
+    #[test]
+    fn as_audio_output_config_carries_over_all_fields() {
+        let req = SynthesisRequest {
+            text: "hello".to_string(),
+            rate: Some(80),
+            pitch: Some(40),
+            volume: Some(90),
+            appended_silence_ms: Some(200),
+            ..Default::default()
+        };
+        let config = req.as_audio_output_config();
+        assert_eq!(config.rate, Some(80));
+        assert_eq!(config.pitch, Some(40));
+        assert_eq!(config.volume, Some(90));
+        assert_eq!(config.appended_silence_ms, Some(200));
+    }
 }
