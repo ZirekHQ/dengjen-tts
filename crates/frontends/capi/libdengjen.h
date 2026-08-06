@@ -17,6 +17,8 @@
 
 #define UNKNOWN_ERROR 21
 
+#define NULL_POINTER 22
+
 #define SYNTH_EVENT_SPEECH 0
 
 #define SYNTH_EVENT_FINISHED 1

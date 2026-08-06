@@ -23,6 +23,7 @@ pub mod error_codes {
     pub const OPERATION_ERROR: i32 = 19;
     pub const INVALID_UTF8_SEQUENCE: i32 = 20;
     pub const UNKNOWN_ERROR: i32 = 21;
+    pub const NULL_POINTER: i32 = 22;
 }
 
 pub mod synth_event {
@@ -75,6 +76,9 @@ impl DengjenFFIError {
     }
     fn invalid_synthesis_mode() -> Self {
         Self(error_codes::INVALID_SYNTHESIS_MODE, "Invalid synthesis mode".to_string())
+    }
+    fn null_pointer(param_name: &str) -> Self {
+        Self(error_codes::NULL_POINTER, format!("`{}` must not be null", param_name))
     }
 }
 
@@ -237,8 +241,14 @@ pub unsafe extern "C" fn libdengjenGetAudioInfo(
     audio_info_ptr: *mut AudioInfo,
     out_error: &mut ExternError,
 ) {
-    let voice = voice_ptr.as_ref().unwrap();
-    let audio_info_mut = audio_info_ptr.as_mut().unwrap();
+    let Some(voice) = voice_ptr.as_ref() else {
+        *out_error = DengjenFFIError::null_pointer("voice_ptr").into();
+        return;
+    };
+    let Some(audio_info_mut) = audio_info_ptr.as_mut() else {
+        *out_error = DengjenFFIError::null_pointer("audio_info_ptr").into();
+        return;
+    };
     let mut audio_info = AssertUnwindSafe(audio_info_mut);
     call_with_result(out_error, move || {
         voice
@@ -260,7 +270,10 @@ pub unsafe extern "C" fn libdengjenGetPiperDefaultSynthConfig(
     voice_ptr: *mut DengjenVoice,
     out_error: &mut ExternError,
 ) -> *mut PiperSynthConfig {
-    let voice = voice_ptr.as_ref().unwrap();
+    let Some(voice) = voice_ptr.as_ref() else {
+        *out_error = DengjenFFIError::null_pointer("voice_ptr").into();
+        return std::ptr::null_mut();
+    };
     call_with_result(out_error, move || {
         let synth_config = voice
             .get_default_synthesis_config()
@@ -289,7 +302,10 @@ pub unsafe extern "C" fn libdengjenSetPiperSynthConfig(
     synth_config: PiperSynthConfig,
     out_error: &mut ExternError,
 ) {
-    let voice = voice_ptr.as_ref().unwrap();
+    let Some(voice) = voice_ptr.as_ref() else {
+        *out_error = DengjenFFIError::null_pointer("voice_ptr").into();
+        return;
+    };
     call_with_result(out_error, move || {
         let piper_synth_config = synth_config.as_piper_synth_config();
         let config = &piper_synth_config as &dyn Any;
@@ -309,7 +325,10 @@ pub unsafe extern "C" fn libdengjenSpeak(
     params: SynthesisParams,
     out_error: &mut ExternError,
 ) {
-    let voice = voice_ptr.as_ref().unwrap();
+    let Some(voice) = voice_ptr.as_ref() else {
+        *out_error = DengjenFFIError::null_pointer("voice_ptr").into();
+        return;
+    };
     let synth = AssertUnwindSafe(Arc::clone(&voice.0));
     call_with_result(out_error, move || _synthesize(synth, text_ptr, params))
 }
@@ -325,7 +344,10 @@ pub unsafe extern "C" fn libdengjenSpeakToFile(
     out_filename_ptr: FfiStr,
     out_error: &mut ExternError,
 ) -> u8 {
-    let voice = voice_ptr.as_ref().unwrap();
+    let Some(voice) = voice_ptr.as_ref() else {
+        *out_error = DengjenFFIError::null_pointer("voice_ptr").into();
+        return 0;
+    };
     let synth = AssertUnwindSafe(Arc::clone(&voice.0));
     call_with_result(out_error, move || {
         Ok::<u8, DengjenFFIError>(
@@ -451,4 +473,102 @@ fn _synthesize_to_file(
         .map(PathBuf::from)?;
     synth.synthesize_to_file(&out_filename, text, Some(params.as_synth_output_config()))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ffi_support::ExternError;
+
+    extern "C" fn noop_callback(_event: SynthesisEvent) -> u8 {
+        1
+    }
+
+    fn synth_params() -> SynthesisParams {
+        SynthesisParams {
+            mode: synth_mode::SYNTH_MODE_LAZY,
+            rate: 50,
+            volume: 100,
+            pitch: 50,
+            appended_silence_ms: 0,
+            callback: noop_callback,
+            nonblocking: 0,
+        }
+    }
+
+    #[test]
+    fn get_audio_info_null_voice_returns_null_pointer_error_without_panicking() {
+        let mut out_error = ExternError::default();
+        let mut audio_info = AudioInfo { sample_rate: 0, num_channels: 0, sample_width: 0 };
+        unsafe {
+            libdengjenGetAudioInfo(std::ptr::null_mut(), &mut audio_info, &mut out_error);
+        }
+        assert_eq!(out_error.get_code().code(), error_codes::NULL_POINTER);
+    }
+
+    #[test]
+    fn get_piper_default_synth_config_null_voice_returns_null_pointer_error_without_panicking() {
+        let mut out_error = ExternError::default();
+        let result =
+            unsafe { libdengjenGetPiperDefaultSynthConfig(std::ptr::null_mut(), &mut out_error) };
+        assert!(result.is_null());
+        assert_eq!(out_error.get_code().code(), error_codes::NULL_POINTER);
+    }
+
+    #[test]
+    fn set_piper_synth_config_null_voice_returns_null_pointer_error_without_panicking() {
+        let mut out_error = ExternError::default();
+        let synth_config =
+            PiperSynthConfig { speaker: 0, length_scale: 1.0, noise_scale: 1.0, noise_w: 1.0 };
+        unsafe {
+            libdengjenSetPiperSynthConfig(std::ptr::null_mut(), synth_config, &mut out_error);
+        }
+        assert_eq!(out_error.get_code().code(), error_codes::NULL_POINTER);
+    }
+
+    #[test]
+    fn speak_null_voice_returns_null_pointer_error_without_panicking() {
+        let mut out_error = ExternError::default();
+        let text = std::ffi::CString::new("hello").unwrap();
+        unsafe {
+            libdengjenSpeak(
+                std::ptr::null_mut(),
+                FfiStr::from_cstr(&text),
+                synth_params(),
+                &mut out_error,
+            );
+        }
+        assert_eq!(out_error.get_code().code(), error_codes::NULL_POINTER);
+    }
+
+    #[test]
+    fn speak_to_file_null_voice_returns_null_pointer_error_without_panicking() {
+        let mut out_error = ExternError::default();
+        let text = std::ffi::CString::new("hello").unwrap();
+        let filename = std::ffi::CString::new("out.wav").unwrap();
+        let result = unsafe {
+            libdengjenSpeakToFile(
+                std::ptr::null_mut(),
+                FfiStr::from_cstr(&text),
+                synth_params(),
+                FfiStr::from_cstr(&filename),
+                &mut out_error,
+            )
+        };
+        assert_eq!(result, 0);
+        assert_eq!(out_error.get_code().code(), error_codes::NULL_POINTER);
+    }
+
+    #[test]
+    fn error_codes_round_trip_through_dengjen_ffi_error() {
+        let cases = [
+            (DengjenError::FailedToLoadResource("x".into()), error_codes::FAILED_TO_LOAD_RESOURCE),
+            (DengjenError::PhonemizationError("x".into()), error_codes::PHONEMIZATION_ERROR),
+            (DengjenError::OperationError("x".into()), error_codes::OPERATION_ERROR),
+        ];
+        for (err, expected_code) in cases {
+            let ffi_err: DengjenFFIError = err.into();
+            assert_eq!(ffi_err.0, expected_code);
+        }
+    }
 }
