@@ -1,11 +1,11 @@
 use ffi_support::{call_with_result, define_string_destructor, ErrorCode, ExternError, FfiStr};
-use dengjen_core::{AudioSamples, DengjenError, DengjenModel, DengjenResult};
+use dengjen_core::{AudioSamples, CancellationToken, DengjenError, DengjenModel, DengjenResult};
 use dengjen_synth::{AudioOutputConfig, DengjenSpeechSynthesizer, SYNTHESIS_THREAD_POOL};
 use std::any::Any;
 use std::ops::Deref;
 use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
-use std::sync::{Arc, Once};
+use std::sync::{Arc, Mutex, Once};
 
 pub type SpeechSynthesisCallback = extern "C" fn(SynthesisEvent) -> u8;
 define_string_destructor!(_internal_libdengjenFreeString);
@@ -38,11 +38,17 @@ pub mod synth_mode {
     pub const SYNTH_MODE_REALTIME: i32 = 2;
 }
 
-pub struct DengjenVoice(AssertUnwindSafe<Arc<DengjenSpeechSynthesizer>>);
+pub struct DengjenVoice {
+    synth: AssertUnwindSafe<Arc<DengjenSpeechSynthesizer>>,
+    active_cancel_token: Arc<Mutex<Option<CancellationToken>>>,
+}
 
 impl From<DengjenSpeechSynthesizer> for DengjenVoice {
     fn from(other: DengjenSpeechSynthesizer) -> Self {
-        Self(AssertUnwindSafe(Arc::new(other)))
+        Self {
+            synth: AssertUnwindSafe(Arc::new(other)),
+            active_cancel_token: Arc::new(Mutex::new(None)),
+        }
     }
 }
 
@@ -50,7 +56,7 @@ impl Deref for DengjenVoice {
     type Target = DengjenSpeechSynthesizer;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.synth
     }
 }
 
@@ -334,8 +340,25 @@ pub unsafe extern "C" fn libdengjenSpeak(
         *out_error = DengjenFFIError::null_pointer("voice_ptr").into();
         return;
     };
-    let synth = AssertUnwindSafe(Arc::clone(&voice.0));
-    call_with_result(out_error, move || _synthesize(synth, text_ptr, params))
+    let synth = AssertUnwindSafe(Arc::clone(&voice.synth));
+    let cancel_slot = Arc::clone(&voice.active_cancel_token);
+    call_with_result(out_error, move || _synthesize(synth, cancel_slot, text_ptr, params))
+}
+
+/// # Safety
+/// If non-null, the pointer must be well-aligned and point to a valid `DengjenVoice`. A null
+/// pointer is handled gracefully (returns a NULL_POINTER error via `out_error`). Safe to call
+/// from a different thread than the one that called `libdengjenSpeak` — that's the point.
+#[no_mangle]
+#[allow(non_snake_case)]
+pub unsafe extern "C" fn libdengjenCancel(voice_ptr: *mut DengjenVoice, out_error: &mut ExternError) {
+    let Some(voice) = voice_ptr.as_ref() else {
+        *out_error = DengjenFFIError::null_pointer("voice_ptr").into();
+        return;
+    };
+    if let Some(token) = voice.active_cancel_token.lock().unwrap().as_ref() {
+        token.cancel();
+    }
 }
 
 /// # Safety
@@ -354,7 +377,7 @@ pub unsafe extern "C" fn libdengjenSpeakToFile(
         *out_error = DengjenFFIError::null_pointer("voice_ptr").into();
         return 0;
     };
-    let synth = AssertUnwindSafe(Arc::clone(&voice.0));
+    let synth = AssertUnwindSafe(Arc::clone(&voice.synth));
     call_with_result(out_error, move || {
         Ok::<u8, DengjenFFIError>(
             _synthesize_to_file(synth, text_ptr, params, out_filename_ptr).is_ok() as u8,
@@ -392,6 +415,7 @@ fn _load_piper_voice(config_path_ptr: FfiStr) -> DengjenFFIResult<DengjenVoice> 
 
 fn _synthesize(
     synth: AssertUnwindSafe<Arc<DengjenSpeechSynthesizer>>,
+    cancel_slot: Arc<Mutex<Option<CancellationToken>>>,
     text_ptr: FfiStr,
     params: SynthesisParams,
 ) -> DengjenFFIResult<()> {
@@ -401,19 +425,20 @@ fn _synthesize(
     if params.nonblocking != 0 {
         SYNTHESIS_THREAD_POOL.spawn(move || {
             let callback = params.callback;
-            if let Err(e) = _do_synthesize(synth, text, params) {
+            if let Err(e) = _do_synthesize(synth, cancel_slot, text, params) {
                 let event = SynthesisEvent::with_error(e);
                 callback(event);
             }
         });
     } else {
-        _do_synthesize(synth, text, params)?;
+        _do_synthesize(synth, cancel_slot, text, params)?;
     }
     Ok(())
 }
 
 fn _do_synthesize(
     synth: AssertUnwindSafe<Arc<DengjenSpeechSynthesizer>>,
+    cancel_slot: Arc<Mutex<Option<CancellationToken>>>,
     text: String,
     params: SynthesisParams,
 ) -> DengjenFFIResult<()> {
@@ -432,8 +457,12 @@ fn _do_synthesize(
             iterate_stream(stream, params.callback)
         }
         synth_mode::SYNTH_MODE_REALTIME => {
-            let stream = synth.synthesize_streamed(text, audio_output_config, 72, 3)?;
-            iterate_stream(stream, params.callback)
+            let cancel_token = CancellationToken::new();
+            *cancel_slot.lock().unwrap() = Some(cancel_token.clone());
+            let stream = synth.synthesize_streamed(text, audio_output_config, 72, 3, cancel_token)?;
+            let result = iterate_stream(stream, params.callback);
+            *cancel_slot.lock().unwrap() = None;
+            result
         }
         _ => Err(DengjenFFIError::invalid_synthesis_mode())
     }
@@ -562,6 +591,15 @@ mod tests {
             )
         };
         assert_eq!(result, 0);
+        assert_eq!(out_error.get_code().code(), error_codes::NULL_POINTER);
+    }
+
+    #[test]
+    fn cancel_null_voice_returns_null_pointer_error_without_panicking() {
+        let mut out_error = ExternError::default();
+        unsafe {
+            libdengjenCancel(std::ptr::null_mut(), &mut out_error);
+        }
         assert_eq!(out_error.get_code().code(), error_codes::NULL_POINTER);
     }
 
