@@ -15,8 +15,7 @@ frontend so it's invokable end-to-end, not just a library nobody can call.
   itself — Piper already established it fits this shape).
 - CLI wiring: auto-detect Piper vs. Kokoro voice configs and dispatch to the right backend.
 - Out of scope: capi/grpc/python wiring (a separate follow-up once the crate proves out via CLI);
-  the sample-level streaming chunking discussed below (tracked as issue #20); non-English languages
-  beyond what espeak-ng already supports for Piper.
+  the sample-level streaming chunking discussed below (tracked as issue #20).
 
 ## Backend selection (CLI)
 
@@ -55,25 +54,27 @@ if/else between two otherwise-identical calls.
 
 ## Phonemization
 
-Per-voice-config language tag picks the phonemization path — this is backend-owned dispatch, not a
-new centralized phonemizer abstraction (matches the Core Engine spec's existing "phonemize is
-backend-owned" architecture decision):
+**Amendment (2026-08-06, pre-implementation spike):** the original design split English (via
+`misaki-rs`, claimed to be espeak-free) from all other languages (via `espeak-ng`). A spike before
+writing the implementation plan disproved the premise: `misaki-rs` 0.3.0 depends on `espeak-rs-sys`
+unconditionally (confirmed in its resolved `Cargo.lock` — not feature-gated), which compiles
+espeak-ng from source as a build dependency. The earlier research claim ("self-contained, no
+espeak-ng involved") was wrong. On top of that, `espeak-rs-sys`'s build crashed in this environment
+(a buffer-overflow abort compiling espeak-ng's intonation data) — so the two-path design bought
+neither an espeak-ng-free English path nor a proven-working dependency.
 
-- **`en-us` / `en-gb`**: `misaki-rs` (crates.io, `0.3.0`) — a self-contained, POS-aware English G2P
-  engine built specifically for Kokoro, no espeak-ng involved. API: `G2P::new(is_british: bool)`,
-  `.g2p(text: &str) -> (String, tokens)`.
-- **Everything else** (Japanese, Chinese, Spanish, French, Hindi, Italian, Portuguese — Kokoro-82M's
-  other supported languages): `espeak-ng`, via the existing in-repo `espeak-phonemizer` crate, kept
-  as an optional Cargo feature (default-on, matching Piper's current `espeak` feature) — this is
-  about build footprint (not everyone wants the espeak-ng C dependency), not license, since the
-  relicense to GPL-3.0-or-later removes any license reason to gate it.
+**Resolution:** one phonemization path for all languages, not two. `espeak-ng`, via the existing
+in-repo `espeak-phonemizer` crate (already a proven, working dependency — Piper uses it today), kept
+as an optional Cargo feature (default-on, matching Piper's current `espeak` feature). No `misaki-rs`
+dependency. This is backend-owned phonemization (matches the Core Engine spec's "phonemize is
+backend-owned" architecture decision) — it's just one path instead of a per-language fork now.
 
 espeak-ng's raw IPA output does not map directly onto Kokoro's phoneme-to-token-ID vocabulary — it
 needs a conversion layer first (matching the approach the `kokoroxide` reference implementation
-uses: espeak IPA → Kokoro/misaki phoneme notation → token IDs). This is real, necessary
-implementation work, not a thin feature-flag passthrough; the implementation plan treats it as its
-own task with real test cases (known IPA input → expected Kokoro phoneme output pairs), not a
-one-line adapter assumed to just work.
+uses: espeak IPA → Kokoro phoneme notation → token IDs). This is real, necessary implementation
+work, not a thin feature-flag passthrough; the implementation plan treats it as its own task with
+real test cases (known IPA input → expected Kokoro phoneme output pairs, derived from actually
+running espeak-ng — not fabricated), not a one-line adapter assumed to just work.
 
 ## ONNX inference
 
@@ -156,6 +157,5 @@ a new pattern introduced here.
 
 - capi/grpc/python wiring — CLI only, per Scope above; separate follow-up.
 - Sample-level streaming chunking — tracked as issue #20, not built now.
-- Non-English languages beyond what espeak-ng already supports for Piper.
 - Publishing/distributing actual Kokoro voice files — this spec covers loading a voice a user
   already has, not sourcing one.
