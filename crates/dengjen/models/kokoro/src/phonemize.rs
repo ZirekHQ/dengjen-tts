@@ -1,6 +1,7 @@
 use dengjen_core::{DengjenError, DengjenResult};
 
 /// Ordered longest-pattern-first. Each entry is (espeak IPA substring, Kokoro phoneme symbol).
+#[cfg_attr(not(feature = "espeak"), allow(dead_code))]
 const SUBSTITUTIONS: &[(&str, &str)] = &[
     ("aɪ", "I"),
     ("aʊ", "W"),
@@ -21,6 +22,7 @@ const SUBSTITUTIONS: &[(&str, &str)] = &[
     ("ː", ""),
 ];
 
+#[cfg_attr(not(feature = "espeak"), allow(dead_code))]
 fn espeak_ipa_to_kokoro(ipa: &str) -> String {
     let mut result = ipa.to_string();
     for (from, to) in SUBSTITUTIONS {
@@ -29,6 +31,7 @@ fn espeak_ipa_to_kokoro(ipa: &str) -> String {
     result
 }
 
+#[cfg(feature = "espeak")]
 pub fn text_to_kokoro_phonemes(text: &str, language: &str) -> DengjenResult<String> {
     let sentences = espeak_phonemizer::text_to_phonemes(text, language, None, false, false)
         .map_err(|e| DengjenError::PhonemizationError(e.to_string()))?;
@@ -37,6 +40,13 @@ pub fn text_to_kokoro_phonemes(text: &str, language: &str) -> DengjenResult<Stri
         .map(|s| espeak_ipa_to_kokoro(s))
         .collect::<Vec<_>>()
         .join(" "))
+}
+
+#[cfg(not(feature = "espeak"))]
+pub fn text_to_kokoro_phonemes(_text: &str, _language: &str) -> DengjenResult<String> {
+    Err(DengjenError::PhonemizationError(
+        "Kokoro phonemization requires the `espeak` feature (GPL-3.0-or-later, via espeak-ng), but it is disabled".to_string(),
+    ))
 }
 
 #[cfg(test)]
@@ -78,11 +88,21 @@ mod tests {
         assert_eq!(espeak_ipa_to_kokoro("tˈɛst"), "tˈɛst");
     }
 
+    #[cfg(feature = "espeak")]
     #[test]
     fn text_to_kokoro_phonemes_returns_error_for_unset_voice() {
         // An unrecognized espeak-ng language code should surface as a
         // PhonemizationError, not panic.
         let result = text_to_kokoro_phonemes("hello", "not-a-real-language-code");
+        assert!(matches!(result, Err(DengjenError::PhonemizationError(_))));
+    }
+
+    #[cfg(not(feature = "espeak"))]
+    #[test]
+    fn text_to_kokoro_phonemes_returns_error_when_espeak_disabled() {
+        // With the `espeak` feature off, the crate must still compile and fail
+        // cleanly at call time rather than being unable to build at all.
+        let result = text_to_kokoro_phonemes("hello", "en-US");
         assert!(matches!(result, Err(DengjenError::PhonemizationError(_))));
     }
 
