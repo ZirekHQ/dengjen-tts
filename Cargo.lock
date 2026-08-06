@@ -385,6 +385,7 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
+ "dengjen-kokoro",
  "dengjen-piper",
  "dengjen-synth",
  "env_logger",
@@ -419,6 +420,18 @@ dependencies = [
  "tonic",
  "tonic-build",
  "xxhash-rust",
+]
+
+[[package]]
+name = "dengjen-kokoro"
+version = "0.1.0"
+dependencies = [
+ "dengjen-core",
+ "espeak-phonemizer",
+ "ndarray",
+ "ort",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
