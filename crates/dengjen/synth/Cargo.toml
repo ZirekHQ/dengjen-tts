@@ -2,6 +2,7 @@
 name = "dengjen-synth"
 version = "0.2.0"
 edition = "2021"
+license.workspace = true
 
 [lib]
 name = "dengjen_synth"

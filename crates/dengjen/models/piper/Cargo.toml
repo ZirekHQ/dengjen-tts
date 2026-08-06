@@ -2,12 +2,12 @@
 name = "dengjen-piper"
 version = "0.2.0"
 edition = "2021"
+license.workspace = true
 
 [features]
 default = ["tashkeel", "espeak"]
 tashkeel = ["dep:libtashkeel_core"]
-# espeak-ng is GPL-3.0-or-later. Default-on for now to avoid breaking existing users;
-# disable with --no-default-features/--features tashkeel for a pure-MIT build. See #10.
+# espeak-ng is GPL-3.0-or-later. Default-on for now to avoid breaking existing users.
 espeak = ["dep:espeak-phonemizer"]
 
 [dependencies]

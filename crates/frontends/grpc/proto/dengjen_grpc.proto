@@ -1,6 +1,6 @@
-// Copyright (c) Musharraf Omer
-//
-// Licensed under the MIT License
+// Licensed under GPL-3.0-or-later; see LICENSE. Portions of this file predate
+// the relicense and were originally MIT-licensed (Copyright (c) Musharraf
+// Omer) — see NOTICE.
 
 syntax = "proto3";
 
