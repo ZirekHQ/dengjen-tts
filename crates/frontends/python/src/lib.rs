@@ -4,7 +4,7 @@
 // crate-wide here instead.
 #![allow(non_local_definitions)]
 
-use dengjen_core::{DengjenError, DengjenModel, Audio, AudioInfo};
+use dengjen_core::{Audio, AudioInfo, CancellationToken, DengjenError, DengjenModel};
 use dengjen_synth::{
     AudioOutputConfig, DengjenSpeechStreamLazy, DengjenSpeechStreamParallel,
     DengjenSpeechSynthesizer, RealtimeSpeechStream
@@ -390,6 +390,7 @@ impl Dengjen {
             audio_output_config.map(|o| o.into()),
             chunk_size.unwrap_or(45),
             chunk_padding.unwrap_or(3),
+            CancellationToken::new(),
         )?;
         Ok(PyRealtimeSpeechStream(stream))
     }

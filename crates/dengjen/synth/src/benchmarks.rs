@@ -48,7 +48,13 @@ mod speech_streams {
         bencher.with_inputs(provide_params("rt")).bench_local_refs(
             |(synth, text, output_config)| {
                 let stream = synth
-                    .synthesize_streamed(text.clone(), output_config.clone(), 72, 3)
+                    .synthesize_streamed(
+                        text.clone(),
+                        output_config.clone(),
+                        72,
+                        3,
+                        dengjen_core::CancellationToken::new(),
+                    )
                     .unwrap();
                 dev_utils::iterate_stream(black_box(stream)).unwrap();
             },
@@ -88,7 +94,13 @@ mod speech_streams {
             |(synth, text, output_config)| {
                 let mut stream = black_box(
                     synth
-                        .synthesize_streamed(text.clone(), output_config.clone(), 72, 3)
+                        .synthesize_streamed(
+                            text.clone(),
+                            output_config.clone(),
+                            72,
+                            3,
+                            dengjen_core::CancellationToken::new(),
+                        )
                         .unwrap(),
                 );
                 let audio = stream.next().unwrap().unwrap();

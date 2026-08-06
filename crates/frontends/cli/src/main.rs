@@ -2,7 +2,8 @@ use clap::Parser;
 use serde::Deserialize;
 use dengjen_piper::PiperSynthesisConfig;
 use dengjen_synth::{
-    AudioOutputConfig, AudioSamples, DengjenModel, DengjenResult, DengjenSpeechSynthesizer,
+    AudioOutputConfig, AudioSamples, CancellationToken, DengjenModel, DengjenResult,
+    DengjenSpeechSynthesizer,
 };
 use std::fs::File;
 use std::io::{self, prelude::*};
@@ -159,6 +160,7 @@ fn process_synthesis_request(
                 output_config,
                 req.chunk_size.unwrap_or(100),
                 req.chunk_padding.unwrap_or(3),
+                CancellationToken::new(),
             )?;
             consume_stream(stream)?
         }
