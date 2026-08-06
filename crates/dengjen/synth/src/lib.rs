@@ -155,6 +155,7 @@ impl DengjenSpeechSynthesizer {
         output_config: Option<AudioOutputConfig>,
         chunk_size: usize,
         chunk_padding: usize,
+        cancel_token: CancellationToken,
     ) -> DengjenResult<RealtimeSpeechStream> {
         let provider = self.create_synthesis_task_provider(text, output_config);
         let wavinfo = self.0.audio_output_info()?;
@@ -164,6 +165,7 @@ impl DengjenSpeechSynthesizer {
             chunk_padding,
             wavinfo.sample_rate,
             wavinfo.num_channels,
+            cancel_token,
         )
     }
 
@@ -234,11 +236,12 @@ impl DengjenModel for DengjenSpeechSynthesizer {
     }
     fn stream_synthesis<'a>(
         &'a self,
-        #[allow(unused_variables)] phonemes: String,
-        #[allow(unused_variables)] chunk_size: usize,
-        #[allow(unused_variables)] chunk_padding: usize,
+        phonemes: String,
+        chunk_size: usize,
+        chunk_padding: usize,
+        cancel_token: CancellationToken,
     ) -> DengjenResult<Box<dyn Iterator<Item = DengjenResult<AudioSamples>> + Send + Sync + 'a>> {
-        self.0.stream_synthesis(phonemes, chunk_size, chunk_padding)
+        self.0.stream_synthesis(phonemes, chunk_size, chunk_padding, cancel_token)
     }
 }
 
@@ -337,6 +340,7 @@ impl RealtimeSpeechStream {
         chunk_padding: usize,
         sample_rate: usize,
         num_channels: usize,
+        cancel_token: CancellationToken,
     ) -> DengjenResult<Self> {
         let phonemes = provider.get_phonemes()?.into_iter();
         let (tx, rx) = flume::unbounded();
@@ -345,6 +349,9 @@ impl RealtimeSpeechStream {
             let chunk_factor = 1;
             let mut num_processed_chunks = 0;
             for ph_sent in phonemes {
+                if cancel_token.is_cancelled() {
+                    return;
+                }
                 chunk_size = if num_processed_chunks != 0 {
                     chunk_size  * chunk_factor * num_processed_chunks
                 } else {
@@ -352,7 +359,7 @@ impl RealtimeSpeechStream {
                 };
                 match provider
                     .model
-                    .stream_synthesis(ph_sent, chunk_size, chunk_padding)
+                    .stream_synthesis(ph_sent, chunk_size, chunk_padding, cancel_token.clone())
                 {
                     Ok(stream) => {
                         let send_result = RealtimeSpeechStream::process_rt_stream(
@@ -361,6 +368,7 @@ impl RealtimeSpeechStream {
                             provider.output_config.as_ref(),
                             sample_rate,
                             num_channels,
+                            &cancel_token,
                         );
                         match send_result {
                             Ok(num_chunks) => num_processed_chunks += num_chunks,
@@ -383,10 +391,14 @@ impl RealtimeSpeechStream {
         audio_output_config: Option<&AudioOutputConfig>,
         sample_rate: usize,
         num_channels: usize,
+        cancel_token: &CancellationToken,
     ) -> Result<usize, SendError<DengjenResult<AudioSamples>>> {
         let mut num_chunks = 0;
         if let Some(output_config) = audio_output_config {
             for result in stream {
+                if cancel_token.is_cancelled() {
+                    return Ok(num_chunks);
+                }
                 match result {
                     Ok(samples) => {
                         tx.send(output_config.apply_to_raw_samples(
@@ -401,14 +413,19 @@ impl RealtimeSpeechStream {
                     }
                 };
             }
-            if let Some(silence_ms) = output_config.appended_silence_ms {
-                let silence_result =
-                    output_config.generate_silence(silence_ms as usize, sample_rate, num_channels);
-                tx.send(silence_result)?;
+            if !cancel_token.is_cancelled() {
+                if let Some(silence_ms) = output_config.appended_silence_ms {
+                    let silence_result =
+                        output_config.generate_silence(silence_ms as usize, sample_rate, num_channels);
+                    tx.send(silence_result)?;
+                }
             }
             Ok(num_chunks)
         } else {
             for result in stream {
+                if cancel_token.is_cancelled() {
+                    return Ok(num_chunks);
+                }
                 tx.send(result)?;
                 num_chunks += 1;
             }
@@ -422,5 +439,95 @@ impl Iterator for RealtimeSpeechStream {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.0.recv().ok()
+    }
+}
+
+#[cfg(test)]
+mod cancellation_tests {
+    use super::*;
+    use std::any::Any;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct CountingStreamModel {
+        chunks_per_sentence: usize,
+        sentences: usize,
+        produced: Arc<AtomicUsize>,
+    }
+
+    impl DengjenModel for CountingStreamModel {
+        fn audio_output_info(&self) -> DengjenResult<AudioInfo> {
+            Ok(AudioInfo { sample_rate: 16000, num_channels: 1, sample_width: 2 })
+        }
+        fn phonemize_text(&self, _text: &str) -> DengjenResult<Phonemes> {
+            Ok(Phonemes::from(vec!["sentence".to_string(); self.sentences]))
+        }
+        fn speak_batch(&self, _phoneme_batches: Vec<String>) -> DengjenResult<Vec<Audio>> {
+            Ok(Vec::new())
+        }
+        fn speak_one_sentence(&self, _phonemes: String) -> DengjenAudioResult {
+            Err(DengjenError::OperationError("not used by this test".to_string()))
+        }
+        fn get_default_synthesis_config(&self) -> DengjenResult<Box<dyn Any>> {
+            Ok(Box::new(()))
+        }
+        fn get_fallback_synthesis_config(&self) -> DengjenResult<Box<dyn Any>> {
+            Ok(Box::new(()))
+        }
+        fn set_fallback_synthesis_config(&self, _c: &dyn Any) -> DengjenResult<()> {
+            Ok(())
+        }
+        fn supports_streaming_output(&self) -> bool {
+            true
+        }
+        fn stream_synthesis(
+            &self,
+            _phonemes: String,
+            _chunk_size: usize,
+            _chunk_padding: usize,
+            cancel_token: CancellationToken,
+        ) -> DengjenResult<AudioStreamIterator<'_>> {
+            let produced = Arc::clone(&self.produced);
+            let n = self.chunks_per_sentence;
+            let iter = (0..n).map_while(move |_| {
+                if cancel_token.is_cancelled() {
+                    None
+                } else {
+                    produced.fetch_add(1, Ordering::SeqCst);
+                    Some(Ok(AudioSamples::from(vec![0.0f32; 4])))
+                }
+            });
+            Ok(Box::new(iter))
+        }
+    }
+
+    #[test]
+    fn cancelling_mid_stream_stops_further_chunks() {
+        let produced = Arc::new(AtomicUsize::new(0));
+        let model: Arc<dyn DengjenModel + Send + Sync> = Arc::new(CountingStreamModel {
+            chunks_per_sentence: 1000,
+            sentences: 5,
+            produced: Arc::clone(&produced),
+        });
+        let synth = DengjenSpeechSynthesizer::new(model).unwrap();
+        let cancel_token = CancellationToken::new();
+        let stream = synth
+            .synthesize_streamed("irrelevant".to_string(), None, 10, 0, cancel_token.clone())
+            .unwrap();
+
+        let mut received = 0;
+        for result in stream {
+            result.unwrap();
+            received += 1;
+            if received == 3 {
+                cancel_token.cancel();
+            }
+        }
+
+        let total_possible = 1000 * 5;
+        assert!(
+            received < total_possible,
+            "expected cancellation to truncate the stream, got all {received} chunks"
+        );
+        assert!(produced.load(Ordering::SeqCst) < total_possible);
     }
 }
