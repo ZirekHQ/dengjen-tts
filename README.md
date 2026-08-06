@@ -89,5 +89,7 @@ Then `cd` to the package, and run `cargo test` from there.
 
 # License
 
-Copyright (c) 2023 Musharraf Omer. This code is licensed under the  MIT license.
+Licensed under the GNU General Public License v3.0 or later (GPL-3.0-or-later) — see
+[LICENSE](LICENSE). dengjen began as a fork of [Sonata](https://github.com/mush42/sonata) by
+Musharraf Omer, originally MIT-licensed; see [NOTICE](NOTICE) for retained attribution.
 
