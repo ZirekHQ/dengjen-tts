@@ -489,6 +489,7 @@ mod cancellation_tests {
             let produced = Arc::clone(&self.produced);
             let n = self.chunks_per_sentence;
             let iter = (0..n).map_while(move |_| {
+                std::thread::sleep(std::time::Duration::from_millis(1));
                 if cancel_token.is_cancelled() {
                     None
                 } else {
