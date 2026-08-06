@@ -11,6 +11,8 @@ pub use audio_ops::{
     WaveWriterError
 };
 
+mod cancellation;
+pub use cancellation::CancellationToken;
 
 pub type DengjenResult<T> = Result<T, DengjenError>;
 pub type DengjenAudioResult = DengjenResult<Audio>;
