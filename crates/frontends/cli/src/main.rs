@@ -269,10 +269,13 @@ fn main() -> anyhow::Result<()> {
         DengjenSpeechSynthesizer::new(voice)?
     };
     log::info!("Using model config: `{}`", args.config.display());
-    let default_synth_config: PiperSynthesisConfig = *synth
+    // Non-Piper backends (e.g. Kokoro) return a config this can't downcast; their
+    // set_fallback_synthesis_config ignores it, so a default is inert there.
+    let default_synth_config: PiperSynthesisConfig = synth
         .get_default_synthesis_config()?
         .downcast()
-        .expect("Invalid default synthesis config. Expected Piper config.");
+        .map(|c| *c)
+        .unwrap_or_default();
     if let Some(ref input_filename) = args.input_file {
         let mut input_buffer = String::new();
         let mut file = File::open(input_filename)?;
