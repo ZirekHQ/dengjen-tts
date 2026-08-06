@@ -171,8 +171,8 @@ jobs:
         with:
           submodules: recursive
           persist-credentials: false
-      - name: cargo test (workspace, excluding espeak-phonemizer and dengjen-synth)
-        run: cargo test --workspace --exclude espeak-phonemizer --exclude dengjen-synth --no-fail-fast
+      - name: cargo test (workspace, excluding espeak-phonemizer, dengjen-synth, and dengjen-kokoro)
+        run: cargo test --workspace --exclude espeak-phonemizer --exclude dengjen-synth --exclude dengjen-kokoro --no-fail-fast
       - name: locate espeak-ng-data directory
         run: |
           data_dir="$(dirname "$(find /usr -maxdepth 5 -type d -name espeak-ng-data | head -n1)")"
@@ -185,6 +185,8 @@ jobs:
         run: cargo test -p espeak-phonemizer -- --test-threads=1
       - name: cargo test (dengjen-piper, espeak feature disabled)
         run: cargo test -p dengjen-piper --no-default-features --features tashkeel
+      - name: cargo test (dengjen-kokoro)
+        run: cargo test -p dengjen-kokoro
 
   release:
     name: Release
