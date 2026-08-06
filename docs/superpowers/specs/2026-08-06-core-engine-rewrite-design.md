@@ -26,6 +26,14 @@ own C-ABI sketch (`tts_init_engine` / `tts_synthesize_chunk` / `tts_free_engine`
 loop) is treated as illustrative, not literal — dengjen's existing callback-based streaming C-ABI
 is already more capable and is evolved rather than replaced.
 
+**Amendment (2026-08-06, post-cancellation-PR):** architecturally this remains evolution, not a
+stop-everything rewrite — no standalone rewrite project, and existing working code (including the
+cancellation work already shipped) stays as-is. But code *provenance* now has a direction: per the
+relicensing decision below, whenever a part of the codebase is touched for a real reason (a new
+backend, a bug fix, a feature), it gets rewritten cleanly rather than preserving old patterns, so
+code substantially derived from the original MIT-licensed Sonata fork shrinks toward zero over time
+as a byproduct of real work — not a dedicated effort.
+
 ## Model class
 
 The spec calls this "LLM-powered TTS," but its own non-functional requirements (<150ms TTFA,
@@ -90,13 +98,19 @@ NVDA-only engine.
 
 ## Licensing
 
-Issue #10 (MIT vs GPL-3.0, given espeak-ng) is not resolved by this rewrite — it needs actual
-GPL-compatibility/legal review (the "aggregation vs. combined work" question), not engineering
-judgment. It's noted here as an open question, deliberately out of scope. Practically, this doesn't
-block the design: espeak-ng stays an optional Cargo feature — now scoped to the Piper backend
-specifically (Kokoro doesn't need it at all) rather than workspace-wide — which is a strictly more
-precise scope than today's default-on, workspace-level feature (#14/#15) regardless of how the
-legal question resolves.
+**Amendment (2026-08-06, post-cancellation-PR):** issue #10 is resolved — dengjen relicenses from
+MIT to **GPL-3.0-or-later**, workspace-wide (every crate's `Cargo.toml` `license` field, plus the
+root `LICENSE`). This removes the MIT/GPL tension entirely rather than routing around it: espeak-ng
+no longer needs to be feature-gated to avoid a license conflict (the gating machinery from #14/#15
+can stay as-is for now — it's no longer load-bearing, so ripping it out is optional low-risk
+cleanup, not required), and adopting piper1-gpl's C++ `libpiper` runtime directly becomes
+license-unblocked (still not committed to — a separate future decision if ever wanted).
+
+GPL-3.0 permits incorporating MIT-licensed code into a GPL work, but MIT's copyright/license-text
+retention requirement still applies to whatever code remains substantially unmodified from the
+original Sonata fork (mush42/Musharraf Omer). That's preserved in a new `NOTICE` file rather than
+blocking the relicense. Issue #18 tracks removing `NOTICE` once the opportunistic rewrite policy
+(see Framing, above) has left nothing substantially derived from the original MIT-licensed code.
 
 ## Platform support
 
@@ -118,8 +132,8 @@ track separately:
   wired in properly instead.
 - **#9** (pinyin/Hebrew phonemization) — becomes a natural extension of the new pluggable-phonemizer
   design. Not committed to for v1, but no longer architecturally blocked.
-- **#14/#15/#10** (espeak GPL posture) — carried forward as today's default-on feature, now scoped
-  to the Piper backend (see Licensing above).
+- **#14/#15/#10** (espeak GPL posture) — resolved by the relicense (see Licensing above); the
+  feature-gating machinery is no longer required but can stay as optional cleanup.
 - **`piper/src/lib.rs`** (currently 1354 lines) — split along the new trait boundary (backend logic
   vs. shared synth orchestration) as part of adopting `ModelBackend`.
 
@@ -146,4 +160,6 @@ track separately:
 - Actual LLM-TTS (Orpheus/Dia/CSM-class) backend implementation — trait supports it later; not
   built now.
 - crates.io publishing (#6), voice-download SSL issue (#7) — unrelated to the engine rewrite.
-- Resolving the GPL legal question (#10) definitively.
+- Actually performing the relicense (LICENSE/Cargo.toml/NOTICE file changes) — a separate,
+  small implementation plan, not bundled into this spec.
+- Removing the `NOTICE` file (#18) — tracked separately, not a near-term action.
