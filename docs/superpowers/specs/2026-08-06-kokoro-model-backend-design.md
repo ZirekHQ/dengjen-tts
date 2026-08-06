@@ -37,14 +37,17 @@ dengjen-native since no upstream standard exists:
 {
   "model_type": "kokoro",
   "model_path": "model.onnx",
-  "voices_path": "voices.bin",
+  "voices_dir": "voices",
   "vocab_path": "tokenizer.json",
   "sample_rate": 24000,
   "voices": ["af_heart", "am_adam", "bf_emma"]
 }
 ```
 
-Paths are relative to the config file's directory, matching Piper's convention.
+Paths are relative to the config file's directory, matching Piper's convention. `voices_dir` is a
+directory, not a single file — confirmed against a real downloaded voice file (see "Voice style
+vectors" below): each voice is its own separate binary file, `<voices_dir>/<voice_name>.bin`,
+matching the real layout of the `onnx-community/Kokoro-82M-v1.0-ONNX` release on Hugging Face.
 
 ## Entry point
 
@@ -94,12 +97,15 @@ exports).
 
 ## Voice style vectors
 
-`voices.bin` is not a single 256-float vector per voice — it's length-conditioned (a per-voice table
-of style vectors indexed by token count, per every reference implementation surveyed). The exact
-byte layout needs confirming against a real downloaded `voices.bin`, not assumed here from
-documentation alone; the implementation plan's first task includes that verification as a concrete,
-falsifiable step (load a real file, assert the shape matches what's expected) rather than code that
-silently assumes a layout that turns out wrong.
+**Confirmed against a real downloaded voice file** (`onnx-community/Kokoro-82M-v1.0-ONNX`'s
+`voices/af_heart.bin`, 522,240 bytes), not assumed: each voice is a single flat binary file — no
+header, no metadata — of exactly `510 × 256` little-endian f32 values in row-major order (`510 ×
+256 × 4 bytes = 522,240`, matching the observed file size exactly). Row index is the
+length-conditioning axis (per-token-count style vectors, confirmed present — adjacent rows have
+similar but distinct values, consistent with smoothly length-varying style); each row is the 256-dim
+style vector for that token length. Voices are one file per name (`<voices_dir>/<voice_name>.bin`),
+not one shared file containing all voices — this corrected an earlier assumption in this spec (see
+Config manifest, above).
 
 ## Streaming
 
@@ -135,8 +141,8 @@ applied to a backend that doesn't have years of untested legacy code to catch up
 
 **Tier 1 — pure logic, no fixtures:** config parsing (valid/malformed/missing-file), the CLI's
 Piper-vs-Kokoro auto-detect dispatch, vocab/tokenizer-map loading, the espeak-IPA→Kokoro-phoneme
-conversion (known input/output pairs), voice-style-vector lookup/indexing (once the real
-`voices.bin` layout is confirmed), unknown-voice-name and empty-text error paths.
+conversion (known input/output pairs), voice-style-vector lookup/indexing (against the confirmed
+real per-voice binary layout above), unknown-voice-name and empty-text error paths.
 
 **Tier 2 — real inference, fast, deterministic:** Kokoro-82M's smallest real quantized export is
 tens of MB, too large to vendor as a fixture the way a tiny Piper voice can be. Instead, a small
