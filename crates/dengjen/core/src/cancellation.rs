@@ -19,8 +19,10 @@ impl CancellationToken {
         self.0.load(Ordering::SeqCst)
     }
 
-    /// True if `self` and `other` are clones of the same token (share the same underlying
-    /// flag), as opposed to two distinct tokens that both happen to be uncancelled.
+    /// Identity comparison: true if `self` and `other` are clones of the same token (share the
+    /// same underlying flag), as opposed to two distinct tokens that both happen to be
+    /// uncancelled. Intended for guard/ownership patterns that must answer "is this still the
+    /// same cancellation I started?" before releasing or overwriting a shared slot.
     pub fn points_to_same_flag(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
     }

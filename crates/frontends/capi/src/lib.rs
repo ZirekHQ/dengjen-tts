@@ -349,6 +349,17 @@ pub unsafe extern "C" fn libdengjenSpeak(
 /// If non-null, the pointer must be well-aligned and point to a valid `DengjenVoice`. A null
 /// pointer is handled gracefully (returns a NULL_POINTER error via `out_error`). Safe to call
 /// from a different thread than the one that called `libdengjenSpeak` — that's the point.
+/// Because of that, the caller must guarantee the voice is not unloaded (via
+/// `libdengjenUnloadDengjenVoice`) concurrently with, or during, a call to this function —
+/// doing so is a use-after-free.
+///
+/// # Behaviour
+/// - No-op unless the voice's current synthesis is in realtime mode; lazy and parallel
+///   syntheses are not cancellable.
+/// - Only the most recently started realtime synthesis on this voice is cancellable. If two
+///   were started concurrently (nonblocking mode), the earlier one is not reachable here.
+/// - `SYNTH_EVENT_FINISHED` is still delivered to the callback after a cancellation: the
+///   callback sequence alone does not distinguish a cancelled stream from a completed one.
 #[no_mangle]
 #[allow(non_snake_case)]
 pub unsafe extern "C" fn libdengjenCancel(voice_ptr: *mut DengjenVoice, out_error: &mut ExternError) {
@@ -356,7 +367,7 @@ pub unsafe extern "C" fn libdengjenCancel(voice_ptr: *mut DengjenVoice, out_erro
         *out_error = DengjenFFIError::null_pointer("voice_ptr").into();
         return;
     };
-    call_with_result(out_error, move || _cancel(voice))
+    call_with_result(out_error, move || _cancel(&voice.active_cancel_token))
 }
 
 /// # Safety
@@ -411,8 +422,8 @@ fn _load_piper_voice(config_path_ptr: FfiStr) -> DengjenFFIResult<DengjenVoice> 
     Ok(synth.into())
 }
 
-fn _cancel(voice: &DengjenVoice) -> DengjenFFIResult<()> {
-    if let Some(token) = voice.active_cancel_token.lock().unwrap().as_ref() {
+fn _cancel(cancel_slot: &Arc<Mutex<Option<CancellationToken>>>) -> DengjenFFIResult<()> {
+    if let Some(token) = cancel_slot.lock().unwrap().as_ref() {
         token.cancel();
     }
     Ok(())
@@ -626,6 +637,25 @@ mod tests {
             libdengjenCancel(std::ptr::null_mut(), &mut out_error);
         }
         assert_eq!(out_error.get_code().code(), error_codes::NULL_POINTER);
+    }
+
+    #[test]
+    fn cancel_cancels_the_token_held_in_the_slot() {
+        let token = CancellationToken::new();
+        let slot = Arc::new(Mutex::new(Some(token.clone())));
+
+        assert!(_cancel(&slot).is_ok());
+
+        assert!(token.is_cancelled());
+    }
+
+    #[test]
+    fn cancel_on_an_empty_slot_is_a_noop() {
+        let slot: Arc<Mutex<Option<CancellationToken>>> = Arc::new(Mutex::new(None));
+
+        assert!(_cancel(&slot).is_ok());
+
+        assert!(slot.lock().unwrap().is_none());
     }
 
     #[test]

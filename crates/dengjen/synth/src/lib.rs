@@ -331,7 +331,10 @@ impl Iterator for DengjenSpeechStreamParallel {
     }
 }
 
-pub struct RealtimeSpeechStream(Receiver<DengjenResult<AudioSamples>>);
+pub struct RealtimeSpeechStream {
+    rx: Receiver<DengjenResult<AudioSamples>>,
+    cancel_token: CancellationToken,
+}
 
 impl RealtimeSpeechStream {
     fn new(
@@ -344,7 +347,9 @@ impl RealtimeSpeechStream {
     ) -> DengjenResult<Self> {
         let phonemes = provider.get_phonemes()?.into_iter();
         let (tx, rx) = flume::unbounded();
+        let producer_cancel_token = cancel_token.clone();
         SYNTHESIS_THREAD_POOL.spawn(move || {
+            let cancel_token = producer_cancel_token;
             let mut chunk_size = chunk_size;
             let chunk_factor = 1;
             let mut num_processed_chunks = 0;
@@ -382,7 +387,7 @@ impl RealtimeSpeechStream {
                 };
             }
         });
-        Ok(Self(rx))
+        Ok(Self { rx, cancel_token })
     }
     #[inline(always)]
     fn process_rt_stream(
@@ -438,7 +443,10 @@ impl Iterator for RealtimeSpeechStream {
     type Item = DengjenResult<AudioSamples>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.recv().ok()
+        if self.cancel_token.is_cancelled() {
+            return None;
+        }
+        self.rx.recv().ok()
     }
 }
 
@@ -452,6 +460,7 @@ mod cancellation_tests {
         chunks_per_sentence: usize,
         sentences: usize,
         produced: Arc<AtomicUsize>,
+        delay: Option<std::time::Duration>,
     }
 
     impl DengjenModel for CountingStreamModel {
@@ -488,8 +497,11 @@ mod cancellation_tests {
         ) -> DengjenResult<AudioStreamIterator<'_>> {
             let produced = Arc::clone(&self.produced);
             let n = self.chunks_per_sentence;
+            let delay = self.delay;
             let iter = (0..n).map_while(move |_| {
-                std::thread::sleep(std::time::Duration::from_millis(1));
+                if let Some(delay) = delay {
+                    std::thread::sleep(delay);
+                }
                 if cancel_token.is_cancelled() {
                     None
                 } else {
@@ -508,6 +520,7 @@ mod cancellation_tests {
             chunks_per_sentence: 1000,
             sentences: 5,
             produced: Arc::clone(&produced),
+            delay: Some(std::time::Duration::from_millis(1)),
         });
         let synth = DengjenSpeechSynthesizer::new(model).unwrap();
         let cancel_token = CancellationToken::new();
@@ -517,18 +530,63 @@ mod cancellation_tests {
 
         let mut received = 0;
         for result in stream {
-            result.unwrap();
+            let _ = result.unwrap();
             received += 1;
             if received == 3 {
                 cancel_token.cancel();
             }
         }
 
-        let total_possible = 1000 * 5;
         assert!(
-            received < total_possible,
-            "expected cancellation to truncate the stream, got all {received} chunks"
+            received < 100,
+            "expected cancellation to truncate the stream promptly, got {received} chunks"
         );
-        assert!(produced.load(Ordering::SeqCst) < total_possible);
+        assert!(
+            produced.load(Ordering::SeqCst) < 100,
+            "expected production to stop promptly, produced {} chunks",
+            produced.load(Ordering::SeqCst)
+        );
+    }
+
+    #[test]
+    fn cancelling_stops_delivery_of_already_buffered_chunks() {
+        // The producer runs ahead into an unbounded channel; without a consumer-side
+        // cancellation check the iterator would keep draining everything already buffered.
+        let produced = Arc::new(AtomicUsize::new(0));
+        let model: Arc<dyn DengjenModel + Send + Sync> = Arc::new(CountingStreamModel {
+            chunks_per_sentence: 500,
+            sentences: 3,
+            produced: Arc::clone(&produced),
+            delay: None,
+        });
+        let synth = DengjenSpeechSynthesizer::new(model).unwrap();
+        let cancel_token = CancellationToken::new();
+        let mut stream = synth
+            .synthesize_streamed("irrelevant".to_string(), None, 10, 0, cancel_token.clone())
+            .unwrap();
+
+        let mut received = 0;
+        while received < 3 {
+            let _ = stream.next().expect("stream ended before 3 chunks").unwrap();
+            received += 1;
+        }
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while produced.load(Ordering::SeqCst) < 200 && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        let buffered_at_cancel = produced.load(Ordering::SeqCst);
+        assert!(
+            buffered_at_cancel >= 200,
+            "test setup failed: producer only made {buffered_at_cancel} chunks, so nothing was buffered"
+        );
+
+        cancel_token.cancel();
+
+        assert!(
+            stream.next().is_none(),
+            "consumer kept delivering buffered chunks after cancellation"
+        );
+        assert_eq!(received, 3);
     }
 }
