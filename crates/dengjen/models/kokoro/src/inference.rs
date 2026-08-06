@@ -17,7 +17,6 @@ pub struct KokoroModel {
     vocab: Vocab,
     voice_styles: VoiceStyles,
     sample_rate: u32,
-    voices: Vec<String>,
     default_voice: String,
 }
 
@@ -45,7 +44,6 @@ impl KokoroModel {
             vocab,
             voice_styles,
             sample_rate: config.sample_rate,
-            voices: config.voices,
             default_voice,
         })
     }
