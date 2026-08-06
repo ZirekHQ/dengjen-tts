@@ -9,14 +9,14 @@ path = "src/main.rs"
 
 [features]
 default = ["espeak"]
-espeak = ["dengjen-piper/espeak"]
+espeak = ["dengjen-piper/espeak", "dengjen-kokoro/espeak"]
 cuda = ["ort/cuda"]
 ort-dylib = ["ort/load-dynamic"]
 
 [dependencies]
 dengjen-synth = { version = "0.2.0", path = "../../dengjen/synth" }
 dengjen-piper = { version = "0.2.0", path = "../../dengjen/models/piper" }
-dengjen-kokoro = { version = "0.1.0", path = "../../dengjen/models/kokoro" }
+dengjen-kokoro = { version = "0.1.0", path = "../../dengjen/models/kokoro", default-features = false }
 anyhow = "1.0.79"
 env_logger = "0.10.0"
 log = "0.4.18"

@@ -86,8 +86,8 @@ impl DengjenModel for KokoroModel {
 
     fn phonemize_text(&self, text: &str) -> DengjenResult<Phonemes> {
         let language = "en-US"; // Task 6 revisits per-voice language selection if needed.
-        let phonemes = text_to_kokoro_phonemes(text, language)?;
-        Ok(Phonemes::from(vec![phonemes]))
+        let sentences = text_to_kokoro_phonemes(text, language)?;
+        Ok(Phonemes::from(sentences))
     }
 
     fn speak_batch(&self, phoneme_batches: Vec<String>) -> DengjenResult<Vec<Audio>> {
