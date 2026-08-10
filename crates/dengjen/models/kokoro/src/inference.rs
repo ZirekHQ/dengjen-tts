@@ -119,6 +119,7 @@ impl DengjenModel for KokoroModel {
     }
 }
 
+#[allow(dead_code)]
 struct KokoroAudioStreamer {
     samples: AudioSamples,
     cursor: usize,
@@ -127,6 +128,7 @@ struct KokoroAudioStreamer {
 }
 
 impl KokoroAudioStreamer {
+    #[allow(dead_code)]
     fn new(samples: AudioSamples, chunk_size: usize, cancel_token: CancellationToken) -> Self {
         Self {
             samples,
@@ -144,7 +146,7 @@ impl Iterator for KokoroAudioStreamer {
         if self.cancel_token.is_cancelled() {
             return None;
         }
-        if self.cursor >= self.samples.len() {
+        if self.chunk_size == 0 || self.cursor >= self.samples.len() {
             return None;
         }
         let end = (self.cursor + self.chunk_size).min(self.samples.len());
@@ -203,5 +205,13 @@ mod tests {
         let samples = AudioSamples::new(Vec::new());
         let mut streamer = KokoroAudioStreamer::new(samples, 3, CancellationToken::new());
         assert!(streamer.next().is_none());
+    }
+
+    #[test]
+    fn chunk_size_zero_yields_no_chunks() {
+        let samples = AudioSamples::new(vec![0.0; 9]);
+        let mut streamer = KokoroAudioStreamer::new(samples, 0, CancellationToken::new());
+        assert!(streamer.next().is_none());
+        assert!(streamer.next().is_none(), "should remain exhausted after first call");
     }
 }
