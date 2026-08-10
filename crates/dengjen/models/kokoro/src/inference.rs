@@ -3,8 +3,8 @@ use crate::phonemize::text_to_kokoro_phonemes;
 use crate::voice_style::VoiceStyles;
 use crate::vocab::Vocab;
 use dengjen_core::{
-    Audio, AudioInfo, AudioSamples, CancellationToken, DengjenAudioResult, DengjenError,
-    DengjenModel, DengjenResult, Phonemes,
+    Audio, AudioInfo, AudioSamples, AudioStreamIterator, CancellationToken, DengjenAudioResult,
+    DengjenError, DengjenModel, DengjenResult, Phonemes,
 };
 use ndarray::{Array1, Array2};
 use ort::session::Session;
@@ -117,9 +117,36 @@ impl DengjenModel for KokoroModel {
     fn get_speakers(&self) -> DengjenResult<Option<&HashMap<i64, String>>> {
         Ok(None)
     }
+
+    fn supports_streaming_output(&self) -> bool {
+        true
+    }
+
+    fn stream_synthesis(
+        &self,
+        phonemes: String,
+        chunk_size: usize,
+        _chunk_padding: usize,
+        cancel_token: CancellationToken,
+    ) -> DengjenResult<AudioStreamIterator<'_>> {
+        if chunk_size == 0 {
+            return Err(DengjenError::OperationError(
+                "chunk_size must be greater than 0".to_string(),
+            ));
+        }
+        // Skip inference entirely rather than erroring: a cancellation must stay silent.
+        if cancel_token.is_cancelled() {
+            return Ok(Box::new(std::iter::empty()));
+        }
+        let audio = self.synthesize_phonemes(&phonemes)?;
+        Ok(Box::new(KokoroAudioStreamer::new(
+            audio.samples,
+            chunk_size,
+            cancel_token,
+        )))
+    }
 }
 
-#[allow(dead_code)]
 struct KokoroAudioStreamer {
     samples: AudioSamples,
     cursor: usize,
@@ -128,7 +155,6 @@ struct KokoroAudioStreamer {
 }
 
 impl KokoroAudioStreamer {
-    #[allow(dead_code)]
     fn new(samples: AudioSamples, chunk_size: usize, cancel_token: CancellationToken) -> Self {
         Self {
             samples,
