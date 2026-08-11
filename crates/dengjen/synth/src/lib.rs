@@ -331,12 +331,30 @@ impl Iterator for DengjenSpeechStreamParallel {
     }
 }
 
+/// Backstop for `next_chunk_size`, in whatever unit the active backend's
+/// `chunk_size` parameter uses (mel frames for Piper, samples for Kokoro).
+const MAX_STREAM_CHUNK_SIZE: usize = 1_000_000;
+
 pub struct RealtimeSpeechStream {
     rx: Receiver<DengjenResult<AudioSamples>>,
     cancel_token: CancellationToken,
 }
 
 impl RealtimeSpeechStream {
+    /// Computes the chunk size for the next sentence from the *original* base
+    /// chunk size and the chunk count produced by only the immediately
+    /// preceding sentence, so growth cannot compound across an entire
+    /// multi-sentence stream. Clamped to `MAX_STREAM_CHUNK_SIZE` as a backstop.
+    fn next_chunk_size(base_chunk_size: usize, prev_sentence_chunks: usize) -> usize {
+        if prev_sentence_chunks == 0 {
+            base_chunk_size
+        } else {
+            base_chunk_size
+                .saturating_mul(prev_sentence_chunks)
+                .min(MAX_STREAM_CHUNK_SIZE)
+        }
+    }
+
     fn new(
         provider: SpeechSynthesisTaskProvider,
         chunk_size: usize,
@@ -350,21 +368,17 @@ impl RealtimeSpeechStream {
         let producer_cancel_token = cancel_token.clone();
         SYNTHESIS_THREAD_POOL.spawn(move || {
             let cancel_token = producer_cancel_token;
-            let mut chunk_size = chunk_size;
-            let chunk_factor = 1;
-            let mut num_processed_chunks = 0;
+            let base_chunk_size = chunk_size;
+            let mut prev_sentence_chunks = 0usize;
             for ph_sent in phonemes {
                 if cancel_token.is_cancelled() {
                     return;
                 }
-                chunk_size = if num_processed_chunks != 0 {
-                    chunk_size  * chunk_factor * num_processed_chunks
-                } else {
-                    chunk_size
-                };
+                let sentence_chunk_size =
+                    RealtimeSpeechStream::next_chunk_size(base_chunk_size, prev_sentence_chunks);
                 match provider
                     .model
-                    .stream_synthesis(ph_sent, chunk_size, chunk_padding, cancel_token.clone())
+                    .stream_synthesis(ph_sent, sentence_chunk_size, chunk_padding, cancel_token.clone())
                 {
                     Ok(stream) => {
                         let send_result = RealtimeSpeechStream::process_rt_stream(
@@ -376,7 +390,7 @@ impl RealtimeSpeechStream {
                             &cancel_token,
                         );
                         match send_result {
-                            Ok(num_chunks) => num_processed_chunks += num_chunks,
+                            Ok(num_chunks) => prev_sentence_chunks = num_chunks,
                             Err(_) => return
                         };
                     }
@@ -451,16 +465,60 @@ impl Iterator for RealtimeSpeechStream {
 }
 
 #[cfg(test)]
+mod chunk_size_growth_tests {
+    use super::*;
+
+    #[test]
+    fn first_sentence_uses_base_chunk_size_unmodified() {
+        assert_eq!(RealtimeSpeechStream::next_chunk_size(72, 0), 72);
+    }
+
+    #[test]
+    fn grows_from_the_original_base_not_a_compounded_value() {
+        // Base 72, previous sentence produced 300 chunks: 72 * 300, not something
+        // built on top of an already-grown chunk_size.
+        assert_eq!(RealtimeSpeechStream::next_chunk_size(72, 300), 72 * 300);
+    }
+
+    #[test]
+    fn repeated_calls_with_the_same_prev_count_plateau_instead_of_compounding() {
+        let first = RealtimeSpeechStream::next_chunk_size(72, 300);
+        let second = RealtimeSpeechStream::next_chunk_size(72, 300);
+        assert_eq!(
+            first, second,
+            "growth must be driven by the base size each time, not the previous result"
+        );
+    }
+
+    #[test]
+    fn result_is_clamped_to_max_chunk_size() {
+        assert_eq!(
+            RealtimeSpeechStream::next_chunk_size(1_000, 5_000),
+            MAX_STREAM_CHUNK_SIZE,
+            "1_000 * 5_000 = 5_000_000 must be clamped down to MAX_STREAM_CHUNK_SIZE"
+        );
+    }
+
+    #[test]
+    fn never_overflows_or_panics_on_pathological_inputs() {
+        let result = RealtimeSpeechStream::next_chunk_size(usize::MAX, usize::MAX);
+        assert_eq!(result, MAX_STREAM_CHUNK_SIZE);
+    }
+}
+
+#[cfg(test)]
 mod cancellation_tests {
     use super::*;
     use std::any::Any;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Mutex;
 
     struct CountingStreamModel {
         chunks_per_sentence: usize,
         sentences: usize,
         produced: Arc<AtomicUsize>,
         delay: Option<std::time::Duration>,
+        chunk_sizes_seen: Arc<Mutex<Vec<usize>>>,
     }
 
     impl DengjenModel for CountingStreamModel {
@@ -491,10 +549,11 @@ mod cancellation_tests {
         fn stream_synthesis(
             &self,
             _phonemes: String,
-            _chunk_size: usize,
+            chunk_size: usize,
             _chunk_padding: usize,
             cancel_token: CancellationToken,
         ) -> DengjenResult<AudioStreamIterator<'_>> {
+            self.chunk_sizes_seen.lock().unwrap().push(chunk_size);
             let produced = Arc::clone(&self.produced);
             let n = self.chunks_per_sentence;
             let delay = self.delay;
@@ -521,6 +580,7 @@ mod cancellation_tests {
             sentences: 5,
             produced: Arc::clone(&produced),
             delay: Some(std::time::Duration::from_millis(1)),
+            chunk_sizes_seen: Arc::new(Mutex::new(Vec::new())),
         });
         let synth = DengjenSpeechSynthesizer::new(model).unwrap();
         let cancel_token = CancellationToken::new();
@@ -558,6 +618,7 @@ mod cancellation_tests {
             sentences: 3,
             produced: Arc::clone(&produced),
             delay: None,
+            chunk_sizes_seen: Arc::new(Mutex::new(Vec::new())),
         });
         let synth = DengjenSpeechSynthesizer::new(model).unwrap();
         let cancel_token = CancellationToken::new();
@@ -588,5 +649,55 @@ mod cancellation_tests {
             "consumer kept delivering buffered chunks after cancellation"
         );
         assert_eq!(received, 3);
+    }
+
+    #[test]
+    fn chunk_size_growth_stays_bounded_across_many_sentences() {
+        // Regression test for the overflow in issue #24: with the old formula,
+        // chunk_size compounded across the whole stream and overflowed usize by
+        // roughly the 8th sentence. 20 sentences here comfortably exceeds that.
+        let produced = Arc::new(AtomicUsize::new(0));
+        let chunk_sizes_seen = Arc::new(Mutex::new(Vec::new()));
+        let model: Arc<dyn DengjenModel + Send + Sync> = Arc::new(CountingStreamModel {
+            chunks_per_sentence: 300,
+            sentences: 20,
+            produced: Arc::clone(&produced),
+            delay: None,
+            chunk_sizes_seen: Arc::clone(&chunk_sizes_seen),
+        });
+        let synth = DengjenSpeechSynthesizer::new(model).unwrap();
+        let cancel_token = CancellationToken::new();
+        let stream = synth
+            .synthesize_streamed("irrelevant".to_string(), None, 72, 0, cancel_token)
+            .unwrap();
+
+        let mut received = 0;
+        for result in stream {
+            let _ = result.expect("stream must not error under bounded chunk_size growth");
+            received += 1;
+        }
+
+        assert_eq!(
+            received,
+            300 * 20,
+            "expected every produced chunk to be delivered without the stream aborting"
+        );
+
+        let seen = chunk_sizes_seen.lock().unwrap();
+        assert_eq!(seen.len(), 20, "expected one stream_synthesis call per sentence");
+        for &size in seen.iter() {
+            assert!(
+                size <= MAX_STREAM_CHUNK_SIZE,
+                "chunk_size {size} exceeded MAX_STREAM_CHUNK_SIZE, growth is not bounded"
+            );
+        }
+        assert_eq!(seen[0], 72, "first sentence must use the caller's base chunk_size");
+        for &size in &seen[1..] {
+            assert_eq!(
+                size,
+                72 * 300,
+                "chunk_size must not compound across sentences"
+            );
+        }
     }
 }
