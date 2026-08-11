@@ -33,7 +33,9 @@ impl fmt::Display for ESpeakError {
 
 static LANG_SWITCH_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r"\([^)]*\)").unwrap());
 static STRESS_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r"[ˈˌ]").unwrap());
-static ESPEAKNG_INIT: Lazy<ESpeakResult<()>> = Lazy::new(|| {
+static ESPEAKNG_INIT: Lazy<ESpeakResult<()>> = Lazy::new(init_espeakng);
+
+fn init_espeakng() -> ESpeakResult<()> {
     let data_dir = match env::var(DENGJEN_ESPEAKNG_DATA_DIRECTORY) {
         Ok(directory) => PathBuf::from(directory),
         Err(_) => env::current_exe().unwrap().parent().unwrap().to_path_buf(),
@@ -43,24 +45,34 @@ static ESPEAKNG_INIT: Lazy<ESpeakResult<()>> = Lazy::new(|| {
     } else {
         std::ptr::null()
     };
-    unsafe {
-        let es_sample_rate = espeakng::espeak_Initialize(
+    let es_sample_rate = unsafe {
+        espeakng::espeak_Initialize(
             espeakng::espeak_AUDIO_OUTPUT_AUDIO_OUTPUT_RETRIEVAL,
             0,
             es_data_path_ptr,
             espeakng::espeakINITIALIZE_DONT_EXIT as i32,
-        );
-        if es_sample_rate <= 0 {
-            Err(ESpeakError(format!(
-                "Failed to initialize eSpeak-ng. Try setting `{}` environment variable to the directory that contains the `espeak-ng-data` directory. Error code: `{}`",
-                DENGJEN_ESPEAKNG_DATA_DIRECTORY,
-                es_sample_rate
-            )))
-        } else {
-            Ok(())
-        }
+        )
+    };
+    if es_sample_rate <= 0 {
+        Err(ESpeakError(format!(
+            "Failed to initialize eSpeak-ng. Try setting `{}` environment variable to the directory that contains the `espeak-ng-data` directory. Error code: `{}`",
+            DENGJEN_ESPEAKNG_DATA_DIRECTORY,
+            es_sample_rate
+        )))
+    } else {
+        Ok(())
     }
-});
+}
+
+fn clause_break_suffix(terminator: ffi::c_int) -> &'static str {
+    match terminator & 0x0000F000 {
+        CLAUSE_INTONATION_FULL_STOP => ".",
+        CLAUSE_INTONATION_COMMA => ",",
+        CLAUSE_INTONATION_QUESTION => "?",
+        CLAUSE_INTONATION_EXCLAMATION => "!",
+        _ => "",
+    }
+}
 
 pub fn text_to_phonemes(
     text: &str,
@@ -71,7 +83,7 @@ pub fn text_to_phonemes(
 ) -> ESpeakResult<Vec<String>> {
     let mut phonemes = Vec::new();
     for line in text.lines() {
-        phonemes.append(&mut _text_to_phonemes(
+        phonemes.append(&mut phonemize_line(
             line,
             language,
             phoneme_separator,
@@ -82,7 +94,7 @@ pub fn text_to_phonemes(
     Ok(phonemes)
 }
 
-pub fn _text_to_phonemes(
+fn phonemize_line(
     text: &str,
     language: &str,
     phoneme_separator: Option<char>,
@@ -104,7 +116,7 @@ pub fn _text_to_phonemes(
         None => espeakng::espeakINITIALIZE_PHONEME_IPA,
     };
     let phoneme_mode: i32 = calculated_phoneme_mode.try_into().unwrap();
-    let mut sent_phonemes = Vec::new();
+    let mut sentence_phonemes = Vec::new();
     let mut phonemes = String::new();
     let mut text_c_char = rust_string_to_c(text) as *const ffi::c_char;
     let text_c_char_ptr = std::ptr::addr_of_mut!(text_c_char);
@@ -121,38 +133,27 @@ pub fn _text_to_phonemes(
             FfiStr::from_raw(res)
         };
         phonemes.push_str(&ph_str.into_string());
-        let intonation = terminator & 0x0000F000;
-        if intonation == CLAUSE_INTONATION_FULL_STOP {
-            phonemes.push('.');
-        } else if intonation == CLAUSE_INTONATION_COMMA {
-            phonemes.push(',');
-        } else if intonation == CLAUSE_INTONATION_QUESTION {
-            phonemes.push('?');
-        } else if intonation == CLAUSE_INTONATION_EXCLAMATION {
-            phonemes.push('!');
-        }
+        phonemes.push_str(clause_break_suffix(terminator));
         if (terminator & CLAUSE_TYPE_SENTENCE) == CLAUSE_TYPE_SENTENCE {
-            sent_phonemes.push(std::mem::take(&mut phonemes));
+            sentence_phonemes.push(std::mem::take(&mut phonemes));
         }
     }
     if !phonemes.is_empty() {
-        sent_phonemes.push(std::mem::take(&mut phonemes));
+        sentence_phonemes.push(std::mem::take(&mut phonemes));
     }
     if remove_lang_switch_flags {
-        sent_phonemes = Vec::from_iter(
-            sent_phonemes
-                .into_iter()
-                .map(|sent| LANG_SWITCH_PATTERN.replace_all(&sent, "").into_owned()),
-        );
+        sentence_phonemes = sentence_phonemes
+            .into_iter()
+            .map(|sent| LANG_SWITCH_PATTERN.replace_all(&sent, "").into_owned())
+            .collect();
     }
     if remove_stress {
-        sent_phonemes = Vec::from_iter(
-            sent_phonemes
-                .into_iter()
-                .map(|sent| STRESS_PATTERN.replace_all(&sent, "").into_owned()),
-        );
+        sentence_phonemes = sentence_phonemes
+            .into_iter()
+            .map(|sent| STRESS_PATTERN.replace_all(&sent, "").into_owned())
+            .collect();
     }
-    Ok(sent_phonemes)
+    Ok(sentence_phonemes)
 }
 
 // ==============================
