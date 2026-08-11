@@ -103,7 +103,9 @@ fn kokoro_realtime_stream_uses_realistic_chunk_duration_for_capi_default_chunk_s
     );
     let stream = match stream {
         Ok(stream) => stream,
-        Err(dengjen_core::DengjenError::PhonemizationError(_)) => {
+        Err(dengjen_core::DengjenError::PhonemizationError(msg))
+            if msg.contains("Failed to initialize eSpeak-ng") =>
+        {
             eprintln!(
                 "Skipping kokoro_realtime_stream_uses_realistic_chunk_duration_for_capi_default_chunk_size: \
                  espeak-ng data not available on this machine."
