@@ -366,18 +366,14 @@ impl RealtimeSpeechStream {
         let producer_cancel_token = cancel_token.clone();
         SYNTHESIS_THREAD_POOL.spawn(move || {
             let cancel_token = producer_cancel_token;
-            let mut chunk_size = chunk_size;
-            let chunk_factor = 1;
-            let mut num_processed_chunks = 0;
+            let base_chunk_size = chunk_size;
+            let mut prev_sentence_chunks = 0usize;
             for ph_sent in phonemes {
                 if cancel_token.is_cancelled() {
                     return;
                 }
-                chunk_size = if num_processed_chunks != 0 {
-                    chunk_size  * chunk_factor * num_processed_chunks
-                } else {
-                    chunk_size
-                };
+                let chunk_size =
+                    RealtimeSpeechStream::next_chunk_size(base_chunk_size, prev_sentence_chunks);
                 match provider
                     .model
                     .stream_synthesis(ph_sent, chunk_size, chunk_padding, cancel_token.clone())
@@ -392,7 +388,7 @@ impl RealtimeSpeechStream {
                             &cancel_token,
                         );
                         match send_result {
-                            Ok(num_chunks) => num_processed_chunks += num_chunks,
+                            Ok(num_chunks) => prev_sentence_chunks = num_chunks,
                             Err(_) => return
                         };
                     }
