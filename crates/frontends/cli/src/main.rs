@@ -70,7 +70,7 @@ struct Cli {
     /// Extra silence (in milliseconds) to append to the end of each sentence (default `0`)
     #[arg(long)]
     silence: Option<u32>,
-    /// Number of mel frames to stream for each chunk
+    /// Chunk granularity to stream (unit is backend-specific; e.g. Piper mel frames)
     #[arg(long)]
     chunk_size: Option<usize>,
     /// Number of mel frames to use for padding current chunk (improves naturalness)

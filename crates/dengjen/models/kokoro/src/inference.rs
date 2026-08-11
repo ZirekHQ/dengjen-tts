@@ -3,7 +3,8 @@ use crate::phonemize::text_to_kokoro_phonemes;
 use crate::voice_style::VoiceStyles;
 use crate::vocab::Vocab;
 use dengjen_core::{
-    Audio, AudioInfo, DengjenAudioResult, DengjenError, DengjenModel, DengjenResult, Phonemes,
+    Audio, AudioInfo, AudioSamples, AudioStreamIterator, CancellationToken, DengjenAudioResult,
+    DengjenError, DengjenModel, DengjenResult, Phonemes,
 };
 use ndarray::{Array1, Array2};
 use ort::session::Session;
@@ -11,6 +12,13 @@ use ort::value::Tensor;
 use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Mutex;
+
+// `chunk_size` on `DengjenModel::stream_synthesis` is tuned by callers for Piper, where it
+// counts mel frames that Piper's decoder expands by `hop_length` (~256) into samples. Kokoro
+// has no mel/frame stage, so its `chunk_size` is scaled by the same nominal factor to land in
+// the same practical chunk-duration range as Piper's callers expect, rather than being
+// consumed directly as a far-too-small raw sample count.
+const KOKORO_CHUNK_SIZE_SCALE: usize = 256;
 
 pub struct KokoroModel {
     session: Mutex<Session>,
@@ -115,5 +123,129 @@ impl DengjenModel for KokoroModel {
 
     fn get_speakers(&self) -> DengjenResult<Option<&HashMap<i64, String>>> {
         Ok(None)
+    }
+
+    fn supports_streaming_output(&self) -> bool {
+        true
+    }
+
+    fn stream_synthesis(
+        &self,
+        phonemes: String,
+        chunk_size: usize,
+        _chunk_padding: usize,
+        cancel_token: CancellationToken,
+    ) -> DengjenResult<AudioStreamIterator<'_>> {
+        if chunk_size == 0 {
+            return Err(DengjenError::OperationError(
+                "chunk_size must be greater than 0".to_string(),
+            ));
+        }
+        // Skip inference entirely rather than erroring: a cancellation must stay silent.
+        if cancel_token.is_cancelled() {
+            return Ok(Box::new(std::iter::empty()));
+        }
+        let audio = self.synthesize_phonemes(&phonemes)?;
+        let scaled_chunk_size = chunk_size.saturating_mul(KOKORO_CHUNK_SIZE_SCALE);
+        Ok(Box::new(KokoroAudioStreamer::new(
+            audio.samples,
+            scaled_chunk_size,
+            cancel_token,
+        )))
+    }
+}
+
+struct KokoroAudioStreamer {
+    samples: AudioSamples,
+    cursor: usize,
+    chunk_size: usize,
+    cancel_token: CancellationToken,
+}
+
+impl KokoroAudioStreamer {
+    fn new(samples: AudioSamples, chunk_size: usize, cancel_token: CancellationToken) -> Self {
+        Self {
+            samples,
+            cursor: 0,
+            chunk_size,
+            cancel_token,
+        }
+    }
+}
+
+impl Iterator for KokoroAudioStreamer {
+    type Item = DengjenResult<AudioSamples>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.cancel_token.is_cancelled() {
+            return None;
+        }
+        if self.chunk_size == 0 || self.cursor >= self.samples.len() {
+            return None;
+        }
+        let end = (self.cursor + self.chunk_size).min(self.samples.len());
+        let chunk = self.samples.as_slice()[self.cursor..end].to_vec();
+        self.cursor = end;
+        Some(Ok(AudioSamples::new(chunk)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn yields_equal_size_chunks_when_length_is_an_exact_multiple() {
+        let samples = AudioSamples::new(vec![0.0; 9]);
+        let mut streamer = KokoroAudioStreamer::new(samples, 3, CancellationToken::new());
+        assert_eq!(streamer.next().unwrap().unwrap().len(), 3);
+        assert_eq!(streamer.next().unwrap().unwrap().len(), 3);
+        assert_eq!(streamer.next().unwrap().unwrap().len(), 3);
+        assert!(streamer.next().is_none());
+    }
+
+    #[test]
+    fn yields_a_shorter_final_chunk_for_a_remainder() {
+        let samples = AudioSamples::new(vec![0.0; 7]);
+        let mut streamer = KokoroAudioStreamer::new(samples, 3, CancellationToken::new());
+        assert_eq!(streamer.next().unwrap().unwrap().len(), 3);
+        assert_eq!(streamer.next().unwrap().unwrap().len(), 3);
+        assert_eq!(streamer.next().unwrap().unwrap().len(), 1);
+        assert!(streamer.next().is_none());
+    }
+
+    #[test]
+    fn chunk_values_preserve_sample_order() {
+        let samples = AudioSamples::new(vec![1.0, 2.0, 3.0, 4.0, 5.0]);
+        let mut streamer = KokoroAudioStreamer::new(samples, 2, CancellationToken::new());
+        assert_eq!(streamer.next().unwrap().unwrap().as_slice(), &[1.0, 2.0]);
+        assert_eq!(streamer.next().unwrap().unwrap().as_slice(), &[3.0, 4.0]);
+        assert_eq!(streamer.next().unwrap().unwrap().as_slice(), &[5.0]);
+        assert!(streamer.next().is_none());
+    }
+
+    #[test]
+    fn stops_yielding_once_cancelled_mid_stream() {
+        let samples = AudioSamples::new(vec![0.0; 9]);
+        let cancel_token = CancellationToken::new();
+        let mut streamer = KokoroAudioStreamer::new(samples, 3, cancel_token.clone());
+        assert!(streamer.next().is_some());
+        cancel_token.cancel();
+        assert!(streamer.next().is_none(), "no further chunks should be yielded once cancelled");
+    }
+
+    #[test]
+    fn empty_input_yields_no_chunks() {
+        let samples = AudioSamples::new(Vec::new());
+        let mut streamer = KokoroAudioStreamer::new(samples, 3, CancellationToken::new());
+        assert!(streamer.next().is_none());
+    }
+
+    #[test]
+    fn chunk_size_zero_yields_no_chunks() {
+        let samples = AudioSamples::new(vec![0.0; 9]);
+        let mut streamer = KokoroAudioStreamer::new(samples, 0, CancellationToken::new());
+        assert!(streamer.next().is_none());
+        assert!(streamer.next().is_none(), "should remain exhausted after first call");
     }
 }

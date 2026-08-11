@@ -468,6 +468,7 @@ version = "0.2.0"
 dependencies = [
  "audio-ops",
  "dengjen-core",
+ "dengjen-kokoro",
  "dengjen-piper",
  "divan",
  "flume",
