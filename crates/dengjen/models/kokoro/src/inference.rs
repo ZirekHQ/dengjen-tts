@@ -13,6 +13,13 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+// `chunk_size` on `DengjenModel::stream_synthesis` is tuned by callers for Piper, where it
+// counts mel frames that Piper's decoder expands by `hop_length` (~256) into samples. Kokoro
+// has no mel/frame stage, so its `chunk_size` is scaled by the same nominal factor to land in
+// the same practical chunk-duration range as Piper's callers expect, rather than being
+// consumed directly as a far-too-small raw sample count.
+const KOKORO_CHUNK_SIZE_SCALE: usize = 256;
+
 pub struct KokoroModel {
     session: Mutex<Session>,
     vocab: Vocab,
@@ -139,9 +146,10 @@ impl DengjenModel for KokoroModel {
             return Ok(Box::new(std::iter::empty()));
         }
         let audio = self.synthesize_phonemes(&phonemes)?;
+        let scaled_chunk_size = chunk_size.saturating_mul(KOKORO_CHUNK_SIZE_SCALE);
         Ok(Box::new(KokoroAudioStreamer::new(
             audio.samples,
-            chunk_size,
+            scaled_chunk_size,
             cancel_token,
         )))
     }

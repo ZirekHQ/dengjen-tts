@@ -43,7 +43,9 @@ fn load_synthetic_model(test_name: &str) -> KokoroModel {
         sample_rate: 24000,
         voices: vec!["test_voice".to_string()],
     };
-    KokoroModel::from_config(config).expect("failed to load synthetic Kokoro model")
+    let model = KokoroModel::from_config(config).expect("failed to load synthetic Kokoro model");
+    std::fs::remove_dir_all(&dir).ok();
+    model
 }
 
 // "tɛst" phonemes (U+025B is ɛ), tokenizes against the minimal vocab above.
@@ -89,8 +91,9 @@ fn streamed_chunks_total_matches_speak_one_sentence_total() {
     // The synthetic graph always outputs exactly 16000 samples (see synthetic_inference.rs).
     assert_eq!(whole_len, 16000);
 
+    // 16 is scaled to 16 * 256 = 4096 internally by stream_synthesis.
     let stream = model
-        .stream_synthesis(TEST_PHONEMES.to_string(), 4096, 3, CancellationToken::new())
+        .stream_synthesis(TEST_PHONEMES.to_string(), 16, 3, CancellationToken::new())
         .expect("stream_synthesis failed");
     let chunks: Vec<Vec<f32>> = stream
         .map(|r| r.expect("chunk synthesis failed").into_vec())
