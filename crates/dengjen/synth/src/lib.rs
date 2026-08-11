@@ -331,12 +331,28 @@ impl Iterator for DengjenSpeechStreamParallel {
     }
 }
 
+const MAX_CHUNK_SIZE: usize = 1_000_000;
+
 pub struct RealtimeSpeechStream {
     rx: Receiver<DengjenResult<AudioSamples>>,
     cancel_token: CancellationToken,
 }
 
 impl RealtimeSpeechStream {
+    /// Computes the chunk size for the next sentence from the *original* base
+    /// chunk size and the chunk count produced by only the immediately
+    /// preceding sentence, so growth cannot compound across an entire
+    /// multi-sentence stream. Clamped to `MAX_CHUNK_SIZE` as a backstop.
+    fn next_chunk_size(base_chunk_size: usize, prev_sentence_chunks: usize) -> usize {
+        if prev_sentence_chunks == 0 {
+            base_chunk_size
+        } else {
+            base_chunk_size
+                .saturating_mul(prev_sentence_chunks)
+                .min(MAX_CHUNK_SIZE)
+        }
+    }
+
     fn new(
         provider: SpeechSynthesisTaskProvider,
         chunk_size: usize,
@@ -447,6 +463,48 @@ impl Iterator for RealtimeSpeechStream {
             return None;
         }
         self.rx.recv().ok()
+    }
+}
+
+#[cfg(test)]
+mod chunk_size_growth_tests {
+    use super::*;
+
+    #[test]
+    fn first_sentence_uses_base_chunk_size_unmodified() {
+        assert_eq!(RealtimeSpeechStream::next_chunk_size(72, 0), 72);
+    }
+
+    #[test]
+    fn grows_from_the_original_base_not_a_compounded_value() {
+        // Base 72, previous sentence produced 300 chunks: 72 * 300, not something
+        // built on top of an already-grown chunk_size.
+        assert_eq!(RealtimeSpeechStream::next_chunk_size(72, 300), 72 * 300);
+    }
+
+    #[test]
+    fn repeated_calls_with_the_same_prev_count_plateau_instead_of_compounding() {
+        let first = RealtimeSpeechStream::next_chunk_size(72, 300);
+        let second = RealtimeSpeechStream::next_chunk_size(72, 300);
+        assert_eq!(
+            first, second,
+            "growth must be driven by the base size each time, not the previous result"
+        );
+    }
+
+    #[test]
+    fn result_is_clamped_to_max_chunk_size() {
+        assert_eq!(
+            RealtimeSpeechStream::next_chunk_size(1_000, 5_000),
+            MAX_CHUNK_SIZE,
+            "1_000 * 5_000 = 5_000_000 must be clamped down to MAX_CHUNK_SIZE"
+        );
+    }
+
+    #[test]
+    fn never_overflows_or_panics_on_pathological_inputs() {
+        let result = RealtimeSpeechStream::next_chunk_size(usize::MAX, usize::MAX);
+        assert_eq!(result, MAX_CHUNK_SIZE);
     }
 }
 
