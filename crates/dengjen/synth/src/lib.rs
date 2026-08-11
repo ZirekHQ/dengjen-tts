@@ -509,12 +509,14 @@ mod cancellation_tests {
     use super::*;
     use std::any::Any;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Mutex;
 
     struct CountingStreamModel {
         chunks_per_sentence: usize,
         sentences: usize,
         produced: Arc<AtomicUsize>,
         delay: Option<std::time::Duration>,
+        chunk_sizes_seen: Arc<Mutex<Vec<usize>>>,
     }
 
     impl DengjenModel for CountingStreamModel {
@@ -545,10 +547,11 @@ mod cancellation_tests {
         fn stream_synthesis(
             &self,
             _phonemes: String,
-            _chunk_size: usize,
+            chunk_size: usize,
             _chunk_padding: usize,
             cancel_token: CancellationToken,
         ) -> DengjenResult<AudioStreamIterator<'_>> {
+            self.chunk_sizes_seen.lock().unwrap().push(chunk_size);
             let produced = Arc::clone(&self.produced);
             let n = self.chunks_per_sentence;
             let delay = self.delay;
@@ -575,6 +578,7 @@ mod cancellation_tests {
             sentences: 5,
             produced: Arc::clone(&produced),
             delay: Some(std::time::Duration::from_millis(1)),
+            chunk_sizes_seen: Arc::new(Mutex::new(Vec::new())),
         });
         let synth = DengjenSpeechSynthesizer::new(model).unwrap();
         let cancel_token = CancellationToken::new();
@@ -612,6 +616,7 @@ mod cancellation_tests {
             sentences: 3,
             produced: Arc::clone(&produced),
             delay: None,
+            chunk_sizes_seen: Arc::new(Mutex::new(Vec::new())),
         });
         let synth = DengjenSpeechSynthesizer::new(model).unwrap();
         let cancel_token = CancellationToken::new();
@@ -642,5 +647,56 @@ mod cancellation_tests {
             "consumer kept delivering buffered chunks after cancellation"
         );
         assert_eq!(received, 3);
+    }
+
+    #[test]
+    fn chunk_size_growth_stays_bounded_across_many_sentences() {
+        // Regression test for the overflow in issue #24: with the old formula,
+        // chunk_size compounded across the whole stream and overflowed usize by
+        // roughly the 8th sentence. 20 sentences here comfortably exceeds that.
+        let produced = Arc::new(AtomicUsize::new(0));
+        let chunk_sizes_seen = Arc::new(Mutex::new(Vec::new()));
+        let model: Arc<dyn DengjenModel + Send + Sync> = Arc::new(CountingStreamModel {
+            chunks_per_sentence: 300,
+            sentences: 20,
+            produced: Arc::clone(&produced),
+            delay: None,
+            chunk_sizes_seen: Arc::clone(&chunk_sizes_seen),
+        });
+        let synth = DengjenSpeechSynthesizer::new(model).unwrap();
+        let cancel_token = CancellationToken::new();
+        let stream = synth
+            .synthesize_streamed("irrelevant".to_string(), None, 72, 0, cancel_token)
+            .unwrap();
+
+        let mut received = 0;
+        for result in stream {
+            let _ = result.expect("stream must not error under bounded chunk_size growth");
+            received += 1;
+        }
+
+        assert_eq!(
+            received,
+            300 * 20,
+            "expected every produced chunk to be delivered without the stream aborting"
+        );
+
+        let seen = chunk_sizes_seen.lock().unwrap();
+        assert_eq!(seen.len(), 20, "expected one stream_synthesis call per sentence");
+        for &size in seen.iter() {
+            assert!(
+                size <= MAX_CHUNK_SIZE,
+                "chunk_size {size} exceeded MAX_CHUNK_SIZE, growth is not bounded"
+            );
+        }
+        assert_eq!(seen[0], 72, "first sentence must use the caller's base chunk_size");
+        for &size in &seen[1..] {
+            assert_eq!(
+                size,
+                72 * 300,
+                "chunk_size should plateau at base * previous sentence's chunk count, \
+                 not keep compounding across sentences"
+            );
+        }
     }
 }
