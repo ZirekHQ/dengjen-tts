@@ -187,6 +187,8 @@ jobs:
         run: cargo test -p dengjen-piper --no-default-features --features tashkeel
       - name: cargo test (dengjen-kokoro)
         run: cargo test -p dengjen-kokoro
+      - name: cargo test (dengjen-kokoro, espeak feature disabled)
+        run: cargo test -p dengjen-kokoro --no-default-features
 
   release:
     name: Release
