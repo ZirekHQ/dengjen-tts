@@ -6,6 +6,7 @@ use regex::Regex;
 use std::env;
 use std::error::Error;
 use std::ffi;
+use std::ffi::CString;
 use std::fmt;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -107,7 +108,9 @@ fn phonemize_line(
     if let Err(ref e) = Lazy::force(&ESPEAKNG_INIT) {
         return Err(e.clone());
     }
-    let set_voice_res = unsafe { espeakng::espeak_SetVoiceByName(rust_string_to_c(language)) };
+    let language_c = CString::new(language)
+        .map_err(|_| ESpeakError(format!("Failed to set eSpeak-ng voice to: `{}` ", language)))?;
+    let set_voice_res = unsafe { espeakng::espeak_SetVoiceByName(language_c.as_ptr()) };
     if set_voice_res != espeakng::espeak_ERROR_EE_OK {
         return Err(ESpeakError(format!(
             "Failed to set eSpeak-ng voice to: `{}` ",
@@ -121,7 +124,12 @@ fn phonemize_line(
     let phoneme_mode: i32 = calculated_phoneme_mode.try_into().unwrap();
     let mut sentence_phonemes = Vec::new();
     let mut phonemes = String::new();
-    let mut text_c_char = rust_string_to_c(text) as *const ffi::c_char;
+    let text_c = CString::new(text).map_err(|_| {
+        ESpeakError(
+            "Text passed to eSpeak-ng contains a NUL byte and cannot be processed".to_string(),
+        )
+    })?;
+    let mut text_c_char = text_c.as_ptr();
     let text_c_char_ptr = std::ptr::addr_of_mut!(text_c_char);
     let mut terminator: ffi::c_int = 0;
     let terminator_ptr: *mut ffi::c_int = &mut terminator;
@@ -259,6 +267,15 @@ mod tests {
         let phonemes = text_to_phonemes("", "en-US", None, false, false)?;
         assert_eq!(phonemes, Vec::<String>::new());
         Ok(())
+    }
+
+    #[test]
+    fn test_interior_nul_byte_returns_err_instead_of_panicking() {
+        let result = text_to_phonemes("hello\0world", "en-US", None, false, false);
+        assert!(result.is_err());
+
+        let result = text_to_phonemes("hello", "en\0US", None, false, false);
+        assert!(result.is_err());
     }
 
     #[test]
