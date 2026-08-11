@@ -8,6 +8,7 @@ use std::error::Error;
 use std::ffi;
 use std::fmt;
 use std::path::PathBuf;
+use std::sync::Mutex;
 
 pub type ESpeakResult<T> = Result<T, ESpeakError>;
 
@@ -34,6 +35,7 @@ impl fmt::Display for ESpeakError {
 static LANG_SWITCH_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r"\([^)]*\)").unwrap());
 static STRESS_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r"[ˈˌ]").unwrap());
 static ESPEAKNG_INIT: Lazy<ESpeakResult<()>> = Lazy::new(init_espeakng);
+static ESPEAK_LOCK: Mutex<()> = Mutex::new(());
 
 fn init_espeakng() -> ESpeakResult<()> {
     let data_dir = match env::var(DENGJEN_ESPEAKNG_DATA_DIRECTORY) {
@@ -101,6 +103,7 @@ fn phonemize_line(
     remove_lang_switch_flags: bool,
     remove_stress: bool,
 ) -> ESpeakResult<Vec<String>> {
+    let _guard = ESPEAK_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     if let Err(ref e) = Lazy::force(&ESPEAKNG_INIT) {
         return Err(e.clone());
     }
@@ -256,5 +259,39 @@ mod tests {
         let phonemes = text_to_phonemes("", "en-US", None, false, false)?;
         assert_eq!(phonemes, Vec::<String>::new());
         Ok(())
+    }
+
+    #[test]
+    fn concurrent_calls_do_not_corrupt_each_others_output() {
+        use std::thread;
+
+        let en_text = "test";
+        let en_expected = "tˈɛst.";
+        let ar_text = "مَرْحَبَاً بِكَ أَيُّهَا الْرَّجُلْ";
+        let ar_expected = "mˈarħabˌaː bikˌa ʔaˈiːuhˌaː alrrˈadʒul.";
+
+        let handles: Vec<_> = (0..8)
+            .map(|i| {
+                thread::spawn(move || {
+                    for _ in 0..25 {
+                        if i % 2 == 0 {
+                            let result = text_to_phonemes(en_text, "en-US", None, false, false)
+                                .unwrap()
+                                .join("");
+                            assert_eq!(result, en_expected);
+                        } else {
+                            let result = text_to_phonemes(ar_text, "ar", None, false, false)
+                                .unwrap()
+                                .join("");
+                            assert_eq!(result, ar_expected);
+                        }
+                    }
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            handle.join().expect("worker thread panicked");
+        }
     }
 }
