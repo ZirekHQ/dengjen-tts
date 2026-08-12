@@ -80,7 +80,7 @@ where
         }
     };
 
-    if let Err(e) = file.write(&buffer) {
+    if let Err(e) = file.write_all(&buffer) {
         let _ = std::fs::remove_file(path);
         return Err(WaveWriterError(format!(
             "Failed to write wave bytes to file `{}`. Error: {}",
@@ -118,5 +118,45 @@ mod tests {
         let samples: Vec<i16> = vec![0, 1, 2];
         let result = write_wave_samples_to_file(path, samples.iter(), 22050, 1, 2);
         assert!(result.is_err());
+    }
+
+    /// `Write` impl that returns a short write (`Ok(n) with n < buf.len()`)
+    /// on its first call, then writes fully on subsequent calls. Used to
+    /// prove `write_all` loops past short writes instead of treating a
+    /// partial write as complete success.
+    struct ShortWriteThenFull {
+        data: Vec<u8>,
+        first_call_done: bool,
+    }
+
+    impl Write for ShortWriteThenFull {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            if !self.first_call_done {
+                self.first_call_done = true;
+                let n = buf.len().min(1);
+                self.data.extend_from_slice(&buf[..n]);
+                Ok(n)
+            } else {
+                self.data.extend_from_slice(buf);
+                Ok(buf.len())
+            }
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn write_all_loops_past_a_short_write_until_the_full_buffer_lands() {
+        let buffer = vec![1u8, 2, 3, 4, 5];
+        let mut writer = ShortWriteThenFull {
+            data: Vec::new(),
+            first_call_done: false,
+        };
+
+        writer.write_all(&buffer).expect("write_all should retry past the short write");
+
+        assert_eq!(writer.data, buffer);
     }
 }
