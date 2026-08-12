@@ -58,15 +58,15 @@ fn supports_streaming_output_is_true() {
 }
 
 #[test]
-fn chunk_size_zero_returns_operation_error() {
-    let model = load_synthetic_model("chunk_size_zero_returns_operation_error");
+fn chunk_size_zero_returns_unsupported_operation() {
+    let model = load_synthetic_model("chunk_size_zero_returns_unsupported_operation");
     let result = model.stream_synthesis(
         TEST_PHONEMES.to_string(),
         0,
         3,
         CancellationToken::new(),
     );
-    assert!(matches!(result, Err(dengjen_core::DengjenError::OperationError(_))));
+    assert!(matches!(result, Err(dengjen_core::DengjenError::UnsupportedOperation(_))));
 }
 
 #[test]

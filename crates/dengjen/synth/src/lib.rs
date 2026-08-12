@@ -5,7 +5,6 @@ use flume::{Receiver, SendError, Sender};
 use once_cell::sync::Lazy;
 use rayon::prelude::*;
 use rayon::{ThreadPool, ThreadPoolBuilder};
-use std::any::Any;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -213,13 +212,13 @@ impl DengjenModel for DengjenSpeechSynthesizer {
     fn speak_one_sentence(&self, phonemes: String) -> DengjenAudioResult {
         self.0.speak_one_sentence(phonemes)
     }
-    fn get_default_synthesis_config(&self) -> DengjenResult<Box<dyn Any>> {
+    fn get_default_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
         self.0.get_default_synthesis_config()
     }
-    fn get_fallback_synthesis_config(&self) -> DengjenResult<Box<dyn Any>> {
+    fn get_fallback_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
         self.0.get_fallback_synthesis_config()
     }
-    fn set_fallback_synthesis_config(&self, synthesis_config: &dyn Any) -> DengjenResult<()> {
+    fn set_fallback_synthesis_config(&self, synthesis_config: &SynthesisConfig) -> DengjenResult<()> {
         self.0.set_fallback_synthesis_config(synthesis_config)
     }
     fn get_language(&self) -> DengjenResult<Option<String>> {
@@ -509,7 +508,6 @@ mod chunk_size_growth_tests {
 #[cfg(test)]
 mod cancellation_tests {
     use super::*;
-    use std::any::Any;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
 
@@ -534,13 +532,13 @@ mod cancellation_tests {
         fn speak_one_sentence(&self, _phonemes: String) -> DengjenAudioResult {
             Err(DengjenError::OperationError("not used by this test".to_string()))
         }
-        fn get_default_synthesis_config(&self) -> DengjenResult<Box<dyn Any>> {
-            Ok(Box::new(()))
+        fn get_default_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
+            Ok(SynthesisConfig::None)
         }
-        fn get_fallback_synthesis_config(&self) -> DengjenResult<Box<dyn Any>> {
-            Ok(Box::new(()))
+        fn get_fallback_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
+            Ok(SynthesisConfig::None)
         }
-        fn set_fallback_synthesis_config(&self, _c: &dyn Any) -> DengjenResult<()> {
+        fn set_fallback_synthesis_config(&self, _c: &SynthesisConfig) -> DengjenResult<()> {
             Ok(())
         }
         fn supports_streaming_output(&self) -> bool {

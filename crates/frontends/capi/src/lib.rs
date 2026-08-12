@@ -1,7 +1,8 @@
 use ffi_support::{call_with_result, define_string_destructor, ErrorCode, ExternError, FfiStr};
-use dengjen_core::{AudioSamples, CancellationToken, DengjenError, DengjenModel, DengjenResult};
+use dengjen_core::{
+    AudioSamples, CancellationToken, DengjenError, DengjenModel, DengjenResult, SynthesisConfig,
+};
 use dengjen_synth::{AudioOutputConfig, DengjenSpeechSynthesizer, SYNTHESIS_THREAD_POOL};
-use std::any::Any;
 use std::ops::Deref;
 use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
@@ -24,6 +25,9 @@ pub mod error_codes {
     pub const INVALID_UTF8_SEQUENCE: i32 = 20;
     pub const UNKNOWN_ERROR: i32 = 21;
     pub const NULL_POINTER: i32 = 22;
+    pub const INFERENCE_ERROR: i32 = 23;
+    pub const INVALID_CONFIGURATION: i32 = 24;
+    pub const UNSUPPORTED_OPERATION: i32 = 25;
 }
 
 pub mod synth_event {
@@ -93,6 +97,9 @@ impl From<DengjenError> for DengjenFFIError {
         let (code, message) = match other {
             DengjenError::FailedToLoadResource(msg) => (error_codes::FAILED_TO_LOAD_RESOURCE, msg),
             DengjenError::PhonemizationError(msg) => (error_codes::PHONEMIZATION_ERROR, msg),
+            DengjenError::InferenceError(msg) => (error_codes::INFERENCE_ERROR, msg),
+            DengjenError::InvalidConfiguration(msg) => (error_codes::INVALID_CONFIGURATION, msg),
+            DengjenError::UnsupportedOperation(msg) => (error_codes::UNSUPPORTED_OPERATION, msg),
             DengjenError::OperationError(msg) => (error_codes::OPERATION_ERROR, msg),
         };
         Self(code, message)
@@ -287,15 +294,15 @@ pub unsafe extern "C" fn libdengjenGetPiperDefaultSynthConfig(
         let synth_config = voice
             .get_default_synthesis_config()
             .map_err(DengjenFFIError::from)?;
-        match synth_config.downcast_ref::<dengjen_piper::PiperSynthesisConfig>() {
-            Some(config) => Ok(PiperSynthConfig {
+        match synth_config {
+            SynthesisConfig::Piper(config) => Ok(PiperSynthConfig {
                 speaker: config.speaker.map(|sid| sid as u32).unwrap_or_default(),
                 length_scale: config.length_scale,
                 noise_scale: config.noise_scale,
                 noise_w: config.noise_w,
             }),
-            None => Err(DengjenFFIError(
-                error_codes::UNKNOWN_ERROR,
+            SynthesisConfig::None => Err(DengjenFFIError(
+                error_codes::INVALID_CONFIGURATION,
                 "Cannot retrieve Piper's default synthesis config".to_string(),
             )),
         }
@@ -318,9 +325,8 @@ pub unsafe extern "C" fn libdengjenSetPiperSynthConfig(
     };
     call_with_result(out_error, move || {
         let piper_synth_config = synth_config.as_piper_synth_config();
-        let config = &piper_synth_config as &dyn Any;
         voice
-            .set_fallback_synthesis_config(config)
+            .set_fallback_synthesis_config(&SynthesisConfig::Piper(piper_synth_config))
             .map_err(DengjenFFIError::from)
     })
 }
@@ -691,6 +697,9 @@ mod tests {
         let cases = [
             (DengjenError::FailedToLoadResource("x".into()), error_codes::FAILED_TO_LOAD_RESOURCE),
             (DengjenError::PhonemizationError("x".into()), error_codes::PHONEMIZATION_ERROR),
+            (DengjenError::InferenceError("x".into()), error_codes::INFERENCE_ERROR),
+            (DengjenError::InvalidConfiguration("x".into()), error_codes::INVALID_CONFIGURATION),
+            (DengjenError::UnsupportedOperation("x".into()), error_codes::UNSUPPORTED_OPERATION),
             (DengjenError::OperationError("x".into()), error_codes::OPERATION_ERROR),
         ];
         for (err, expected_code) in cases {

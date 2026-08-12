@@ -1,7 +1,6 @@
 use grpc::dengjen_grpc_server::{DengjenGrpc, DengjenGrpcServer};
-use dengjen_core::{CancellationToken, DengjenError, DengjenModel, DengjenResult};
+use dengjen_core::{CancellationToken, DengjenError, DengjenModel, DengjenResult, SynthesisConfig};
 use dengjen_synth::{AudioOutputConfig, DengjenSpeechStreamLazy, DengjenSpeechSynthesizer};
-use dengjen_piper::PiperSynthesisConfig;
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
@@ -51,6 +50,9 @@ impl From<DengjenGrpcError> for Status {
                 DengjenError::FailedToLoadResource(msg) | DengjenError::PhonemizationError(msg) => {
                     Status::aborted(msg)
                 }
+                DengjenError::InferenceError(msg) => Status::internal(msg),
+                DengjenError::InvalidConfiguration(msg) => Status::invalid_argument(msg),
+                DengjenError::UnsupportedOperation(msg) => Status::unimplemented(msg),
                 DengjenError::OperationError(msg) => Status::unknown(msg),
             },
             DengjenGrpcError::VoiceNotFound(msg) => Status::not_found(msg),
@@ -135,13 +137,10 @@ impl DengjenGrpcService {
             sample_width: wav_info.sample_width as u32,
         };
         let synth_options = {
-            let config_cast = model
-                .get_default_synthesis_config()?
-                .downcast::<PiperSynthesisConfig>();
-            let default_synth_config = match config_cast {
-                Ok(synth_config) => synth_config,
-                Err(_) => {
-                    return Err(DengjenError::OperationError(
+            let default_synth_config = match model.get_default_synthesis_config()? {
+                SynthesisConfig::Piper(config) => config,
+                SynthesisConfig::None => {
+                    return Err(DengjenError::InvalidConfiguration(
                         "Invalid synthesis config for Vits model".to_string(),
                     )
                     .into())
@@ -172,13 +171,10 @@ impl DengjenGrpcService {
         &self,
         model: &(impl DengjenModel + ?Sized),
     ) -> DengjenGrpcResult<grpc::SynthesisOptions> {
-        let synth_config = match model
-            .get_fallback_synthesis_config()?
-            .downcast::<PiperSynthesisConfig>()
-        {
-            Ok(synth_config) => synth_config,
-            Err(_) => {
-                return Err(DengjenError::OperationError(
+        let synth_config = match model.get_fallback_synthesis_config()? {
+            SynthesisConfig::Piper(config) => config,
+            SynthesisConfig::None => {
+                return Err(DengjenError::InvalidConfiguration(
                     "Invalid synthesis config for Vits model".to_string(),
                 )
                 .into())
@@ -224,13 +220,10 @@ impl DengjenGrpcService {
             }
         };
         let model = voice.model_ref();
-        let mut synth_config = match model
-            .get_fallback_synthesis_config()?
-            .downcast::<PiperSynthesisConfig>()
-        {
-            Ok(synth_config) => synth_config,
-            Err(_) => {
-                return Err(DengjenError::OperationError(
+        let mut synth_config = match model.get_fallback_synthesis_config()? {
+            SynthesisConfig::Piper(config) => config,
+            SynthesisConfig::None => {
+                return Err(DengjenError::InvalidConfiguration(
                     "Could not set synthesis parameters ".to_string(),
                 )
                 .into())
@@ -250,7 +243,7 @@ impl DengjenGrpcService {
         if let Some(noise_w) = synth_opts.noise_w {
             synth_config.noise_w = noise_w;
         }
-        model.set_fallback_synthesis_config(synth_config.as_ref())?;
+        model.set_fallback_synthesis_config(&SynthesisConfig::Piper(synth_config))?;
         self._get_synth_options_from_model(model)
     }
 }
