@@ -3,7 +3,7 @@ use serde::Deserialize;
 use dengjen_piper::PiperSynthesisConfig;
 use dengjen_synth::{
     AudioOutputConfig, AudioSamples, CancellationToken, DengjenModel, DengjenResult,
-    DengjenSpeechSynthesizer,
+    DengjenSpeechSynthesizer, SynthesisConfig,
 };
 use std::fs::File;
 use std::io::{self, prelude::*};
@@ -132,7 +132,9 @@ fn process_synthesis_request(
     default_synth_config: &PiperSynthesisConfig,
     req: SynthesisRequest,
 ) -> anyhow::Result<()> {
-    synth.set_fallback_synthesis_config(&req.as_piper_synth_config(default_synth_config))?;
+    synth.set_fallback_synthesis_config(&SynthesisConfig::Piper(
+        req.as_piper_synth_config(default_synth_config),
+    ))?;
     let output_config = Some(req.as_audio_output_config());
     if let Some(output_file) = args.output_file.as_ref() {
         if req.mode.is_some() {
@@ -271,11 +273,10 @@ fn main() -> anyhow::Result<()> {
     log::info!("Using model config: `{}`", args.config.display());
     // Non-Piper backends (e.g. Kokoro) return a config this can't downcast; their
     // set_fallback_synthesis_config ignores it, so a default is inert there.
-    let default_synth_config: PiperSynthesisConfig = synth
-        .get_default_synthesis_config()?
-        .downcast()
-        .map(|c| *c)
-        .unwrap_or_default();
+    let default_synth_config: PiperSynthesisConfig = match synth.get_default_synthesis_config()? {
+        SynthesisConfig::Piper(cfg) => cfg,
+        SynthesisConfig::None => PiperSynthesisConfig::default(),
+    };
     if let Some(ref input_filename) = args.input_file {
         let mut input_buffer = String::new();
         let mut file = File::open(input_filename)?;
