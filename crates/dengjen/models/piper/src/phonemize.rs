@@ -25,26 +25,26 @@ pub(crate) fn phonemize_dispatch(
     match phoneme_type {
         PhonemeType::Espeak => None,
         PhonemeType::Text => Some(Ok(vec![text.to_string()].into())),
-        other => Some(Err(DengjenError::PhonemizationError(format!(
+        unsupported => Some(Err(DengjenError::PhonemizationError(format!(
             "Phonemization for phoneme_type `{:?}` is not yet supported",
-            other
+            unsupported
         )))),
     }
 }
 
 #[cfg(feature = "tashkeel")]
 pub(crate) fn create_tashkeel_engine(config: &ModelConfig) -> DengjenResult<Option<TashkeelEngine>> {
-    if should_diacritize(&config.espeak.voice) {
-        match libtashkeel_core::create_inference_engine(None) {
-            Ok(engine) => Ok(Some(engine)),
-            Err(msg) => Err(DengjenError::InferenceError(format!(
+    if !should_diacritize(&config.espeak.voice) {
+        return Ok(None);
+    }
+    libtashkeel_core::create_inference_engine(None)
+        .map(Some)
+        .map_err(|msg| {
+            DengjenError::InferenceError(format!(
                 "Failed to create inference engine for libtashkeel. {}",
                 msg
-            ))),
-        }
-    } else {
-        Ok(None)
-    }
+            ))
+        })
 }
 #[cfg(not(feature = "tashkeel"))]
 pub(crate) fn create_tashkeel_engine(

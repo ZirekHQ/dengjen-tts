@@ -68,26 +68,20 @@ pub struct ModelConfig {
 pub(crate) fn load_model_config(
     config_path: &Path,
 ) -> DengjenResult<(ModelConfig, PiperSynthesisConfig)> {
-    let file = match File::open(config_path) {
-        Ok(file) => file,
-        Err(why) => {
-            return Err(DengjenError::FailedToLoadResource(format!(
-                "Faild to load model config: `{}`. Caused by: `{}`",
-                config_path.display(),
-                why
-            )))
-        }
-    };
-    let model_config: ModelConfig = match serde_json::from_reader(file) {
-        Ok(config) => config,
-        Err(why) => {
-            return Err(DengjenError::FailedToLoadResource(format!(
-                "Faild to parse model config from file: `{}`. Caused by: `{}`",
-                config_path.display(),
-                why
-            )))
-        }
-    };
+    let file = File::open(config_path).map_err(|why| {
+        DengjenError::FailedToLoadResource(format!(
+            "Faild to load model config: `{}`. Caused by: `{}`",
+            config_path.display(),
+            why
+        ))
+    })?;
+    let model_config: ModelConfig = serde_json::from_reader(file).map_err(|why| {
+        DengjenError::FailedToLoadResource(format!(
+            "Faild to parse model config from file: `{}`. Caused by: `{}`",
+            config_path.display(),
+            why
+        ))
+    })?;
     let synth_config = PiperSynthesisConfig {
         speaker: None,
         noise_scale: model_config.inference.noise_scale,
@@ -97,6 +91,10 @@ pub(crate) fn load_model_config(
     Ok((model_config, synth_config))
 }
 
+/// Tokenizes a phoneme string against the voice's phoneme table, emitting
+/// `bos, (id, pad)*, eos`. Longest match wins, so a multi-character cluster such
+/// as `aɪ` is preferred over the single characters spelling it; characters the
+/// table doesn't cover are dropped rather than failing the utterance.
 pub(crate) fn map_phonemes_to_ids(
     phoneme_id_map: &HashMap<String, Vec<i64>>,
     phonemes: &str,
@@ -104,31 +102,30 @@ pub(crate) fn map_phonemes_to_ids(
     bos_id: i64,
     eos_id: i64,
 ) -> Vec<i64> {
-    let max_cluster_len = phoneme_id_map
+    let longest_entry = phoneme_id_map
         .keys()
-        .map(|k| k.chars().count())
+        .map(|entry| entry.chars().count())
         .max()
         .unwrap_or(1)
         .max(1);
     let chars: Vec<char> = phonemes.chars().collect();
-    let mut phoneme_ids: Vec<i64> = Vec::with_capacity((chars.len() + 1) * 2);
+
+    let mut phoneme_ids = Vec::with_capacity((chars.len() + 1) * 2);
     phoneme_ids.push(bos_id);
-    let mut i = 0;
-    while i < chars.len() {
-        let max_len = max_cluster_len.min(chars.len() - i);
-        let matched_len = (1..=max_len).rev().find(|&len| {
-            let candidate: String = chars[i..i + len].iter().collect();
-            phoneme_id_map.contains_key(&candidate)
+    let mut cursor = 0;
+    while cursor < chars.len() {
+        let widest = longest_entry.min(chars.len() - cursor);
+        let matched = (1..=widest).rev().find_map(|width| {
+            let candidate: String = chars[cursor..cursor + width].iter().collect();
+            phoneme_id_map.get(&candidate).map(|entry| (width, entry))
         });
-        match matched_len {
-            Some(len) => {
-                let candidate: String = chars[i..i + len].iter().collect();
-                let id = *phoneme_id_map.get(&candidate).unwrap().first().unwrap();
-                phoneme_ids.push(id);
+        match matched {
+            Some((width, entry)) => {
+                phoneme_ids.push(*entry.first().unwrap());
                 phoneme_ids.push(pad_id);
-                i += len;
+                cursor += width;
             }
-            None => i += 1,
+            None => cursor += 1,
         }
     }
     phoneme_ids.push(eos_id);
