@@ -4,12 +4,11 @@
 // crate-wide here instead.
 #![allow(non_local_definitions)]
 
-use dengjen_core::{Audio, AudioInfo, CancellationToken, DengjenError, DengjenModel};
+use dengjen_core::{Audio, AudioInfo, CancellationToken, DengjenError, DengjenModel, SynthesisConfig};
 use dengjen_synth::{
     AudioOutputConfig, DengjenSpeechStreamLazy, DengjenSpeechStreamParallel,
     DengjenSpeechSynthesizer, RealtimeSpeechStream
 };
-use dengjen_piper::PiperSynthesisConfig;
 #[cfg(feature = "tashkeel")]
 use libtashkeel_core::{LibtashkeelResult, DynamicInferenceEngine as TashkeelInferenceEngine, do_tashkeel};
 #[cfg(feature = "tashkeel")]
@@ -264,16 +263,12 @@ impl PiperModel {
     }
     #[getter]
     fn get_speaker(&self) -> PyDengjenResult<Option<String>> {
-        match self
-            .0
-            .get_fallback_synthesis_config()?
-            .downcast_ref::<PiperSynthesisConfig>()
-        {
-            Some(synth_config) => match synth_config.speaker {
+        match self.0.get_fallback_synthesis_config()? {
+            SynthesisConfig::Piper(synth_config) => match synth_config.speaker {
                 Some(sid) => Ok(self.0.speaker_id_to_name(&sid)?),
                 None => Ok(None),
             },
-            None => Ok(None),
+            SynthesisConfig::None => Ok(None),
         }
     }
     #[setter]
@@ -288,50 +283,42 @@ impl PiperModel {
                 .into())
             }
         };
-        match self
-            .0
-            .get_fallback_synthesis_config()?
-            .downcast::<PiperSynthesisConfig>()
-        {
-            Ok(mut synth_config) => {
+        match self.0.get_fallback_synthesis_config()? {
+            SynthesisConfig::Piper(mut synth_config) => {
                 synth_config.speaker = Some(sid);
-                Ok(self.0.set_fallback_synthesis_config(&synth_config)?)
+                Ok(self
+                    .0
+                    .set_fallback_synthesis_config(&SynthesisConfig::Piper(synth_config))?)
             }
-            Err(_) => {
-                Err(DengjenError::OperationError("Cannot set synthesis config".to_string()).into())
+            SynthesisConfig::None => {
+                Err(DengjenError::InvalidConfiguration("Cannot set synthesis config".to_string()).into())
             }
         }
     }
     fn get_scales(&self) -> PyDengjenResult<PiperScales> {
-        match self
-            .0
-            .get_fallback_synthesis_config()?
-            .downcast::<PiperSynthesisConfig>()
-        {
-            Ok(synth_config) => Ok(PiperScales {
+        match self.0.get_fallback_synthesis_config()? {
+            SynthesisConfig::Piper(synth_config) => Ok(PiperScales {
                 length_scale: synth_config.length_scale,
                 noise_scale: synth_config.noise_scale,
                 noise_w: synth_config.noise_w,
             }),
-            Err(_) => {
-                Err(DengjenError::OperationError("Cannot set synthesis config".to_string()).into())
+            SynthesisConfig::None => {
+                Err(DengjenError::InvalidConfiguration("Cannot get synthesis config".to_string()).into())
             }
         }
     }
     fn set_scales(&self, length_scale: f32, noise_scale: f32, noise_w: f32) -> PyDengjenResult<()> {
-        match self
-            .0
-            .get_fallback_synthesis_config()?
-            .downcast::<PiperSynthesisConfig>()
-        {
-            Ok(mut synth_config) => {
+        match self.0.get_fallback_synthesis_config()? {
+            SynthesisConfig::Piper(mut synth_config) => {
                 synth_config.length_scale = length_scale;
                 synth_config.noise_scale = noise_scale;
                 synth_config.noise_w = noise_w;
-                Ok(self.0.set_fallback_synthesis_config(&synth_config)?)
+                Ok(self
+                    .0
+                    .set_fallback_synthesis_config(&SynthesisConfig::Piper(synth_config))?)
             }
-            Err(_) => {
-                Err(DengjenError::OperationError("Cannot set synthesis config".to_string()).into())
+            SynthesisConfig::None => {
+                Err(DengjenError::InvalidConfiguration("Cannot set synthesis config".to_string()).into())
             }
         }
     }
