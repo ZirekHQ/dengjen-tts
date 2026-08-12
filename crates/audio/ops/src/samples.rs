@@ -6,6 +6,7 @@ const I16MIN_F32: f32 = i16::MIN as f32;
 const I16MAX_F32: f32 = i16::MAX as f32;
 const MAX_WAV_VALUE_I16: f32 = 32767.0;
 
+/// Playback-relevant metadata describing a raw PCM sample stream.
 #[derive(Debug, Clone)]
 pub struct AudioInfo {
     pub sample_rate: usize,
@@ -13,6 +14,8 @@ pub struct AudioInfo {
     pub sample_width: usize,
 }
 
+/// A buffer of `f32` PCM samples in the `[-1.0, 1.0]` range, plus the operations
+/// (fades, filters, normalization) used to shape it before encoding to WAV.
 #[derive(Clone, Debug, Default)]
 #[must_use]
 pub struct AudioSamples(Vec<f32>);
@@ -21,190 +24,191 @@ impl AudioSamples {
     pub fn new(samples: Vec<f32>) -> Self {
         Self(samples)
     }
+
     pub fn as_slice(&self) -> &[f32] {
-        self.0.as_slice()
+        &self.0
     }
+
     pub fn as_vec(&self) -> &Vec<f32> {
         &self.0
     }
+
     pub fn as_mut_vec(&mut self) -> &mut Vec<f32> {
         &mut self.0
     }
+
     pub fn into_vec(self) -> Vec<f32> {
         self.0
     }
+
     pub fn take(&mut self) -> Vec<f32> {
         std::mem::take(&mut self.0)
     }
-    pub fn take_range(&mut self, mut  sample_range: std::ops::Range<usize>) -> Vec<f32> {
-        sample_range.end = sample_range.end.min(self.len());
-        Vec::from_iter(
-            self.0.drain(sample_range)
-        )
+
+    pub fn take_range(&mut self, sample_range: std::ops::Range<usize>) -> Vec<f32> {
+        let end = sample_range.end.min(self.len());
+        self.0.drain(sample_range.start..end).collect()
     }
+
     pub fn len(&self) -> usize {
         self.0.len()
     }
+
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
     pub fn to_i16_vec(&self) -> Vec<i16> {
         if self.is_empty() {
-            return Default::default();
+            return Vec::new();
         }
-        let min_audio_value = self
+        let highest = self
             .0
             .iter()
-            .min_by(|x, y| x.partial_cmp(y).unwrap())
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
             .unwrap();
-        let max_audio_value = self
+        let lowest = self
             .0
             .iter()
-            .max_by(|x, y| x.partial_cmp(y).unwrap())
+            .min_by(|a, b| a.partial_cmp(b).unwrap())
             .unwrap();
-        let abs_max = max_audio_value
-            .abs()
-            .max(min_audio_value.abs())
-            .max(f32::EPSILON);
-        let audio_scale = MAX_WAV_VALUE_I16 / abs_max;
-        Vec::from_iter(
-            self.0
-                .iter()
-                .map(|f| (f * audio_scale).clamp(I16MIN_F32, I16MAX_F32) as i16),
-        )
+        let peak = highest.abs().max(lowest.abs()).max(f32::EPSILON);
+        let scale = MAX_WAV_VALUE_I16 / peak;
+        self.0
+            .iter()
+            .map(|sample| (sample * scale).clamp(I16MIN_F32, I16MAX_F32) as i16)
+            .collect()
     }
+
     pub fn as_wave_bytes(&self) -> Vec<u8> {
-        Vec::from_iter(self.to_i16_vec().into_iter().flat_map(|i| i.to_le_bytes()))
+        self.to_i16_vec()
+            .into_iter()
+            .flat_map(i16::to_le_bytes)
+            .collect()
     }
+
     pub fn merge(&mut self, mut other: Self) {
-        self.0.append(other.0.as_mut());
+        self.0.append(&mut other.0);
     }
     pub fn normalize(&mut self, max_value: f32) {
         if self.is_empty() {
             return;
         }
-        let self_max = self
+        let largest = self
             .0
             .iter()
-            .max_by(|x, y| x.partial_cmp(y).unwrap())
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
             .unwrap()
             .abs();
-        let factor = self_max.max(max_value) / max_value.abs();
-        self.0.iter_mut().for_each(|f| *f /= factor);
+        let factor = largest.max(max_value) / max_value.abs();
+        for sample in self.0.iter_mut() {
+            *sample /= factor;
+        }
     }
     pub fn apply_hanning_window(&mut self) {
-        let samples = self.0.as_mut_slice();
-        let h_win = hanning_window::get_hann_window(samples.len());
-        for (sample, ratio) in samples.iter_mut().zip(h_win) {
+        // get_hann_window panics on a zero-length window; nothing to taper anyway.
+        if self.is_empty() {
+            return;
+        }
+        let window = hanning_window::get_hann_window(self.0.len());
+        for (sample, ratio) in self.0.iter_mut().zip(window) {
             *sample *= ratio;
         }
     }
     pub fn overlap_with(&mut self, other: &mut Self) {
         if !self.is_empty() {
-            let (s1, s2) = (self.0.as_mut_slice(), other.0.as_mut_slice());
-            s1.reverse();
-            let num_samples = s1.len().min(s2.len());
-            let attenuation_factor = 2.0 * num_samples as f32;
-            (0..num_samples)
-                .map(|t| (t as f32 * PI / attenuation_factor).sin())
-                .zip(s1.iter_mut().zip(s2.iter_mut()))
-                .for_each(|(r, (f1, f2))| {
-                    *f1 *= r;
-                    *f2 *= r;
-                });
-            s1.reverse();
+            let self_len = self.0.len();
+            let overlap = self_len.min(other.0.len());
+            let span = 2.0 * overlap as f32;
+            for t in 0..overlap {
+                let ratio = (t as f32 * PI / span).sin();
+                self.0[self_len - 1 - t] *= ratio;
+                other.0[t] *= ratio;
+            }
         }
-        self.0.append(other.0.as_mut());
+        self.0.append(&mut other.0);
     }
     pub fn fade_in(&mut self, fade_samples: usize) {
-        let fade_samples = fade_samples.min(self.len());
-        let attenuation_factor = fade_samples as f32;
-        let fade = (0..fade_samples)
-            .map(|i| i as f32 / attenuation_factor)
-            // quarter of sine-wave
-            .map(|f| (f * PI / 2.0).sin());
-        let samples: &mut [f32] = self.0.as_mut_slice();
-        for (i, f) in (0..fade_samples).zip(fade) {
-            samples[i] *= f;
+        let span = fade_samples.min(self.len());
+        let span_f32 = span as f32;
+        for i in 0..span {
+            let ratio = (i as f32 / span_f32 * PI / 2.0).sin();
+            self.0[i] *= ratio;
         }
     }
+
     pub fn fade_out(&mut self, fade_samples: usize) {
         let length = self.len();
-        let fade_samples = fade_samples.min(length);
-        let attenuation_factor = fade_samples as f32;
-        let fade = (0..fade_samples)
-            .map(|i| i as f32 / attenuation_factor)
-            // quarter of sine-wave
-            .map(|f| (f * PI / 2.0).sin());
-        let samples: &mut [f32] = self.0.as_mut_slice();
-        for (i, f) in (0..fade_samples).zip(fade) {
-            samples[length - i - 1] *= f;
+        let span = fade_samples.min(length);
+        let span_f32 = span as f32;
+        for i in 0..span {
+            let ratio = (i as f32 / span_f32 * PI / 2.0).sin();
+            self.0[length - 1 - i] *= ratio;
         }
     }
     pub fn crossfade(&mut self, fade_samples: usize) {
         let length = self.len();
-        let fade_samples = fade_samples.min(length / 2);
-        let attenuation_factor = (fade_samples - 1) as f32;
-        let fade = (0..fade_samples)
-            .map(|i| i as f32 / attenuation_factor)
-            // quarter of sine-wave
-            .map(|f| (f * PI / 2.0).sin());
-        let samples: &mut Vec<f32> = self.0.as_mut();
-        for (i, f) in (0..fade_samples).zip(fade) {
-            samples[i] *= f;
-            samples[length - i - 1] *= f;
+        let span = fade_samples.min(length / 2);
+        // span - 1 would underflow (span == 0) or divide by zero (span == 1); nothing
+        // meaningful to fade at that resolution, so leave the buffer untouched.
+        if span < 2 {
+            return;
+        }
+        let span_f32 = (span - 1) as f32;
+        for i in 0..span {
+            let ratio = (i as f32 / span_f32 * PI / 2.0).sin();
+            self.0[i] *= ratio;
+            self.0[length - 1 - i] *= ratio;
         }
     }
-    pub fn lowpass_filter(&mut self, sample_range: std::ops::Range<usize>, fc: f32) {
-        let samples: &mut Vec<f32> = self.0.as_mut();
+    pub fn lowpass_filter(&mut self, sample_range: std::ops::Range<usize>, cutoff: f32) {
         for i in sample_range {
-            let x = samples[i];
-            samples[i] = if x < fc { x } else { 0.0 };
+            self.0[i] = if self.0[i] < cutoff { self.0[i] } else { 0.0 };
         }
     }
-    pub fn highpass_filter(&mut self, sample_range: std::ops::Range<usize>, fc: f32) {
-        let samples: &mut Vec<f32> = self.0.as_mut();
+
+    pub fn highpass_filter(&mut self, sample_range: std::ops::Range<usize>, cutoff: f32) {
         for i in sample_range {
-            let x = samples[i];
-            samples[i] = if x > fc { x } else { 0.0 };
+            self.0[i] = if self.0[i] > cutoff { self.0[i] } else { 0.0 };
         }
     }
+
     pub fn strip_silence(&mut self, sample_range: std::ops::Range<usize>) {
-        let samples: &mut Vec<f32> = self.0.as_mut();
-        let nonsilence = Vec::from_iter(
-            samples[sample_range.clone()]
-                .iter()
-                .filter(|f| **f > 0.0)
-                .copied(),
-        );
-        self.0.splice(sample_range, nonsilence).count();
+        let kept: Vec<f32> = self.0[sample_range.clone()]
+            .iter()
+            .copied()
+            .filter(|&f| f > 0.0)
+            .collect();
+        self.0.splice(sample_range, kept);
     }
+
     pub fn to_decibel(&self) -> Vec<f32> {
-        Vec::from_iter(self.0.iter().map(|x| 20.0 * x.abs().log10()))
+        self.0.iter().map(|x| 20.0 * x.abs().log10()).collect()
     }
 }
 
 impl From<AudioSamples> for Vec<f32> {
-    fn from(other: AudioSamples) -> Self {
-        other.into_vec()
+    fn from(samples: AudioSamples) -> Self {
+        samples.into_vec()
     }
 }
 
 impl From<Vec<f32>> for AudioSamples {
-    fn from(other: Vec<f32>) -> Self {
-        Self::new(other)
+    fn from(raw: Vec<f32>) -> Self {
+        Self::new(raw)
     }
 }
 
 impl IntoIterator for AudioSamples {
     type Item = f32;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
+    type IntoIter = std::vec::IntoIter<f32>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
     }
 }
 
+/// A complete decoded utterance: the sample buffer plus format metadata and
+/// (optionally) how long the model took to produce it.
 #[derive(Debug, Clone)]
 #[must_use]
 pub struct Audio {
@@ -215,14 +219,15 @@ pub struct Audio {
 
 impl Audio {
     pub fn new(samples: AudioSamples, sample_rate: usize, inference_ms: Option<f32>) -> Self {
+        let info = AudioInfo {
+            sample_rate,
+            num_channels: 1,
+            sample_width: 2,
+        };
         Self {
             samples,
+            info,
             inference_ms,
-            info: AudioInfo {
-                sample_rate,
-                num_channels: 1,
-                sample_width: 2,
-            },
         }
     }
 
@@ -243,7 +248,7 @@ impl Audio {
     }
 
     pub fn duration_ms(&self) -> f32 {
-        (self.len() as f32 / self.info.sample_rate as f32) * 1000.0f32
+        self.len() as f32 / self.info.sample_rate as f32 * 1000.0
     }
 
     pub fn inference_ms(&self) -> Option<f32> {
@@ -251,12 +256,12 @@ impl Audio {
     }
 
     pub fn real_time_factor(&self) -> Option<f32> {
-        let infer_ms = self.inference_ms?;
-        let audio_duration = self.duration_ms();
-        if audio_duration == 0.0 {
-            return Some(0.0f32);
+        let inference_ms = self.inference_ms?;
+        let duration_ms = self.duration_ms();
+        if duration_ms == 0.0 {
+            return Some(0.0);
         }
-        Some(infer_ms / audio_duration)
+        Some(inference_ms / duration_ms)
     }
 
     pub fn save_to_file(&self, filename: &Path) -> Result<(), crate::WaveWriterError> {
@@ -272,7 +277,7 @@ impl Audio {
 
 impl IntoIterator for Audio {
     type Item = f32;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
+    type IntoIter = std::vec::IntoIter<f32>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.samples.into_iter()
@@ -406,16 +411,27 @@ mod tests {
         assert!(v.iter().all(|f| f.is_finite()));
     }
 
-    // KNOWN GAP (see docs/superpowers/specs/2026-08-05-test-coverage-design.md and this
-    // plan's Task 2 commit): crossfade divides by (fade_samples - 1), so fade_samples <= 1
-    // produces NaN instead of a defined result. This test characterizes the current
-    // behavior; it is not a fix. Flag to the user before changing it, since callers may
-    // depend on the current (broken) shape.
     #[test]
-    fn crossfade_with_one_fade_sample_currently_produces_nan() {
-        let mut samples = AudioSamples::from(vec![1.0, 2.0, 3.0, 4.0]);
+    fn crossfade_is_a_noop_when_fade_length_resolves_below_two() {
+        let original = vec![1.0, 2.0, 3.0, 4.0];
+        let mut samples = AudioSamples::from(original.clone());
         samples.crossfade(1);
-        assert!(samples.as_vec()[0].is_nan());
+        assert_eq!(samples.as_vec(), &original);
+    }
+
+    #[test]
+    fn crossfade_is_a_noop_for_zero_fade_samples() {
+        let original = vec![1.0, 2.0, 3.0, 4.0];
+        let mut samples = AudioSamples::from(original.clone());
+        samples.crossfade(0);
+        assert_eq!(samples.as_vec(), &original);
+    }
+
+    #[test]
+    fn apply_hanning_window_on_empty_samples_is_a_noop() {
+        let mut samples = AudioSamples::from(Vec::<f32>::new());
+        samples.apply_hanning_window();
+        assert!(samples.is_empty());
     }
 
     #[test]
@@ -449,5 +465,30 @@ mod tests {
         // 100 samples @ 100Hz = 1000ms duration; 50ms inference => rtf 0.05
         let audio = Audio::new(AudioSamples::from(vec![0.0; 100]), 100, Some(50.0));
         assert_eq!(audio.real_time_factor(), Some(0.05));
+    }
+
+    #[test]
+    fn crossfade_golden_values_for_a_known_input() {
+        let mut samples = AudioSamples::from(vec![1.0; 8]);
+        samples.crossfade(2);
+        assert_eq!(
+            samples.as_vec(),
+            &vec![0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0]
+        );
+    }
+
+    #[test]
+    fn overlap_with_golden_values_for_a_known_input() {
+        let mut s1 = AudioSamples::from(vec![1.0, 2.0]);
+        let mut s2 = AudioSamples::from(vec![3.0, 4.0]);
+        s1.overlap_with(&mut s2);
+        let r = (std::f32::consts::PI / 4.0).sin();
+        assert_eq!(s1.as_vec(), &vec![r, 0.0, 0.0, 4.0 * r]);
+    }
+
+    #[test]
+    fn to_i16_vec_golden_values_for_a_known_input() {
+        let samples = AudioSamples::from(vec![-1.0, 0.5, 1.0]);
+        assert_eq!(samples.to_i16_vec(), vec![-32767, 16383, 32767]);
     }
 }
