@@ -105,11 +105,12 @@ impl AudioSamples {
         }
     }
     pub fn apply_hanning_window(&mut self) {
-        // get_hann_window panics on a zero-length window; nothing to taper anyway.
+        // Guard makes the .expect() below safe: get_hann_window only errors on length 0.
         if self.is_empty() {
             return;
         }
-        let window = hanning_window::get_hann_window(self.0.len());
+        let window = hanning_window::get_hann_window(self.0.len())
+            .expect("apply_hanning_window guards against window_length == 0 above");
         for (sample, ratio) in self.0.iter_mut().zip(window) {
             *sample *= ratio;
         }
