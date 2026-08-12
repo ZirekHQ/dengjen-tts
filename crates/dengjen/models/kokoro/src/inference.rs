@@ -4,12 +4,11 @@ use crate::voice_style::VoiceStyles;
 use crate::vocab::Vocab;
 use dengjen_core::{
     Audio, AudioInfo, AudioSamples, AudioStreamIterator, CancellationToken, DengjenAudioResult,
-    DengjenError, DengjenModel, DengjenResult, Phonemes,
+    DengjenError, DengjenModel, DengjenResult, Phonemes, SynthesisConfig,
 };
 use ndarray::{Array1, Array2};
 use ort::session::Session;
 use ort::value::Tensor;
-use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -75,10 +74,10 @@ impl KokoroModel {
                 Tensor::from_array(style).map_err(|e| DengjenError::with_message(e.to_string()))?,
                 Tensor::from_array(speed).map_err(|e| DengjenError::with_message(e.to_string()))?,
             ])
-            .map_err(|e| DengjenError::OperationError(format!("Kokoro inference failed: {}", e)))?;
+            .map_err(|e| DengjenError::InferenceError(format!("Kokoro inference failed: {}", e)))?;
         let (_, data) = outputs[0]
             .try_extract_tensor::<f32>()
-            .map_err(|e| DengjenError::OperationError(format!("Failed to extract Kokoro output: {}", e)))?;
+            .map_err(|e| DengjenError::InferenceError(format!("Failed to extract Kokoro output: {}", e)))?;
         Ok(Audio::new(data.to_vec().into(), self.sample_rate as usize, None))
     }
 }
@@ -109,15 +108,15 @@ impl DengjenModel for KokoroModel {
         self.synthesize_phonemes(&phonemes)
     }
 
-    fn get_default_synthesis_config(&self) -> DengjenResult<Box<dyn Any>> {
-        Ok(Box::new(()))
+    fn get_default_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
+        Ok(SynthesisConfig::None)
     }
 
-    fn get_fallback_synthesis_config(&self) -> DengjenResult<Box<dyn Any>> {
-        Ok(Box::new(()))
+    fn get_fallback_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
+        Ok(SynthesisConfig::None)
     }
 
-    fn set_fallback_synthesis_config(&self, _synthesis_config: &dyn Any) -> DengjenResult<()> {
+    fn set_fallback_synthesis_config(&self, _synthesis_config: &SynthesisConfig) -> DengjenResult<()> {
         Ok(())
     }
 
@@ -137,7 +136,7 @@ impl DengjenModel for KokoroModel {
         cancel_token: CancellationToken,
     ) -> DengjenResult<AudioStreamIterator<'_>> {
         if chunk_size == 0 {
-            return Err(DengjenError::OperationError(
+            return Err(DengjenError::UnsupportedOperation(
                 "chunk_size must be greater than 0".to_string(),
             ));
         }
