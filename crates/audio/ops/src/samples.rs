@@ -14,8 +14,8 @@ pub struct AudioInfo {
     pub sample_width: usize,
 }
 
-/// A buffer of `f32` PCM samples in the `[-1.0, 1.0]` range, plus the operations
-/// (fades, filters, normalization) used to shape it before encoding to WAV.
+/// A buffer of `f32` PCM samples, typically normalized to `[-1.0, 1.0]`, plus the
+/// operations (fades, filters, normalization) used to shape it before encoding to WAV.
 #[derive(Clone, Debug, Default)]
 #[must_use]
 pub struct AudioSamples(Vec<f32>);
@@ -149,8 +149,7 @@ impl AudioSamples {
     pub fn crossfade(&mut self, fade_samples: usize) {
         let length = self.len();
         let span = fade_samples.min(length / 2);
-        // span - 1 would underflow (span == 0) or divide by zero (span == 1); nothing
-        // meaningful to fade at that resolution, so leave the buffer untouched.
+        // span - 1 underflows at 0 and divides by zero at 1 — nothing to fade, leave untouched.
         if span < 2 {
             return;
         }
