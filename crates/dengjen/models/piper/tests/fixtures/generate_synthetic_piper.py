@@ -78,6 +78,17 @@ def build_decoder_model(path):
     # length must scale with that slice's time dimension * hop_length, or
     # SpeechStreamer's audio-index slicing (also scaled by hop_length) will
     # go out of bounds on any chunk after the first.
+    #
+    # The output content is a position-dependent ramp (0, 1, 2, ...), not a
+    # constant: a decoder that returns the same values regardless of chunk
+    # boundaries would make a one-shot (single-call) decode and a genuinely
+    # chunked (multi-call) decode byte-identical, defeating the point of this
+    # fixture. A one-shot run produces one continuous ramp; a chunked run
+    # produces several shorter ramps, each restarting at 0 for its own chunk's
+    # z slice, so the two paths are distinguishable by content, not just length.
+    #
+    # HOP_LENGTH here must stay in sync with the "hop_length" field in both
+    # test config JSONs in piper_synthetic_cli.rs.
     z_in = helper.make_tensor_value_info("z", TensorProto.FLOAT, [1, ENCODER_CHANNELS, None])
     y_mask_in = helper.make_tensor_value_info("y_mask", TensorProto.FLOAT, [1, 1, None])
     output = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 1, None])
@@ -88,6 +99,10 @@ def build_decoder_model(path):
     leading_dims_const = numpy_helper.from_array(
         np.array([1, 1], dtype=np.int64), name="leading_dims_const"
     )
+    time_index_const = numpy_helper.from_array(np.array([2], dtype=np.int64), name="time_index_const")
+    squeeze_axes_const = numpy_helper.from_array(np.array([0], dtype=np.int64), name="squeeze_axes_const")
+    range_start_const = numpy_helper.from_array(np.array(0, dtype=np.int64), name="range_start_const")
+    range_delta_const = numpy_helper.from_array(np.array(1, dtype=np.int64), name="range_delta_const")
 
     z_shape = helper.make_node("Shape", inputs=["z"], outputs=["z_shape"])
     time_dim = helper.make_node(
@@ -99,20 +114,32 @@ def build_decoder_model(path):
     out_shape = helper.make_node(
         "Concat", inputs=["leading_dims_const", "samples_dim"], outputs=["out_shape"], axis=0
     )
-    fill_output = helper.make_node(
-        "ConstantOfShape",
-        inputs=["out_shape"],
-        outputs=["output"],
-        value=numpy_helper.from_array(np.array([0.0], dtype=np.float32)),
+    samples_dim_scalar = helper.make_node(
+        "Squeeze", inputs=["samples_dim", "squeeze_axes_const"], outputs=["samples_dim_scalar"]
     )
-    time_index_const = numpy_helper.from_array(np.array([2], dtype=np.int64), name="time_index_const")
+    ramp = helper.make_node(
+        "Range",
+        inputs=["range_start_const", "samples_dim_scalar", "range_delta_const"],
+        outputs=["ramp"],
+    )
+    ramp_float = helper.make_node("Cast", inputs=["ramp"], outputs=["ramp_float"], to=TensorProto.FLOAT)
+    reshape_output = helper.make_node(
+        "Reshape", inputs=["ramp_float", "out_shape"], outputs=["output"]
+    )
 
     graph = helper.make_graph(
-        [z_shape, time_dim, samples_dim, out_shape, fill_output],
+        [z_shape, time_dim, samples_dim, out_shape, samples_dim_scalar, ramp, ramp_float, reshape_output],
         "synthetic_piper_decoder",
         [z_in, y_mask_in],
         [output],
-        initializer=[hop_length_const, leading_dims_const, time_index_const],
+        initializer=[
+            hop_length_const,
+            leading_dims_const,
+            time_index_const,
+            squeeze_axes_const,
+            range_start_const,
+            range_delta_const,
+        ],
     )
     model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
     with open(path, "wb") as f:
