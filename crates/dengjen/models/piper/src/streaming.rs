@@ -413,6 +413,24 @@ mod tests {
     }
 
     #[test]
+    fn adaptive_mel_chunker_clamps_chunk_width_at_max() {
+        // base_chunk_size=600: the first chunk's width is 600*1=600
+        // (unclamped). Once it's emitted, chunks_emitted=1, so the second
+        // chunk's raw width would be 600*2=1200, which exceeds
+        // MAX_CHUNK_SIZE (1024) and must be clamped down before it's used to
+        // compute the mel slice.
+        let mut chunker = AdaptiveMelChunker::new(100_000, 600, 10, 256);
+
+        let (first_mel, _) = chunker.next().unwrap();
+        assert_eq!(first_mel.end, Some(610)); // 0 + 600 + padding(10)
+
+        let (second_mel, _) = chunker.next().unwrap();
+        // Without the clamp this would be 610 + 1200 + 10 = 1820.
+        assert_eq!(second_mel.end, Some(610 + MAX_CHUNK_SIZE as isize + 10));
+        assert_eq!(chunker.current_chunk_width(), MAX_CHUNK_SIZE as isize);
+    }
+
+    #[test]
     fn adaptive_mel_chunker_terminates_when_remaining_frames_fall_below_minimum() {
         // num_frames=50, chunk_size=10, chunk_padding=5, hop_length=10:
         // chunk_end = 0 + 10 + 5 = 15; remaining = 50 - 15 = 35 <= MIN_CHUNK_SIZE (44),

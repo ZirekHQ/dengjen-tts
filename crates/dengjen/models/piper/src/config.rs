@@ -70,14 +70,14 @@ pub(crate) fn load_model_config(
 ) -> DengjenResult<(ModelConfig, PiperSynthesisConfig)> {
     let file = File::open(config_path).map_err(|why| {
         DengjenError::FailedToLoadResource(format!(
-            "Faild to load model config: `{}`. Caused by: `{}`",
+            "Failed to load model config: `{}`. Caused by: `{}`",
             config_path.display(),
             why
         ))
     })?;
     let model_config: ModelConfig = serde_json::from_reader(file).map_err(|why| {
         DengjenError::FailedToLoadResource(format!(
-            "Faild to parse model config from file: `{}`. Caused by: `{}`",
+            "Failed to parse model config from file: `{}`. Caused by: `{}`",
             config_path.display(),
             why
         ))

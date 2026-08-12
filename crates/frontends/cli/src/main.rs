@@ -271,8 +271,9 @@ fn main() -> anyhow::Result<()> {
         DengjenSpeechSynthesizer::new(voice)?
     };
     log::info!("Using model config: `{}`", args.config.display());
-    // Non-Piper backends (e.g. Kokoro) return a config this can't downcast; their
-    // set_fallback_synthesis_config ignores it, so a default is inert there.
+    // Non-Piper backends (e.g. Kokoro) return SynthesisConfig::None here; their
+    // set_fallback_synthesis_config ignores whatever default we pass, so this
+    // default is inert for them.
     let default_synth_config: PiperSynthesisConfig = match synth.get_default_synthesis_config()? {
         SynthesisConfig::Piper(cfg) => cfg,
         SynthesisConfig::None => PiperSynthesisConfig::default(),

@@ -52,17 +52,17 @@ pub(crate) fn expect_piper_config(
 /// Builds the positional input list every VITS graph expects: the phoneme ids,
 /// their length, the three synthesis scales, and — for multi-speaker voices
 /// only — the speaker id.
-pub(crate) fn build_vits_inputs<'v>(
+pub(crate) fn build_vits_inputs(
     phoneme_ids: Vec<i64>,
     scales: [f32; 3],
     speaker: Option<i64>,
-) -> Vec<SessionInputValue<'v>> {
+) -> Vec<SessionInputValue<'static>> {
     let phoneme_count = phoneme_ids.len();
     let ids = Array2::<i64>::from_shape_vec((1, phoneme_count), phoneme_ids).unwrap();
     let lengths = Array1::<i64>::from_iter([phoneme_count as i64]);
     let scales = Array1::<f32>::from_iter(scales);
 
-    let mut inputs: Vec<SessionInputValue<'v>> = ort::inputs![
+    let mut inputs: Vec<SessionInputValue<'static>> = ort::inputs![
         Tensor::from_array(ids).unwrap(),
         Tensor::from_array(lengths).unwrap(),
         Tensor::from_array(scales).unwrap(),
