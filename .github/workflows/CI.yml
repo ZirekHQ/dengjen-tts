@@ -38,8 +38,10 @@ jobs:
         with:
           python-version: 3.x
       - name: Build wheels
+        id: build-wheels-1
+        continue-on-error: true
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.49.3
-        with:
+        with: &build-wheels-args
           target: ${{ matrix.platform.target }}
           args: --release --out dist
           working-directory: ./crates/frontends/python
@@ -60,6 +62,19 @@ jobs:
             if [ -d "$sysroot" ]; then
               export QEMU_LD_PREFIX="$sysroot"
             fi
+      # The manylinux/QEMU container curls its maturin binary on every run and
+      # occasionally gets a truncated response; maturin-action doesn't expose that
+      # fetch as its own step, so retry the whole build rather than just the install.
+      - name: Build wheels (retry 1)
+        id: build-wheels-2
+        if: steps.build-wheels-1.outcome == 'failure'
+        continue-on-error: true
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.49.3
+        with: *build-wheels-args
+      - name: Build wheels (retry 2)
+        if: steps.build-wheels-2.outcome == 'failure'
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.49.3
+        with: *build-wheels-args
       - name: Upload wheels
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
