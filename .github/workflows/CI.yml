@@ -47,6 +47,10 @@ jobs:
           working-directory: ./crates/frontends/python
           sccache: 'true'
           manylinux: 2_28
+          # Pinned so Renovate (see renovate.json) can bump it deliberately,
+          # rather than the action re-resolving "latest" over the network
+          # on every retry.
+          maturin-version: v1.14.1
           before-script-linux: |
             if command -v yum &> /dev/null; then
               yum install -y clang-devel llvm-devel
@@ -65,14 +69,31 @@ jobs:
       # The manylinux/QEMU container curls its maturin binary on every run and
       # occasionally gets a truncated response; maturin-action doesn't expose that
       # fetch as its own step, so retry the whole build rather than just the install.
+      # A back-off sleep separates attempts since retrying immediately tends to
+      # hit the same still-degraded network path.
+      - name: Wait before retry 1
+        if: steps.build-wheels-1.outcome == 'failure'
+        run: sleep 20
       - name: Build wheels (retry 1)
         id: build-wheels-2
         if: steps.build-wheels-1.outcome == 'failure'
         continue-on-error: true
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.49.3
         with: *build-wheels-args
-      - name: Build wheels (retry 2)
+      - name: Wait before retry 2
         if: steps.build-wheels-2.outcome == 'failure'
+        run: sleep 20
+      - name: Build wheels (retry 2)
+        id: build-wheels-3
+        if: steps.build-wheels-2.outcome == 'failure'
+        continue-on-error: true
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.49.3
+        with: *build-wheels-args
+      - name: Wait before retry 3
+        if: steps.build-wheels-3.outcome == 'failure'
+        run: sleep 20
+      - name: Build wheels (retry 3)
+        if: steps.build-wheels-3.outcome == 'failure'
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.49.3
         with: *build-wheels-args
       - name: Upload wheels
