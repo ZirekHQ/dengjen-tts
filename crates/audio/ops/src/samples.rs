@@ -104,16 +104,15 @@ impl AudioSamples {
             *sample /= factor;
         }
     }
-    pub fn apply_hanning_window(&mut self) {
-        // Guard makes the .expect() below safe: get_hann_window only errors on length 0.
+    pub fn apply_hanning_window(&mut self) -> Result<(), crate::AudioOpsError> {
         if self.is_empty() {
-            return;
+            return Ok(());
         }
-        let window = hanning_window::get_hann_window(self.0.len())
-            .expect("apply_hanning_window guards against window_length == 0 above");
+        let window = hanning_window::get_hann_window(self.0.len())?;
         for (sample, ratio) in self.0.iter_mut().zip(window) {
             *sample *= ratio;
         }
+        Ok(())
     }
     pub fn overlap_with(&mut self, other: &mut Self) {
         if !self.is_empty() {
@@ -384,7 +383,7 @@ mod tests {
     #[test]
     fn apply_hanning_window_tapers_first_sample_to_zero() {
         let mut samples = AudioSamples::from(vec![1.0; 10]);
-        samples.apply_hanning_window();
+        samples.apply_hanning_window().unwrap();
         let v = samples.as_vec();
         assert_eq!(v[0], 0.0);
         assert!(v[5] > v[0]);
@@ -430,8 +429,17 @@ mod tests {
     #[test]
     fn apply_hanning_window_on_empty_samples_is_a_noop() {
         let mut samples = AudioSamples::from(Vec::<f32>::new());
-        samples.apply_hanning_window();
+        samples.apply_hanning_window().unwrap();
         assert!(samples.is_empty());
+    }
+
+    #[test]
+    fn apply_hanning_window_errors_on_single_sample() {
+        let mut samples = AudioSamples::from(vec![1.0]);
+        assert_eq!(
+            samples.apply_hanning_window(),
+            Err(crate::AudioOpsError::InvalidWindowLength(1))
+        );
     }
 
     #[test]

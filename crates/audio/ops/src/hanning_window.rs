@@ -31,10 +31,10 @@ static HANN_WINDOW_LOOKUP_TABLE: Lazy<HashMap<usize, Vec<f32>>> = Lazy::new(|| {
 /// Returns a Hann window of the given length, serving it from a precomputed lookup table
 /// when available and computing it on demand otherwise.
 ///
-/// Errors with `AudioOpsError::InvalidWindowLength` when `window_length` is `0`.
+/// Errors with `AudioOpsError::InvalidWindowLength` when `window_length` is `0` or `1`.
 pub fn get_hann_window(window_length: usize) -> Result<Vec<f32>, AudioOpsError> {
-    if window_length == 0 {
-        return Err(AudioOpsError::InvalidWindowLength(0));
+    if window_length <= 1 {
+        return Err(AudioOpsError::InvalidWindowLength(window_length));
     }
     if let Some(hann_window) = HANN_WINDOW_LOOKUP_TABLE.get(&window_length) {
         Ok(hann_window.clone())
@@ -71,6 +71,14 @@ mod tests {
         assert_eq!(
             get_hann_window(0),
             Err(AudioOpsError::InvalidWindowLength(0))
+        );
+    }
+
+    #[test]
+    fn get_hann_window_errors_on_length_one() {
+        assert_eq!(
+            get_hann_window(1),
+            Err(AudioOpsError::InvalidWindowLength(1))
         );
     }
 
