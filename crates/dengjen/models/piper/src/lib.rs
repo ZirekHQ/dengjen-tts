@@ -9,10 +9,9 @@ use ort::value::{Tensor, TensorRef};
 use serde::Deserialize;
 use dengjen_core::{
     Audio, AudioInfo, AudioSamples, AudioStreamIterator, Phonemes, DengjenAudioResult, DengjenError,
-    DengjenModel, DengjenResult,
+    DengjenModel, DengjenResult, SynthesisConfig,
 };
 use dengjen_core::CancellationToken;
-use std::any::Any;
 #[cfg(feature = "espeak")]
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -140,7 +139,7 @@ fn create_tashkeel_engine(config: &ModelConfig) -> DengjenResult<Option<Tashkeel
     if should_diacritize(&config.espeak.voice) {
         match libtashkeel_core::create_inference_engine(None) {
             Ok(engine) => Ok(Some(engine)),
-            Err(msg) => Err(DengjenError::OperationError(format!(
+            Err(msg) => Err(DengjenError::InferenceError(format!(
                 "Failed to create inference engine for libtashkeel. {}",
                 msg
             ))),
@@ -174,7 +173,7 @@ pub fn from_config_path(config_path: &Path) -> DengjenResult<Arc<dyn DengjenMode
         )?))
     } else {
         let Some(onnx_filename) = config_path.file_stem() else {
-            return Err(DengjenError::OperationError(format!(
+            return Err(DengjenError::InvalidConfiguration(format!(
                 "Invalid config filename format `{}`",
                 config_path.display()
             )));
@@ -248,13 +247,7 @@ pub struct ModelConfig {
     hop_length: Option<usize>,
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct PiperSynthesisConfig {
-    pub speaker: Option<i64>,
-    pub noise_scale: f32,
-    pub length_scale: f32,
-    pub noise_w: f32,
-}
+pub use dengjen_core::PiperSynthesisConfig;
 
 trait VitsModelCommons {
     fn get_synth_config(&self) -> &RwLock<PiperSynthesisConfig>;
@@ -286,12 +279,6 @@ trait VitsModelCommons {
                 .unwrap_or("unknown".to_string()),
         )])
     }
-    // Unused: get_default_synthesis_config below duplicates this logic inline
-    // instead of calling it. See issue #1 (Piper config format drift) before
-    // consolidating, since the two aren't quite equivalent (this checks
-    // num_speakers > 0 before defaulting to speaker 0; the inline version
-    // doesn't).
-    #[allow(dead_code)]
     fn factory_synthesis_config(&self) -> PiperSynthesisConfig {
         let config = self.get_config();
 
@@ -307,12 +294,6 @@ trait VitsModelCommons {
             noise_w: config.inference.noise_w,
         }
     }
-    // Unused: get_speakers below duplicates this logic inline (returning a
-    // reference instead of a clone). See the note on factory_synthesis_config.
-    #[allow(dead_code)]
-    fn speakers(&self) -> DengjenResult<HashMap<i64, String>> {
-        Ok(self.get_speaker_map().clone())
-    }
     fn _do_set_default_synth_config(&self, new_config: &PiperSynthesisConfig) -> DengjenResult<()> {
         let mut synth_config = self.get_synth_config().write().unwrap();
         synth_config.length_scale = new_config.length_scale;
@@ -322,7 +303,7 @@ trait VitsModelCommons {
             if self.get_speaker_map().contains_key(&sid) {
                 synth_config.speaker = Some(sid);
             } else {
-                return Err(DengjenError::OperationError(format!(
+                return Err(DengjenError::InvalidConfiguration(format!(
                     "No speaker was found with the given id `{}`",
                     sid
                 )));
@@ -377,7 +358,7 @@ trait VitsModelCommons {
     fn diacritize_text(&self, text: &str) -> DengjenResult<String> {
         match do_tashkeel(self.get_tashkeel_engine().unwrap(), text, None, false) {
             Ok(diacritized_text) => Ok(diacritized_text),
-            Err(msg) => Err(DengjenError::OperationError(format!(
+            Err(msg) => Err(DengjenError::InferenceError(format!(
                 "Failed to diacritize text using  libtashkeel. {}",
                 msg
             ))),
@@ -422,7 +403,7 @@ impl VitsModel {
         let session = match create_inference_session(onnx_path) {
             Ok(session) => session,
             Err(err) => {
-                return Err(DengjenError::OperationError(format!(
+                return Err(DengjenError::InferenceError(format!(
                     "Failed to initialize onnxruntime inference session: `{}`",
                     err
                 )))
@@ -478,7 +459,7 @@ impl VitsModel {
             match outputs {
                 Ok(out) => out,
                 Err(e) => {
-                    return Err(DengjenError::OperationError(format!(
+                    return Err(DengjenError::InferenceError(format!(
                         "Failed to run model inference. Error: {}",
                         e
                     )))
@@ -490,7 +471,7 @@ impl VitsModel {
         let (_, outputs) = match outputs[0].try_extract_tensor::<f32>() {
             Ok(out) => out,
             Err(e) => {
-                return Err(DengjenError::OperationError(format!(
+                return Err(DengjenError::InferenceError(format!(
                     "Failed to run model inference. Error: {}",
                     e
                 )))
@@ -549,22 +530,17 @@ impl DengjenModel for VitsModel {
         let phonemes = self.phonemes_to_input_ids(&phonemes, pad_id, bos_id, eos_id);
         self.infer_with_values(phonemes)
     }
-    fn get_default_synthesis_config(&self) -> DengjenResult<Box<dyn Any>> {
-        Ok(Box::new(PiperSynthesisConfig {
-            speaker: Some(resolve_default_speaker_id(&self.config)),
-            noise_scale: self.config.inference.noise_scale,
-            noise_w: self.config.inference.noise_w,
-            length_scale: self.config.inference.length_scale,
-        }))
+    fn get_default_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
+        Ok(SynthesisConfig::Piper(self.factory_synthesis_config()))
     }
-    fn get_fallback_synthesis_config(&self) -> DengjenResult<Box<dyn Any>> {
-        Ok(Box::new(self.synth_config.read().unwrap().clone()))
+    fn get_fallback_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
+        Ok(SynthesisConfig::Piper(self.synth_config.read().unwrap().clone()))
     }
-    fn set_fallback_synthesis_config(&self, synthesis_config: &dyn Any) -> DengjenResult<()> {
-        match synthesis_config.downcast_ref::<PiperSynthesisConfig>() {
-            Some(new_config) => self._do_set_default_synth_config(new_config),
-            None => Err(DengjenError::OperationError(
-                "Invalid configuration for Vits Model".to_string(),
+    fn set_fallback_synthesis_config(&self, synthesis_config: &SynthesisConfig) -> DengjenResult<()> {
+        match synthesis_config {
+            SynthesisConfig::Piper(new_config) => self._do_set_default_synth_config(new_config),
+            SynthesisConfig::None => Err(DengjenError::InvalidConfiguration(
+                "Piper models require a PiperSynthesisConfig".to_string(),
             )),
         }
     }
@@ -605,7 +581,7 @@ impl VitsStreamingModel {
         let encoder_model = match create_inference_session(encoder_path) {
             Ok(model) => model,
             Err(err) => {
-                return Err(DengjenError::OperationError(format!(
+                return Err(DengjenError::InferenceError(format!(
                     "Failed to initialize onnxruntime inference session: `{}`",
                     err
                 )))
@@ -614,7 +590,7 @@ impl VitsStreamingModel {
         let decoder_model = match create_inference_session(decoder_path) {
             Ok(model) => Arc::new(Mutex::new(model)),
             Err(err) => {
-                return Err(DengjenError::OperationError(format!(
+                return Err(DengjenError::InferenceError(format!(
                     "Failed to initialize onnxruntime inference session: `{}`",
                     err
                 )))
@@ -683,7 +659,7 @@ impl VitsStreamingModel {
             };
             match outputs {
                 Ok(ort_values) => EncoderOutputs::from_values(ort_values),
-                Err(e) => Err(DengjenError::OperationError(format!(
+                Err(e) => Err(DengjenError::InferenceError(format!(
                     "Failed to run model inference. Error: {}",
                     e
                 ))),
@@ -730,22 +706,17 @@ impl DengjenModel for VitsStreamingModel {
         let phonemes = self.phonemes_to_input_ids(&phonemes, pad_id, bos_id, eos_id);
         self.infer_with_values(phonemes)
     }
-    fn get_default_synthesis_config(&self) -> DengjenResult<Box<dyn Any>> {
-        Ok(Box::new(PiperSynthesisConfig {
-            speaker: Some(resolve_default_speaker_id(&self.config)),
-            noise_scale: self.config.inference.noise_scale,
-            noise_w: self.config.inference.noise_w,
-            length_scale: self.config.inference.length_scale,
-        }))
+    fn get_default_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
+        Ok(SynthesisConfig::Piper(self.factory_synthesis_config()))
     }
-    fn get_fallback_synthesis_config(&self) -> DengjenResult<Box<dyn Any>> {
-        Ok(Box::new(self.synth_config.read().unwrap().clone()))
+    fn get_fallback_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
+        Ok(SynthesisConfig::Piper(self.synth_config.read().unwrap().clone()))
     }
-    fn set_fallback_synthesis_config(&self, synthesis_config: &dyn Any) -> DengjenResult<()> {
-        match synthesis_config.downcast_ref::<PiperSynthesisConfig>() {
-            Some(new_config) => self._do_set_default_synth_config(new_config),
-            None => Err(DengjenError::OperationError(
-                "Invalid configuration for Vits Model".to_string(),
+    fn set_fallback_synthesis_config(&self, synthesis_config: &SynthesisConfig) -> DengjenResult<()> {
+        match synthesis_config {
+            SynthesisConfig::Piper(new_config) => self._do_set_default_synth_config(new_config),
+            SynthesisConfig::None => Err(DengjenError::InvalidConfiguration(
+                "Piper models require a PiperSynthesisConfig".to_string(),
             )),
         }
     }
@@ -808,7 +779,7 @@ impl EncoderOutputs {
             let (shape, data) = match values["z"].try_extract_tensor::<f32>() {
                 Ok(out) => out,
                 Err(e) => {
-                    return Err(DengjenError::OperationError(format!(
+                    return Err(DengjenError::InferenceError(format!(
                         "Failed to run model inference. Error: {}",
                         e
                     )))
@@ -820,7 +791,7 @@ impl EncoderOutputs {
             let (shape, data) = match values["y_mask"].try_extract_tensor::<f32>() {
                 Ok(out) => out,
                 Err(e) => {
-                    return Err(DengjenError::OperationError(format!(
+                    return Err(DengjenError::InferenceError(format!(
                         "Failed to run model inference. Error: {}",
                         e
                     )))
@@ -832,7 +803,7 @@ impl EncoderOutputs {
             let (shape, data) = match values["p_duration"].try_extract_tensor::<f32>() {
                 Ok(out) => out,
                 Err(e) => {
-                    return Err(DengjenError::OperationError(format!(
+                    return Err(DengjenError::InferenceError(format!(
                         "Failed to run model inference. Error: {}",
                         e
                     )))
@@ -846,7 +817,7 @@ impl EncoderOutputs {
             let (shape, data) = match values["g"].try_extract_tensor::<f32>() {
                 Ok(out) => out,
                 Err(e) => {
-                    return Err(DengjenError::OperationError(format!(
+                    return Err(DengjenError::InferenceError(format!(
                         "Failed to run model inference. Error: {}",
                         e
                     )))
@@ -877,7 +848,7 @@ impl EncoderOutputs {
         let outputs = match session_outputs {
             Ok(out) => out,
             Err(e) => {
-                return Err(DengjenError::OperationError(format!(
+                return Err(DengjenError::InferenceError(format!(
                     "Failed to run model inference. Error: {}",
                     e
                 )))
@@ -885,7 +856,7 @@ impl EncoderOutputs {
         };
         match outputs[0].try_extract_tensor::<f32>() {
             Ok((_, out)) => Ok(Vec::from(out).into()),
-            Err(e) => Err(DengjenError::OperationError(format!(
+            Err(e) => Err(DengjenError::InferenceError(format!(
                 "Failed to run model inference. Error: {}",
                 e
             ))),
@@ -955,13 +926,13 @@ impl SpeechStreamer {
             };
             let outputs = outputs
                 .map_err(|e| {
-                    DengjenError::OperationError(format!(
+                    DengjenError::InferenceError(format!(
                         "Failed to run model inference. Error: {}",
                         e
                     ))
                 })?;
             let (shape, data) = outputs[0].try_extract_tensor::<f32>().map_err(|e| {
-                DengjenError::OperationError(format!("Failed to run model inference. Error: {}", e))
+                DengjenError::InferenceError(format!("Failed to run model inference. Error: {}", e))
             })?;
             let audio_view = ArrayView::from_shape(shape.to_ixdyn(), data)
                 .map_err(|e| DengjenError::with_message(format!("Invalid model audio output shape: {}", e)))?;
@@ -1333,7 +1304,7 @@ mod tests {
             ..Default::default()
         };
         let result = commons._do_set_default_synth_config(&new_config);
-        assert!(matches!(result, Err(DengjenError::OperationError(_))));
+        assert!(matches!(result, Err(DengjenError::InvalidConfiguration(_))));
     }
 
     #[test]
