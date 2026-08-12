@@ -6,8 +6,10 @@ use regex::Regex;
 use std::env;
 use std::error::Error;
 use std::ffi;
+use std::ffi::CString;
 use std::fmt;
 use std::path::PathBuf;
+use std::sync::Mutex;
 
 pub type ESpeakResult<T> = Result<T, ESpeakError>;
 
@@ -33,7 +35,10 @@ impl fmt::Display for ESpeakError {
 
 static LANG_SWITCH_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r"\([^)]*\)").unwrap());
 static STRESS_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r"[ˈˌ]").unwrap());
-static ESPEAKNG_INIT: Lazy<ESpeakResult<()>> = Lazy::new(|| {
+static ESPEAKNG_INIT: Lazy<ESpeakResult<()>> = Lazy::new(init_espeakng);
+static ESPEAK_LOCK: Mutex<()> = Mutex::new(());
+
+fn init_espeakng() -> ESpeakResult<()> {
     let data_dir = match env::var(DENGJEN_ESPEAKNG_DATA_DIRECTORY) {
         Ok(directory) => PathBuf::from(directory),
         Err(_) => env::current_exe().unwrap().parent().unwrap().to_path_buf(),
@@ -43,24 +48,34 @@ static ESPEAKNG_INIT: Lazy<ESpeakResult<()>> = Lazy::new(|| {
     } else {
         std::ptr::null()
     };
-    unsafe {
-        let es_sample_rate = espeakng::espeak_Initialize(
+    let es_sample_rate = unsafe {
+        espeakng::espeak_Initialize(
             espeakng::espeak_AUDIO_OUTPUT_AUDIO_OUTPUT_RETRIEVAL,
             0,
             es_data_path_ptr,
             espeakng::espeakINITIALIZE_DONT_EXIT as i32,
-        );
-        if es_sample_rate <= 0 {
-            Err(ESpeakError(format!(
-                "Failed to initialize eSpeak-ng. Try setting `{}` environment variable to the directory that contains the `espeak-ng-data` directory. Error code: `{}`",
-                DENGJEN_ESPEAKNG_DATA_DIRECTORY,
-                es_sample_rate
-            )))
-        } else {
-            Ok(())
-        }
+        )
+    };
+    if es_sample_rate <= 0 {
+        Err(ESpeakError(format!(
+            "Failed to initialize eSpeak-ng. Try setting `{}` environment variable to the directory that contains the `espeak-ng-data` directory. Error code: `{}`",
+            DENGJEN_ESPEAKNG_DATA_DIRECTORY,
+            es_sample_rate
+        )))
+    } else {
+        Ok(())
     }
-});
+}
+
+fn clause_break_suffix(terminator: ffi::c_int) -> &'static str {
+    match terminator & 0x0000F000 {
+        CLAUSE_INTONATION_FULL_STOP => ".",
+        CLAUSE_INTONATION_COMMA => ",",
+        CLAUSE_INTONATION_QUESTION => "?",
+        CLAUSE_INTONATION_EXCLAMATION => "!",
+        _ => "",
+    }
+}
 
 pub fn text_to_phonemes(
     text: &str,
@@ -71,7 +86,7 @@ pub fn text_to_phonemes(
 ) -> ESpeakResult<Vec<String>> {
     let mut phonemes = Vec::new();
     for line in text.lines() {
-        phonemes.append(&mut _text_to_phonemes(
+        phonemes.append(&mut phonemize_line(
             line,
             language,
             phoneme_separator,
@@ -82,17 +97,20 @@ pub fn text_to_phonemes(
     Ok(phonemes)
 }
 
-pub fn _text_to_phonemes(
+fn phonemize_line(
     text: &str,
     language: &str,
     phoneme_separator: Option<char>,
     remove_lang_switch_flags: bool,
     remove_stress: bool,
 ) -> ESpeakResult<Vec<String>> {
+    let _guard = ESPEAK_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     if let Err(ref e) = Lazy::force(&ESPEAKNG_INIT) {
         return Err(e.clone());
     }
-    let set_voice_res = unsafe { espeakng::espeak_SetVoiceByName(rust_string_to_c(language)) };
+    let language_c = CString::new(language)
+        .map_err(|_| ESpeakError(format!("Failed to set eSpeak-ng voice to: `{}` ", language)))?;
+    let set_voice_res = unsafe { espeakng::espeak_SetVoiceByName(language_c.as_ptr()) };
     if set_voice_res != espeakng::espeak_ERROR_EE_OK {
         return Err(ESpeakError(format!(
             "Failed to set eSpeak-ng voice to: `{}` ",
@@ -104,9 +122,14 @@ pub fn _text_to_phonemes(
         None => espeakng::espeakINITIALIZE_PHONEME_IPA,
     };
     let phoneme_mode: i32 = calculated_phoneme_mode.try_into().unwrap();
-    let mut sent_phonemes = Vec::new();
+    let mut sentence_phonemes = Vec::new();
     let mut phonemes = String::new();
-    let mut text_c_char = rust_string_to_c(text) as *const ffi::c_char;
+    let text_c = CString::new(text).map_err(|_| {
+        ESpeakError(
+            "Text passed to eSpeak-ng contains a NUL byte and cannot be processed".to_string(),
+        )
+    })?;
+    let mut text_c_char = text_c.as_ptr();
     let text_c_char_ptr = std::ptr::addr_of_mut!(text_c_char);
     let mut terminator: ffi::c_int = 0;
     let terminator_ptr: *mut ffi::c_int = &mut terminator;
@@ -121,38 +144,27 @@ pub fn _text_to_phonemes(
             FfiStr::from_raw(res)
         };
         phonemes.push_str(&ph_str.into_string());
-        let intonation = terminator & 0x0000F000;
-        if intonation == CLAUSE_INTONATION_FULL_STOP {
-            phonemes.push('.');
-        } else if intonation == CLAUSE_INTONATION_COMMA {
-            phonemes.push(',');
-        } else if intonation == CLAUSE_INTONATION_QUESTION {
-            phonemes.push('?');
-        } else if intonation == CLAUSE_INTONATION_EXCLAMATION {
-            phonemes.push('!');
-        }
+        phonemes.push_str(clause_break_suffix(terminator));
         if (terminator & CLAUSE_TYPE_SENTENCE) == CLAUSE_TYPE_SENTENCE {
-            sent_phonemes.push(std::mem::take(&mut phonemes));
+            sentence_phonemes.push(std::mem::take(&mut phonemes));
         }
     }
     if !phonemes.is_empty() {
-        sent_phonemes.push(std::mem::take(&mut phonemes));
+        sentence_phonemes.push(std::mem::take(&mut phonemes));
     }
     if remove_lang_switch_flags {
-        sent_phonemes = Vec::from_iter(
-            sent_phonemes
-                .into_iter()
-                .map(|sent| LANG_SWITCH_PATTERN.replace_all(&sent, "").into_owned()),
-        );
+        sentence_phonemes = sentence_phonemes
+            .into_iter()
+            .map(|sent| LANG_SWITCH_PATTERN.replace_all(&sent, "").into_owned())
+            .collect();
     }
     if remove_stress {
-        sent_phonemes = Vec::from_iter(
-            sent_phonemes
-                .into_iter()
-                .map(|sent| STRESS_PATTERN.replace_all(&sent, "").into_owned()),
-        );
+        sentence_phonemes = sentence_phonemes
+            .into_iter()
+            .map(|sent| STRESS_PATTERN.replace_all(&sent, "").into_owned())
+            .collect();
     }
-    Ok(sent_phonemes)
+    Ok(sentence_phonemes)
 }
 
 // ==============================
@@ -255,5 +267,48 @@ mod tests {
         let phonemes = text_to_phonemes("", "en-US", None, false, false)?;
         assert_eq!(phonemes, Vec::<String>::new());
         Ok(())
+    }
+
+    #[test]
+    fn test_interior_nul_byte_returns_err_instead_of_panicking() {
+        let result = text_to_phonemes("hello\0world", "en-US", None, false, false);
+        assert!(result.is_err());
+
+        let result = text_to_phonemes("hello", "en\0US", None, false, false);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn concurrent_calls_do_not_corrupt_each_others_output() {
+        use std::thread;
+
+        let en_text = "test";
+        let en_expected = "tˈɛst.";
+        let ar_text = "مَرْحَبَاً بِكَ أَيُّهَا الْرَّجُلْ";
+        let ar_expected = "mˈarħabˌaː bikˌa ʔaˈiːuhˌaː alrrˈadʒul.";
+
+        let handles: Vec<_> = (0..8)
+            .map(|i| {
+                thread::spawn(move || {
+                    for _ in 0..25 {
+                        if i % 2 == 0 {
+                            let result = text_to_phonemes(en_text, "en-US", None, false, false)
+                                .unwrap()
+                                .join("");
+                            assert_eq!(result, en_expected);
+                        } else {
+                            let result = text_to_phonemes(ar_text, "ar", None, false, false)
+                                .unwrap()
+                                .join("");
+                            assert_eq!(result, ar_expected);
+                        }
+                    }
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            handle.join().expect("worker thread panicked");
+        }
     }
 }

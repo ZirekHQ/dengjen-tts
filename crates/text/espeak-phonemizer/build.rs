@@ -1,3 +1,7 @@
+//! Builds and statically links the vendored espeak-ng C library
+//! (`deps/espeak-ng`), with its optional features this crate doesn't need
+//! (async playback, MBROLA, libsonic, libpcaudio, Klatt, SpeechPlayer)
+//! disabled to keep the static build minimal.
 fn main() {
     println!("cargo:rerun-if-changed=../../../deps/espeak-ng/src");
     println!("cargo:rustc-link-lib=static=espeak-ng");
@@ -14,7 +18,7 @@ fn main() {
         .build();
 
     println!(
-        r"cargo:rustc-link-search={}",
+        "cargo:rustc-link-search={}",
         build_dir.join("lib").display()
     );
 }
