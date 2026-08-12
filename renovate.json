@@ -1,0 +1,14 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["github>austek/renovate-config"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "fileMatch": ["^\\.github/workflows/.+\\.ya?ml$"],
+      "matchStrings": ["maturin-version: (?<currentValue>v\\d+\\.\\d+\\.\\d+)"],
+      "depNameTemplate": "maturin",
+      "packageNameTemplate": "PyO3/maturin",
+      "datasourceTemplate": "github-releases"
+    }
+  ]
+}
