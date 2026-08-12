@@ -6,28 +6,89 @@ use dengjen_core::{
     PiperSynthesisConfig, SynthesisConfig,
 };
 use ndarray::{Array1, Array2};
-use ort::session::Session;
+use ort::session::{Session, SessionInputValue};
 use ort::value::Tensor;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, RwLock};
 
-#[inline(always)]
 pub(crate) fn reversed_mapping<K, V>(input: &HashMap<K, V>) -> HashMap<V, K>
 where
     K: ToOwned<Owned = K>,
     V: ToOwned<Owned = V> + std::hash::Hash + std::cmp::Eq,
 {
-    HashMap::from_iter(input.iter().map(|(k, v)| (v.to_owned(), k.to_owned())))
+    input
+        .iter()
+        .map(|(key, value)| (value.to_owned(), key.to_owned()))
+        .collect()
 }
 
 pub(crate) fn create_inference_session(model_path: &Path) -> Result<Session, ort::Error> {
-    Session::builder()?
-        // .with_parallel_execution(true)?
-        // .with_inter_threads(16)?
-        // .with_optimization_level(ort::GraphOptimizationLevel::Level3)?
-        // .with_memory_pattern(false)?
-        .commit_from_file(model_path)
+    Session::builder()?.commit_from_file(model_path)
+}
+
+pub(crate) fn session_init_error(cause: ort::Error) -> DengjenError {
+    DengjenError::InferenceError(format!(
+        "Failed to initialize onnxruntime inference session: `{}`",
+        cause
+    ))
+}
+
+pub(crate) fn inference_error(cause: impl std::fmt::Display) -> DengjenError {
+    DengjenError::InferenceError(format!("Failed to run model inference. Error: {}", cause))
+}
+
+pub(crate) fn expect_piper_config(
+    synthesis_config: &SynthesisConfig,
+) -> DengjenResult<&PiperSynthesisConfig> {
+    match synthesis_config {
+        SynthesisConfig::Piper(config) => Ok(config),
+        SynthesisConfig::None => Err(DengjenError::InvalidConfiguration(
+            "Piper models require a PiperSynthesisConfig".to_string(),
+        )),
+    }
+}
+
+/// Builds the positional input list every VITS graph expects: the phoneme ids,
+/// their length, the three synthesis scales, and — for multi-speaker voices
+/// only — the speaker id.
+pub(crate) fn build_vits_inputs<'v>(
+    phoneme_ids: Vec<i64>,
+    scales: [f32; 3],
+    speaker: Option<i64>,
+) -> Vec<SessionInputValue<'v>> {
+    let phoneme_count = phoneme_ids.len();
+    let ids = Array2::<i64>::from_shape_vec((1, phoneme_count), phoneme_ids).unwrap();
+    let lengths = Array1::<i64>::from_iter([phoneme_count as i64]);
+    let scales = Array1::<f32>::from_iter(scales);
+
+    let mut inputs: Vec<SessionInputValue<'v>> = ort::inputs![
+        Tensor::from_array(ids).unwrap(),
+        Tensor::from_array(lengths).unwrap(),
+        Tensor::from_array(scales).unwrap(),
+    ]
+    .into();
+    if let Some(speaker_id) = speaker {
+        let speaker_tensor = Tensor::from_array(Array1::<i64>::from_iter([speaker_id])).unwrap();
+        inputs.push(speaker_tensor.into());
+    }
+    inputs
+}
+
+/// Snapshots the values the graph needs out of the synthesis config, so the
+/// read lock is not held for the duration of the inference run.
+pub(crate) fn snapshot_scales_and_speaker(
+    synth_config: &RwLock<PiperSynthesisConfig>,
+    num_speakers: u32,
+) -> ([f32; 3], Option<i64>) {
+    let synth_config = synth_config.read().unwrap();
+    let scales = [
+        synth_config.noise_scale,
+        synth_config.length_scale,
+        synth_config.noise_w,
+    ];
+    let speaker = (num_speakers > 1).then(|| synth_config.speaker.unwrap_or(0));
+    (scales, speaker)
 }
 
 pub struct VitsModel {
@@ -41,25 +102,15 @@ pub struct VitsModel {
 
 impl VitsModel {
     pub fn new(config_path: PathBuf, onnx_path: &Path) -> DengjenResult<Self> {
-        match load_model_config(&config_path) {
-            Ok((config, synth_config)) => Self::from_config(config, synth_config, onnx_path),
-            Err(error) => Err(error),
-        }
+        let (config, synth_config) = load_model_config(&config_path)?;
+        Self::from_config(config, synth_config, onnx_path)
     }
     pub(crate) fn from_config(
         config: ModelConfig,
         synth_config: PiperSynthesisConfig,
         onnx_path: &Path,
     ) -> DengjenResult<Self> {
-        let session = match create_inference_session(onnx_path) {
-            Ok(session) => session,
-            Err(err) => {
-                return Err(DengjenError::InferenceError(format!(
-                    "Failed to initialize onnxruntime inference session: `{}`",
-                    err
-                )))
-            }
-        };
+        let session = create_inference_session(onnx_path).map_err(session_init_error)?;
         let speaker_map = reversed_mapping(&config.speaker_id_map);
         let tashkeel_engine = create_tashkeel_engine(&config)?;
         Ok(Self {
@@ -71,68 +122,18 @@ impl VitsModel {
         })
     }
     fn infer_with_values(&self, input_phonemes: Vec<i64>) -> DengjenAudioResult {
-        let synth_config = self.synth_config.read().unwrap();
-
-        let input_len = input_phonemes.len();
-        let phoneme_inputs = Array2::<i64>::from_shape_vec((1, input_len), input_phonemes).unwrap();
-        let input_lengths = Array1::<i64>::from_iter([input_len as i64]);
-        let scales = Array1::<f32>::from_iter([
-            synth_config.noise_scale,
-            synth_config.length_scale,
-            synth_config.noise_w,
-        ]);
-        let speaker_id = if self.config.num_speakers > 1 {
-            let sid = synth_config.speaker.unwrap_or(0);
-            Some(Array1::<i64>::from_iter([sid]))
-        } else {
-            None
-        };
+        let (scales, speaker) =
+            snapshot_scales_and_speaker(&self.synth_config, self.config.num_speakers);
+        let inputs = build_vits_inputs(input_phonemes, scales, speaker);
 
         let mut session = self.session.lock().unwrap();
-        let timer = std::time::Instant::now();
-        let outputs = {
-            let outputs = if let Some(sid_tensor) = speaker_id.clone() {
-                let inputs = ort::inputs![
-                    Tensor::from_array(phoneme_inputs).unwrap(),
-                    Tensor::from_array(input_lengths).unwrap(),
-                    Tensor::from_array(scales).unwrap(),
-                    Tensor::from_array(sid_tensor).unwrap(),
-                ];
-                session.run(inputs)
-            } else {
-                let inputs = ort::inputs![
-                    Tensor::from_array(phoneme_inputs).unwrap(),
-                    Tensor::from_array(input_lengths).unwrap(),
-                    Tensor::from_array(scales).unwrap(),
-                ];
-                session.run(inputs)
-            };
-            match outputs {
-                Ok(out) => out,
-                Err(e) => {
-                    return Err(DengjenError::InferenceError(format!(
-                        "Failed to run model inference. Error: {}",
-                        e
-                    )))
-                }
-            }
-        };
-        let inference_ms = timer.elapsed().as_millis() as f32;
+        let started_at = std::time::Instant::now();
+        let outputs = session.run(inputs.as_slice()).map_err(inference_error)?;
+        let inference_ms = started_at.elapsed().as_millis() as f32;
 
-        let (_, outputs) = match outputs[0].try_extract_tensor::<f32>() {
-            Ok(out) => out,
-            Err(e) => {
-                return Err(DengjenError::InferenceError(format!(
-                    "Failed to run model inference. Error: {}",
-                    e
-                )))
-            }
-        };
-
-        let audio = Vec::from(outputs);
-
+        let (_, samples) = outputs[0].try_extract_tensor::<f32>().map_err(inference_error)?;
         Ok(Audio::new(
-            audio.into(),
+            samples.to_vec().into(),
             self.config.audio.sample_rate as usize,
             Some(inference_ms),
         ))
@@ -164,22 +165,18 @@ impl DengjenModel for VitsModel {
 
     fn speak_batch(&self, phoneme_batches: Vec<String>) -> DengjenResult<Vec<Audio>> {
         let (pad_id, bos_id, eos_id) = self.get_meta_ids();
-        let phoneme_batches = Vec::from_iter(
-            phoneme_batches
-                .into_iter()
-                .map(|phonemes| self.phonemes_to_input_ids(&phonemes, pad_id, bos_id, eos_id)),
-        );
-        let mut retval = Vec::new();
-        for phonemes in phoneme_batches.into_iter() {
-            retval.push(self.infer_with_values(phonemes)?);
-        }
-        Ok(retval)
+        phoneme_batches
+            .into_iter()
+            .map(|phonemes| {
+                let ids = self.phonemes_to_input_ids(&phonemes, pad_id, bos_id, eos_id);
+                self.infer_with_values(ids)
+            })
+            .collect()
     }
 
     fn speak_one_sentence(&self, phonemes: String) -> DengjenAudioResult {
         let (pad_id, bos_id, eos_id) = self.get_meta_ids();
-        let phonemes = self.phonemes_to_input_ids(&phonemes, pad_id, bos_id, eos_id);
-        self.infer_with_values(phonemes)
+        self.infer_with_values(self.phonemes_to_input_ids(&phonemes, pad_id, bos_id, eos_id))
     }
     fn get_default_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
         Ok(SynthesisConfig::Piper(self.factory_synthesis_config()))
@@ -188,12 +185,7 @@ impl DengjenModel for VitsModel {
         Ok(SynthesisConfig::Piper(self.synth_config.read().unwrap().clone()))
     }
     fn set_fallback_synthesis_config(&self, synthesis_config: &SynthesisConfig) -> DengjenResult<()> {
-        match synthesis_config {
-            SynthesisConfig::Piper(new_config) => self._do_set_default_synth_config(new_config),
-            SynthesisConfig::None => Err(DengjenError::InvalidConfiguration(
-                "Piper models require a PiperSynthesisConfig".to_string(),
-            )),
-        }
+        self._do_set_default_synth_config(expect_piper_config(synthesis_config)?)
     }
     fn get_language(&self) -> DengjenResult<Option<String>> {
         Ok(self.language())
