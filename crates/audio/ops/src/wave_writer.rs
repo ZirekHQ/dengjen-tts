@@ -80,7 +80,7 @@ where
         }
     };
 
-    if let Err(e) = file.write_all(&buffer) {
+    if let Err(e) = file.write(&buffer) {
         let _ = std::fs::remove_file(path);
         return Err(WaveWriterError(format!(
             "Failed to write wave bytes to file `{}`. Error: {}",
