@@ -1,6 +1,6 @@
 use core::hint::black_box;
 use once_cell::sync::Lazy;
-use dengjen_piper::from_config_path as voice_from_config_path;
+use dengjen_piper::from_config_path;
 use dengjen_synth::{
     AudioOutputConfig, AudioSamples, DengjenModel, DengjenResult, DengjenSpeechSynthesizer,
 };
@@ -9,17 +9,24 @@ use std::sync::Arc;
 
 const TEXT: &[&'static str] = &[
     "Technology is not inevitable, powerful drivers must exist in order for people to keep pushing the envelope and continue demanding more and more from a particular field of knowledge.",
-"Cheaper Communications",
-"The first and most important driver is our demand for ever cheaper and easier communications, since all of human society depends on communications."
+    "Cheaper Communications",
+    "The first and most important driver is our demand for ever cheaper and easier communications, since all of human society depends on communications."
 ];
-const CRATE_DIR: &'static str = env!("CARGO_MANIFEST_DIR");
+
 static STD_VOICE: Lazy<Arc<dyn DengjenModel + Send + Sync>> = Lazy::new(|| {
-    let config_path = model_directory("std").join("model.onnx.json");
-    voice_from_config_path(&config_path).unwrap()
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("models")
+        .join("std")
+        .join("model.onnx.json");
+    from_config_path(&path).unwrap()
 });
+
 static RT_VOICE: Lazy<Arc<dyn DengjenModel + Send + Sync>> = Lazy::new(|| {
-    let config_path = model_directory("rt").join("config.json");
-    voice_from_config_path(&config_path).unwrap()
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("models")
+        .join("rt")
+        .join("config.json");
+    from_config_path(&path).unwrap()
 });
 
 #[allow(dead_code)]
@@ -28,40 +35,32 @@ pub fn init() {
     Lazy::force(&RT_VOICE);
 }
 
-
-fn model_directory(kind: &str) -> PathBuf {
-    PathBuf::from(CRATE_DIR).join("models").join(kind)
-}
-
 pub fn gen_params(kind: &str) -> (DengjenSpeechSynthesizer, String, Option<AudioOutputConfig>) {
-    let output_config = Some(AudioOutputConfig {
+    let voice = match kind {
+        "std" => Arc::clone(&STD_VOICE),
+        "rt" => Arc::clone(&RT_VOICE),
+        _ => panic!("Unknown parameterization  for function."),
+    };
+
+    let synthesizer = DengjenSpeechSynthesizer::new(voice).unwrap();
+    let joined_text = TEXT.join("\n");
+    let audio_config = Some(AudioOutputConfig {
         rate: Some(50),
         volume: Some(50),
         pitch: Some(50),
         appended_silence_ms: None,
     });
-    let text = TEXT.join("\n");
-    if kind == "std" {
-        let model = Arc::clone(&STD_VOICE);
-        let synth = DengjenSpeechSynthesizer::new(model).unwrap();
-        (synth, text, output_config)
-    } else if kind == "rt" {
-        let model = Arc::clone(&RT_VOICE);
-        let synth = DengjenSpeechSynthesizer::new(model).unwrap();
-        (synth, text, output_config)
-    } else {
-        panic!("Unknown parameterization  for function.")
-    }
+
+    (synthesizer, joined_text, audio_config)
 }
 
 #[inline(always)]
 pub fn iterate_stream(
     stream: impl Iterator<Item = DengjenResult<AudioSamples>>,
 ) -> DengjenResult<()> {
-    for result in stream {
-        let audio = result?;
-        let wav_bytes = black_box(audio.as_wave_bytes());
-        wav_bytes.len();
+    for chunk_result in stream {
+        let audio_samples = chunk_result?;
+        let _ = black_box(audio_samples.as_wave_bytes());
     }
     Ok(())
 }
