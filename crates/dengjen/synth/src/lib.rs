@@ -123,11 +123,20 @@ impl AudioOutputConfig {
     }
 }
 
-pub struct DengjenSpeechSynthesizer(Arc<dyn DengjenModel + Sync + Send>);
+/// Wraps a backend model behind the higher-level synthesis entry points
+/// (`synthesize_lazy`/`synthesize_parallel`/`synthesize_streamed`/`synthesize_to_file`).
+pub struct DengjenSpeechSynthesizer {
+    model: Arc<dyn DengjenModel + Sync + Send>,
+}
 
 impl DengjenSpeechSynthesizer {
     pub fn new(model: Arc<dyn DengjenModel + Sync + Send>) -> DengjenResult<Self> {
-        Ok(Self(model))
+        Ok(Self { model })
+    }
+
+    #[inline(always)]
+    pub fn clone_model(&self) -> Arc<dyn DengjenModel + Send + Sync> {
+        Arc::clone(&self.model)
     }
 
     fn create_synthesis_task_provider(
@@ -147,15 +156,19 @@ impl DengjenSpeechSynthesizer {
         text: String,
         output_config: Option<AudioOutputConfig>,
     ) -> DengjenResult<DengjenSpeechStreamLazy> {
-        DengjenSpeechStreamLazy::new(self.create_synthesis_task_provider(text, output_config))
+        let provider = self.create_synthesis_task_provider(text, output_config);
+        DengjenSpeechStreamLazy::new(provider)
     }
+
     pub fn synthesize_parallel(
         &self,
         text: String,
         output_config: Option<AudioOutputConfig>,
     ) -> DengjenResult<DengjenSpeechStreamParallel> {
-        DengjenSpeechStreamParallel::new(self.create_synthesis_task_provider(text, output_config))
+        let provider = self.create_synthesis_task_provider(text, output_config);
+        DengjenSpeechStreamParallel::new(provider)
     }
+
     pub fn synthesize_streamed(
         &self,
         text: String,
@@ -164,14 +177,14 @@ impl DengjenSpeechSynthesizer {
         chunk_padding: usize,
         cancel_token: CancellationToken,
     ) -> DengjenResult<RealtimeSpeechStream> {
+        let output_info = self.model.audio_output_info()?;
         let provider = self.create_synthesis_task_provider(text, output_config);
-        let wavinfo = self.0.audio_output_info()?;
         RealtimeSpeechStream::new(
             provider,
             chunk_size,
             chunk_padding,
-            wavinfo.sample_rate,
-            wavinfo.num_channels,
+            output_info.sample_rate,
+            output_info.num_channels,
             cancel_token,
         )
     }
@@ -182,64 +195,63 @@ impl DengjenSpeechSynthesizer {
         text: String,
         output_config: Option<AudioOutputConfig>,
     ) -> DengjenResult<()> {
-        let mut samples: Vec<f32> = Vec::new();
+        let mut all_samples: Vec<f32> = Vec::new();
         for result in self.synthesize_parallel(text, output_config)? {
-            let ws = result?;
-            samples.append(&mut ws.into_vec());
+            let audio = result?;
+            all_samples.extend(audio.into_vec());
         }
-        if samples.is_empty() {
+        if all_samples.is_empty() {
             return Err(DengjenError::OperationError(
-                "No speech data to write".to_string(),
+                "synthesis produced no audio samples to write".to_string(),
             ));
         }
-        let audio = AudioSamples::from(samples);
-        Ok(audio_ops::write_wave_samples_to_file(
+
+        let output_info = self.model.audio_output_info()?;
+        let samples = AudioSamples::from(all_samples);
+        audio_ops::write_wave_samples_to_file(
             filename,
-            audio.to_i16_vec().iter(),
-            self.0.audio_output_info()?.sample_rate as u32,
-            self.0.audio_output_info()?.num_channels.try_into().unwrap(),
-            self.0.audio_output_info()?.sample_width.try_into().unwrap(),
-        )?)
-    }
-    #[inline(always)]
-    pub fn clone_model(&self) -> Arc<dyn DengjenModel + Send + Sync> {
-        Arc::clone(&self.0)
+            samples.to_i16_vec().iter(),
+            output_info.sample_rate as u32,
+            output_info.num_channels.try_into().unwrap(),
+            output_info.sample_width.try_into().unwrap(),
+        )?;
+        Ok(())
     }
 }
 
 impl DengjenModel for DengjenSpeechSynthesizer {
     fn audio_output_info(&self) -> DengjenResult<AudioInfo> {
-        self.0.audio_output_info()
+        self.model.audio_output_info()
     }
     fn phonemize_text(&self, text: &str) -> DengjenResult<Phonemes> {
-        self.0.phonemize_text(text)
+        self.model.phonemize_text(text)
     }
     fn speak_batch(&self, phoneme_batches: Vec<String>) -> DengjenResult<Vec<Audio>> {
-        self.0.speak_batch(phoneme_batches)
+        self.model.speak_batch(phoneme_batches)
     }
     fn speak_one_sentence(&self, phonemes: String) -> DengjenAudioResult {
-        self.0.speak_one_sentence(phonemes)
+        self.model.speak_one_sentence(phonemes)
     }
     fn get_default_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
-        self.0.get_default_synthesis_config()
+        self.model.get_default_synthesis_config()
     }
     fn get_fallback_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
-        self.0.get_fallback_synthesis_config()
+        self.model.get_fallback_synthesis_config()
     }
     fn set_fallback_synthesis_config(&self, synthesis_config: &SynthesisConfig) -> DengjenResult<()> {
-        self.0.set_fallback_synthesis_config(synthesis_config)
+        self.model.set_fallback_synthesis_config(synthesis_config)
     }
     fn get_language(&self) -> DengjenResult<Option<String>> {
-        self.0.get_language()
+        self.model.get_language()
     }
     fn get_speakers(&self) -> DengjenResult<Option<&HashMap<i64, String>>> {
-        self.0.get_speakers()
+        self.model.get_speakers()
     }
     fn properties(&self) -> DengjenResult<HashMap<String, String>> {
-        self.0.properties()
+        self.model.properties()
     }
     fn supports_streaming_output(&self) -> bool {
-        self.0.supports_streaming_output()
+        self.model.supports_streaming_output()
     }
     fn stream_synthesis<'a>(
         &'a self,
@@ -248,10 +260,14 @@ impl DengjenModel for DengjenSpeechSynthesizer {
         chunk_padding: usize,
         cancel_token: CancellationToken,
     ) -> DengjenResult<Box<dyn Iterator<Item = DengjenResult<AudioSamples>> + Send + Sync + 'a>> {
-        self.0.stream_synthesis(phonemes, chunk_size, chunk_padding, cancel_token)
+        self.model
+            .stream_synthesis(phonemes, chunk_size, chunk_padding, cancel_token)
     }
 }
 
+/// Bundles a model handle, the input text, and an optional output-shaping
+/// config so the various stream constructors don't each need their own
+/// (model, text, output_config) triple.
 struct SpeechSynthesisTaskProvider {
     model: Arc<dyn DengjenModel + Sync + Send>,
     text: String,
@@ -260,42 +276,40 @@ struct SpeechSynthesisTaskProvider {
 
 impl SpeechSynthesisTaskProvider {
     fn get_phonemes(&self) -> DengjenResult<Vec<String>> {
-        Ok(self.model.phonemize_text(&self.text)?.to_vec())
+        let phonemes = self.model.phonemize_text(&self.text)?;
+        Ok(phonemes.to_vec())
     }
+
     fn process_one_sentence(&self, phonemes: String) -> DengjenAudioResult {
-        let wave_samples = self.model.speak_one_sentence(phonemes)?;
-        match self.output_config {
-            Some(ref config) => config.apply(wave_samples),
-            None => Ok(wave_samples),
+        let audio = self.model.speak_one_sentence(phonemes)?;
+        match &self.output_config {
+            Some(config) => config.apply(audio),
+            None => Ok(audio),
         }
     }
+
     #[allow(dead_code)]
     fn process_batches(&self, phonemes: Vec<String>) -> DengjenResult<Vec<Audio>> {
-        let wave_samples = self.model.speak_batch(phonemes)?;
-        match self.output_config {
-            Some(ref config) => {
-                let mut processed: Vec<Audio> = Vec::with_capacity(wave_samples.len());
-                for samples in wave_samples.into_iter() {
-                    processed.push(config.apply(samples)?);
-                }
-                Ok(processed)
-            }
-            None => Ok(wave_samples),
+        let batch = self.model.speak_batch(phonemes)?;
+        match &self.output_config {
+            Some(config) => batch.into_iter().map(|audio| config.apply(audio)).collect(),
+            None => Ok(batch),
         }
     }
 }
 
+/// Synthesizes sentences one at a time as the caller pulls from the iterator.
 pub struct DengjenSpeechStreamLazy {
     provider: SpeechSynthesisTaskProvider,
-    sentence_phonemes: std::vec::IntoIter<String>,
+    remaining_phonemes: std::vec::IntoIter<String>,
 }
 
 impl DengjenSpeechStreamLazy {
     fn new(provider: SpeechSynthesisTaskProvider) -> DengjenResult<Self> {
-        let sentence_phonemes = provider.get_phonemes()?.into_iter();
+        let remaining_phonemes = provider.get_phonemes()?.into_iter();
         Ok(Self {
             provider,
-            sentence_phonemes,
+            remaining_phonemes,
         })
     }
 }
@@ -304,28 +318,29 @@ impl Iterator for DengjenSpeechStreamLazy {
     type Item = DengjenAudioResult;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let phonemes = self.sentence_phonemes.next()?;
-        match self.provider.process_one_sentence(phonemes) {
-            Ok(ws) => Some(Ok(ws)),
-            Err(e) => Some(Err(e)),
-        }
+        let phonemes = self.remaining_phonemes.next()?;
+        Some(self.provider.process_one_sentence(phonemes))
     }
 }
 
+/// Synthesizes every sentence up front, in parallel via rayon, then hands out
+/// the precomputed results one at a time. `par_iter().map().collect()` is
+/// order-preserving, so results come out in the same order as the input
+/// sentences despite being computed concurrently.
 #[must_use]
 pub struct DengjenSpeechStreamParallel {
-    precalculated_results: std::vec::IntoIter<DengjenAudioResult>,
+    results: std::vec::IntoIter<DengjenAudioResult>,
 }
 
 impl DengjenSpeechStreamParallel {
     fn new(provider: SpeechSynthesisTaskProvider) -> DengjenResult<Self> {
-        let calculated_result: Vec<DengjenAudioResult> = provider
-            .get_phonemes()?
+        let phonemes = provider.get_phonemes()?;
+        let results: Vec<DengjenAudioResult> = phonemes
             .par_iter()
-            .map(|ph| provider.process_one_sentence(ph.to_string()))
+            .map(|sentence| provider.process_one_sentence(sentence.clone()))
             .collect();
         Ok(Self {
-            precalculated_results: calculated_result.into_iter(),
+            results: results.into_iter(),
         })
     }
 }
@@ -334,7 +349,7 @@ impl Iterator for DengjenSpeechStreamParallel {
     type Item = DengjenAudioResult;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.precalculated_results.next()
+        self.results.next()
     }
 }
 
@@ -821,5 +836,122 @@ mod audio_output_config_tests {
             original_len + 8000,
             "500ms @ 16000Hz of silence (8000 samples) must be appended"
         );
+    }
+}
+
+#[cfg(test)]
+mod lazy_parallel_tests {
+    use super::*;
+
+    struct CannedSentenceModel {
+        sentences: Vec<&'static str>,
+        fail_on: Option<&'static str>,
+    }
+
+    impl DengjenModel for CannedSentenceModel {
+        fn audio_output_info(&self) -> DengjenResult<AudioInfo> {
+            Ok(AudioInfo { sample_rate: 16000, num_channels: 1, sample_width: 2 })
+        }
+        fn phonemize_text(&self, _text: &str) -> DengjenResult<Phonemes> {
+            Ok(Phonemes::from(
+                self.sentences
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect::<Vec<_>>(),
+            ))
+        }
+        fn speak_batch(&self, phoneme_batches: Vec<String>) -> DengjenResult<Vec<Audio>> {
+            phoneme_batches
+                .into_iter()
+                .map(|ph| self.speak_one_sentence(ph))
+                .collect()
+        }
+        fn speak_one_sentence(&self, phonemes: String) -> DengjenAudioResult {
+            if self.fail_on == Some(phonemes.as_str()) {
+                return Err(DengjenError::OperationError(format!(
+                    "synthesis failed for {phonemes}"
+                )));
+            }
+            let n = phonemes.len();
+            let samples = AudioSamples::from(vec![n as f32; n]);
+            Ok(Audio::new(samples, 16000, None))
+        }
+        fn get_default_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
+            Ok(SynthesisConfig::None)
+        }
+        fn get_fallback_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
+            Ok(SynthesisConfig::None)
+        }
+        fn set_fallback_synthesis_config(&self, _c: &SynthesisConfig) -> DengjenResult<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn lazy_stream_yields_one_result_per_sentence_in_order() {
+        let model: Arc<dyn DengjenModel + Send + Sync> = Arc::new(CannedSentenceModel {
+            sentences: vec!["a", "bb", "ccc"],
+            fail_on: None,
+        });
+        let synth = DengjenSpeechSynthesizer::new(model).unwrap();
+        let results: Vec<_> = synth
+            .synthesize_lazy("irrelevant".to_string(), None)
+            .unwrap()
+            .collect();
+        assert_eq!(results.len(), 3);
+        let lens: Vec<usize> = results.into_iter().map(|r| r.unwrap().len()).collect();
+        assert_eq!(lens, vec![1, 2, 3], "lazy stream must preserve sentence order");
+    }
+
+    #[test]
+    fn lazy_stream_propagates_a_sentence_level_error() {
+        let model: Arc<dyn DengjenModel + Send + Sync> = Arc::new(CannedSentenceModel {
+            sentences: vec!["a", "bb", "ccc"],
+            fail_on: Some("bb"),
+        });
+        let synth = DengjenSpeechSynthesizer::new(model).unwrap();
+        let results: Vec<_> = synth
+            .synthesize_lazy("irrelevant".to_string(), None)
+            .unwrap()
+            .collect();
+        assert_eq!(results.len(), 3);
+        assert!(results[0].is_ok());
+        assert!(matches!(results[1], Err(DengjenError::OperationError(_))));
+        assert!(results[2].is_ok());
+    }
+
+    #[test]
+    fn parallel_stream_yields_one_result_per_sentence_in_order() {
+        let model: Arc<dyn DengjenModel + Send + Sync> = Arc::new(CannedSentenceModel {
+            sentences: vec!["a", "bb", "ccc"],
+            fail_on: None,
+        });
+        let synth = DengjenSpeechSynthesizer::new(model).unwrap();
+        let results: Vec<_> = synth
+            .synthesize_parallel("irrelevant".to_string(), None)
+            .unwrap()
+            .collect();
+        assert_eq!(results.len(), 3);
+        let lens: Vec<usize> = results.into_iter().map(|r| r.unwrap().len()).collect();
+        assert_eq!(
+            lens,
+            vec![1, 2, 3],
+            "parallel stream must preserve sentence order in its results"
+        );
+    }
+
+    #[test]
+    fn parallel_stream_propagates_a_sentence_level_error() {
+        let model: Arc<dyn DengjenModel + Send + Sync> = Arc::new(CannedSentenceModel {
+            sentences: vec!["a", "bb", "ccc"],
+            fail_on: Some("ccc"),
+        });
+        let synth = DengjenSpeechSynthesizer::new(model).unwrap();
+        let results: Vec<_> = synth
+            .synthesize_parallel("irrelevant".to_string(), None)
+            .unwrap()
+            .collect();
+        assert_eq!(results.len(), 3);
+        assert_eq!(results.iter().filter(|r| r.is_err()).count(), 1);
     }
 }
