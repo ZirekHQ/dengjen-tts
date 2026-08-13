@@ -8,9 +8,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 const TEXT: &[&'static str] = &[
-    "Technology is not inevitable, powerful drivers must exist in order for people to keep pushing the envelope and continue demanding more and more from a particular field of knowledge.",
-    "Cheaper Communications",
-    "The first and most important driver is our demand for ever cheaper and easier communications, since all of human society depends on communications."
+    "No field advances on its own; someone always has to want the next improvement badly enough to build it, fund it, or demand it from those who can.",
+    "Faster Networks",
+    "Chief among these wants is the pressure to move information faster and more reliably, because nearly every modern institution now runs on top of a network."
 ];
 
 static STD_VOICE: Lazy<Arc<dyn DengjenModel + Send + Sync>> = Lazy::new(|| {
@@ -39,7 +39,7 @@ pub fn gen_params(kind: &str) -> (DengjenSpeechSynthesizer, String, Option<Audio
     let voice = match kind {
         "std" => Arc::clone(&STD_VOICE),
         "rt" => Arc::clone(&RT_VOICE),
-        _ => panic!("Unknown parameterization  for function."),
+        _ => panic!("Unrecognized voice kind requested."),
     };
 
     let synthesizer = DengjenSpeechSynthesizer::new(voice).unwrap();

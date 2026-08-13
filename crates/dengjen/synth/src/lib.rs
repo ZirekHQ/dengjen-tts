@@ -725,6 +725,63 @@ mod cancellation_tests {
             );
         }
     }
+
+    #[test]
+    fn some_output_config_processes_chunks_and_appends_silence_per_sentence() {
+        let chunks_per_sentence = 3;
+        let sentences = 2;
+        let produced = Arc::new(AtomicUsize::new(0));
+        let model: Arc<dyn DengjenModel + Send + Sync> = Arc::new(CountingStreamModel {
+            chunks_per_sentence,
+            sentences,
+            produced: Arc::clone(&produced),
+            delay: None,
+            chunk_sizes_seen: Arc::new(Mutex::new(Vec::new())),
+        });
+        let synth = DengjenSpeechSynthesizer::new(model).unwrap();
+        let cancel_token = CancellationToken::new();
+        let output_config = AudioOutputConfig {
+            rate: None,
+            volume: None,
+            pitch: None,
+            appended_silence_ms: Some(1000),
+        };
+        let stream = synth
+            .synthesize_streamed(
+                "irrelevant".to_string(),
+                Some(output_config),
+                10,
+                0,
+                cancel_token,
+            )
+            .unwrap();
+
+        let chunks: Vec<AudioSamples> = stream.map(|result| result.unwrap()).collect();
+
+        // Each sentence's stream drains, then gets its own trailing silence chunk
+        // appended (process_rt_stream sends it once per sentence, not once overall).
+        let group_size = chunks_per_sentence + 1;
+        assert_eq!(
+            chunks.len(),
+            group_size * sentences,
+            "expected {chunks_per_sentence} real chunks plus 1 appended-silence chunk per sentence"
+        );
+
+        for sentence_index in 0..sentences {
+            let silence_position = sentence_index * group_size + chunks_per_sentence;
+            let silence_chunk = &chunks[silence_position];
+            assert_eq!(
+                silence_chunk.len(),
+                16000,
+                "1000ms of appended silence @ 16000Hz must be 16000 samples"
+            );
+            let max_abs = silence_chunk
+                .as_vec()
+                .iter()
+                .fold(0f32, |a, &b| a.max(b.abs()));
+            assert_eq!(max_abs, 0.0, "appended silence chunk must contain only zeros");
+        }
+    }
 }
 
 #[cfg(test)]
