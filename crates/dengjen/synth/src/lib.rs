@@ -144,11 +144,8 @@ impl DengjenSpeechSynthesizer {
         text: String,
         output_config: Option<AudioOutputConfig>,
     ) -> SpeechSynthesisTaskProvider {
-        SpeechSynthesisTaskProvider {
-            model: self.clone_model(),
-            text,
-            output_config,
-        }
+        let model = self.clone_model();
+        SpeechSynthesisTaskProvider { model, text, output_config }
     }
 
     pub fn synthesize_lazy(
@@ -202,7 +199,7 @@ impl DengjenSpeechSynthesizer {
         }
         if all_samples.is_empty() {
             return Err(DengjenError::OperationError(
-                "synthesis produced no audio samples to write".to_string(),
+                "No speech data to write".to_string(),
             ));
         }
 
