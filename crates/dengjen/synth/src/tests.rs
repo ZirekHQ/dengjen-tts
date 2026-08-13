@@ -1,39 +1,38 @@
 mod dev_utils;
 
 use dengjen_synth::DengjenResult;
-use std::io::Write;
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::{io::Write, path::PathBuf, sync::Arc};
 
 #[test]
 fn test_lazy_stream() -> DengjenResult<()> {
-    let (synth, text, output_config) = dev_utils::gen_params("std");
-    let stream = synth
-        .synthesize_lazy(text, output_config)?
-        .map(|ar| ar.map(|a| a.samples));
-    dev_utils::iterate_stream(stream)
+    let (synthesizer, text, config) = dev_utils::gen_params("std");
+    let synthesis_stream = synthesizer
+        .synthesize_lazy(text, config)?
+        .map(|result| result.map(|chunk| chunk.samples));
+    dev_utils::iterate_stream(synthesis_stream)
 }
 
 #[test]
 fn test_parallel_stream() -> DengjenResult<()> {
-    let (synth, text, output_config) = dev_utils::gen_params("std");
-    let stream = synth
-        .synthesize_parallel(text, output_config)?
-        .map(|ar| ar.map(|a| a.samples));
-    dev_utils::iterate_stream(stream)
+    let (synthesizer, text, config) = dev_utils::gen_params("std");
+    let synthesis_stream = synthesizer
+        .synthesize_parallel(text, config)?
+        .map(|result| result.map(|chunk| chunk.samples));
+    dev_utils::iterate_stream(synthesis_stream)
 }
 
 #[test]
 fn test_realtime_stream() -> DengjenResult<()> {
-    let (synth, text, output_config) = dev_utils::gen_params("rt");
-    let stream = synth.synthesize_streamed(
+    let (synthesizer, text, config) = dev_utils::gen_params("rt");
+    let token = dengjen_core::CancellationToken::new();
+    let synthesis_stream = synthesizer.synthesize_streamed(
         text,
-        output_config,
+        config,
         72,
         3,
-        dengjen_core::CancellationToken::new(),
+        token,
     )?;
-    dev_utils::iterate_stream(stream)
+    dev_utils::iterate_stream(synthesis_stream)
 }
 
 const KOKORO_STYLE_DIM: usize = 256;
