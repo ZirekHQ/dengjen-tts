@@ -19,12 +19,12 @@ const VOLUME_RANGE: ParamRange = ParamRange { min: 0.0, max: 1.0 };
 const PITCH_RANGE: ParamRange = ParamRange { min: 0.5, max: 1.5 };
 
 pub static SYNTHESIS_THREAD_POOL: Lazy<ThreadPool> = Lazy::new(|| {
-    let num_cpus = std::thread::available_parallelism()
+    let available = std::thread::available_parallelism()
         .map(usize::from)
         .unwrap_or(4);
     ThreadPoolBuilder::new()
-        .thread_name(|i| format!("dengjen_synth_{}", i))
-        .num_threads(num_cpus * 4)
+        .num_threads(available * 4)
+        .thread_name(|index| format!("dengjen_synth_{index}"))
         .build()
         .unwrap()
 });
@@ -360,18 +360,17 @@ pub struct RealtimeSpeechStream {
 }
 
 impl RealtimeSpeechStream {
-    /// Computes the chunk size for the next sentence from the *original* base
-    /// chunk size and the chunk count produced by only the immediately
-    /// preceding sentence, so growth cannot compound across an entire
-    /// multi-sentence stream. Clamped to `MAX_STREAM_CHUNK_SIZE` as a backstop.
-    fn next_chunk_size(base_chunk_size: usize, prev_sentence_chunks: usize) -> usize {
-        if prev_sentence_chunks == 0 {
-            base_chunk_size
-        } else {
-            base_chunk_size
-                .saturating_mul(prev_sentence_chunks)
-                .min(MAX_STREAM_CHUNK_SIZE)
-        }
+    /// Ramps the chunk size additively as the stream progresses: each sentence
+    /// contributes one more multiple of the *original* base chunk size, up to
+    /// a cap of 4 multiples (5x base), so later sentences synthesize in fewer,
+    /// larger chunks without ever compounding on a previously grown value or
+    /// dropping back toward `base` between sentences (issue #28). Clamped to
+    /// `MAX_STREAM_CHUNK_SIZE` as a backstop.
+    fn next_chunk_size(base_chunk_size: usize, sentences_seen: usize) -> usize {
+        let ramp_multiple = sentences_seen.min(4);
+        base_chunk_size
+            .saturating_add(base_chunk_size.saturating_mul(ramp_multiple))
+            .min(MAX_STREAM_CHUNK_SIZE)
     }
 
     fn new(
@@ -382,46 +381,44 @@ impl RealtimeSpeechStream {
         num_channels: usize,
         cancel_token: CancellationToken,
     ) -> DengjenResult<Self> {
-        let phonemes = provider.get_phonemes()?.into_iter();
+        let sentences = provider.get_phonemes()?;
         let (tx, rx) = flume::unbounded();
         let producer_cancel_token = cancel_token.clone();
         SYNTHESIS_THREAD_POOL.spawn(move || {
             let cancel_token = producer_cancel_token;
-            let base_chunk_size = chunk_size;
-            let mut prev_sentence_chunks = 0usize;
-            for ph_sent in phonemes {
+            for (sentences_seen, phonemes) in sentences.into_iter().enumerate() {
                 if cancel_token.is_cancelled() {
                     return;
                 }
-                let sentence_chunk_size =
-                    RealtimeSpeechStream::next_chunk_size(base_chunk_size, prev_sentence_chunks);
-                match provider
-                    .model
-                    .stream_synthesis(ph_sent, sentence_chunk_size, chunk_padding, cancel_token.clone())
-                {
-                    Ok(stream) => {
-                        let send_result = RealtimeSpeechStream::process_rt_stream(
-                            stream,
-                            &tx,
-                            provider.output_config.as_ref(),
-                            sample_rate,
-                            num_channels,
-                            &cancel_token,
-                        );
-                        match send_result {
-                            Ok(num_chunks) => prev_sentence_chunks = num_chunks,
-                            Err(_) => return
-                        };
-                    }
+                let sentence_chunk_size = Self::next_chunk_size(chunk_size, sentences_seen);
+                let stream = match provider.model.stream_synthesis(
+                    phonemes,
+                    sentence_chunk_size,
+                    chunk_padding,
+                    cancel_token.clone(),
+                ) {
+                    Ok(stream) => stream,
                     Err(e) => {
                         tx.send(Err(e)).ok();
                         return;
                     }
                 };
+                let drained = Self::process_rt_stream(
+                    stream,
+                    &tx,
+                    provider.output_config.as_ref(),
+                    sample_rate,
+                    num_channels,
+                    &cancel_token,
+                );
+                if drained.is_err() {
+                    return;
+                }
             }
         });
         Ok(Self { rx, cancel_token })
     }
+
     #[inline(always)]
     fn process_rt_stream(
         stream: AudioStreamIterator,
@@ -430,45 +427,30 @@ impl RealtimeSpeechStream {
         sample_rate: usize,
         num_channels: usize,
         cancel_token: &CancellationToken,
-    ) -> Result<usize, SendError<DengjenResult<AudioSamples>>> {
-        let mut num_chunks = 0;
-        if let Some(output_config) = audio_output_config {
-            for result in stream {
-                if cancel_token.is_cancelled() {
-                    return Ok(num_chunks);
-                }
-                match result {
-                    Ok(samples) => {
-                        tx.send(output_config.apply_to_raw_samples(
-                            samples,
-                            sample_rate,
-                            num_channels,
-                        ))?;
-                        num_chunks += 1;
-                    }
-                    Err(e) => {
-                        tx.send(Err(e))?;
-                    }
-                };
+    ) -> Result<(), SendError<DengjenResult<AudioSamples>>> {
+        for result in stream {
+            if cancel_token.is_cancelled() {
+                return Ok(());
             }
-            if !cancel_token.is_cancelled() {
+            let outgoing = match (result, audio_output_config) {
+                (Ok(samples), Some(output_config)) => {
+                    output_config.apply_to_raw_samples(samples, sample_rate, num_channels)
+                }
+                (Ok(samples), None) => Ok(samples),
+                (Err(e), _) => Err(e),
+            };
+            tx.send(outgoing)?;
+        }
+        if !cancel_token.is_cancelled() {
+            if let Some(output_config) = audio_output_config {
                 if let Some(silence_ms) = output_config.appended_silence_ms {
                     let silence_result =
                         output_config.generate_silence(silence_ms as usize, sample_rate, num_channels);
                     tx.send(silence_result)?;
                 }
             }
-            Ok(num_chunks)
-        } else {
-            for result in stream {
-                if cancel_token.is_cancelled() {
-                    return Ok(num_chunks);
-                }
-                tx.send(result)?;
-                num_chunks += 1;
-            }
-            Ok(num_chunks)
         }
+        Ok(())
     }
 }
 
@@ -477,9 +459,10 @@ impl Iterator for RealtimeSpeechStream {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.cancel_token.is_cancelled() {
-            return None;
+            None
+        } else {
+            self.rx.recv().ok()
         }
-        self.rx.recv().ok()
     }
 }
 
@@ -493,28 +476,30 @@ mod chunk_size_growth_tests {
     }
 
     #[test]
-    fn grows_from_the_original_base_not_a_compounded_value() {
-        // Base 72, previous sentence produced 300 chunks: 72 * 300, not something
-        // built on top of an already-grown chunk_size.
-        assert_eq!(RealtimeSpeechStream::next_chunk_size(72, 300), 72 * 300);
+    fn ramps_additively_up_to_the_cap() {
+        assert_eq!(RealtimeSpeechStream::next_chunk_size(72, 0), 72);
+        assert_eq!(RealtimeSpeechStream::next_chunk_size(72, 1), 144);
+        assert_eq!(RealtimeSpeechStream::next_chunk_size(72, 2), 216);
+        assert_eq!(RealtimeSpeechStream::next_chunk_size(72, 3), 288);
+        assert_eq!(RealtimeSpeechStream::next_chunk_size(72, 4), 360);
     }
 
     #[test]
-    fn repeated_calls_with_the_same_prev_count_plateau_instead_of_compounding() {
-        let first = RealtimeSpeechStream::next_chunk_size(72, 300);
-        let second = RealtimeSpeechStream::next_chunk_size(72, 300);
+    fn plateaus_after_the_ramp_cap_instead_of_continuing_to_grow() {
+        let at_cap = RealtimeSpeechStream::next_chunk_size(72, 4);
+        let well_past_cap = RealtimeSpeechStream::next_chunk_size(72, 50);
         assert_eq!(
-            first, second,
-            "growth must be driven by the base size each time, not the previous result"
+            at_cap, well_past_cap,
+            "growth must stop increasing once sentences_seen exceeds the ramp cap"
         );
     }
 
     #[test]
     fn result_is_clamped_to_max_chunk_size() {
         assert_eq!(
-            RealtimeSpeechStream::next_chunk_size(1_000, 5_000),
+            RealtimeSpeechStream::next_chunk_size(300_000, 4),
             MAX_STREAM_CHUNK_SIZE,
-            "1_000 * 5_000 = 5_000_000 must be clamped down to MAX_STREAM_CHUNK_SIZE"
+            "300_000 * 5 = 1_500_000 must be clamped down to MAX_STREAM_CHUNK_SIZE"
         );
     }
 
@@ -522,6 +507,25 @@ mod chunk_size_growth_tests {
     fn never_overflows_or_panics_on_pathological_inputs() {
         let result = RealtimeSpeechStream::next_chunk_size(usize::MAX, usize::MAX);
         assert_eq!(result, MAX_STREAM_CHUNK_SIZE);
+    }
+
+    #[test]
+    fn growth_never_decreases_across_a_multi_sentence_stream_issue_28_regression() {
+        // Regression guard for issue #28: the old formula derived each sentence's
+        // chunk_size from the *previous* sentence's chunk count, which tended to
+        // synthesize a whole sentence in ~1 chunk and then reset back near `base`
+        // for the next one, alternating small/large/small chunk sizes. The new
+        // formula is keyed on how many sentences have been seen, not on chunk
+        // counts, so it must never step backwards.
+        let sizes: Vec<usize> = (0..20)
+            .map(|sentences_seen| RealtimeSpeechStream::next_chunk_size(72, sentences_seen))
+            .collect();
+        for window in sizes.windows(2) {
+            assert!(
+                window[1] >= window[0],
+                "chunk_size must never decrease between sentences, got {sizes:?}"
+            );
+        }
     }
 }
 
@@ -670,10 +674,10 @@ mod cancellation_tests {
     }
 
     #[test]
-    fn chunk_size_growth_stays_bounded_across_many_sentences() {
-        // Regression test for the overflow in issue #24: with the old formula,
-        // chunk_size compounded across the whole stream and overflowed usize by
-        // roughly the 8th sentence. 20 sentences here comfortably exceeds that.
+    fn chunk_size_growth_stays_bounded_and_never_oscillates_across_many_sentences() {
+        // Regression test for both the overflow in issue #24 (growth must stay
+        // bounded across a long stream) and the oscillation in issue #28 (growth
+        // must ramp up and plateau, never drop back toward `base` mid-stream).
         let produced = Arc::new(AtomicUsize::new(0));
         let chunk_sizes_seen = Arc::new(Mutex::new(Vec::new()));
         let model: Arc<dyn DengjenModel + Send + Sync> = Arc::new(CountingStreamModel {
@@ -709,12 +713,15 @@ mod cancellation_tests {
                 "chunk_size {size} exceeded MAX_STREAM_CHUNK_SIZE, growth is not bounded"
             );
         }
-        assert_eq!(seen[0], 72, "first sentence must use the caller's base chunk_size");
-        for &size in &seen[1..] {
+        assert_eq!(
+            &seen[0..5],
+            &[72, 144, 216, 288, 360],
+            "expected the additive ramp for the first 5 sentences"
+        );
+        for &size in &seen[5..] {
             assert_eq!(
-                size,
-                72 * 300,
-                "chunk_size must not compound across sentences"
+                size, 360,
+                "growth must plateau at 5x base after the ramp cap, not continue growing or drop back down"
             );
         }
     }
