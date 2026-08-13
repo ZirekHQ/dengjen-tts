@@ -10,7 +10,7 @@ mod speech_streams {
     use super::*;
     use divan::{black_box, Bencher};
 
-    #[divan::bench]
+    #[divan::bench(threads = 4)]
     fn bench_lazy_stream(bencher: Bencher) {
         bencher.with_inputs(|| dev_utils::gen_params("std")).bench_local_refs(
             |(synth, text, output_config)| {
@@ -36,7 +36,7 @@ mod speech_streams {
         );
     }
 
-    #[divan::bench(threads = 4)]
+    #[divan::bench]
     fn bench_realtime_stream(bencher: Bencher) {
         bencher.with_inputs(|| dev_utils::gen_params("rt")).bench_local_refs(
             |(synth, text, output_config)| {
