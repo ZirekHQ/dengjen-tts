@@ -34,75 +34,78 @@ pub struct AudioOutputConfig {
 
 impl AudioOutputConfig {
     fn apply(&self, mut audio: Audio) -> DengjenAudioResult {
-        let mut samples = audio.samples.take();
-        if let Some(time_ms) = self.appended_silence_ms {
-            let mut silence_samples = self.generate_silence(
-                time_ms as usize,
+        let mut raw_samples = audio.samples.take();
+        if let Some(silence_ms) = self.appended_silence_ms {
+            let silence = self.generate_silence(
+                silence_ms as usize,
                 audio.info.sample_rate,
                 audio.info.num_channels,
             )?;
-            samples.append(silence_samples.take().as_mut());
+            raw_samples.extend(silence.into_vec());
         }
-        let mut samples = self.apply_to_raw_samples(
-            samples.into(),
+        let processed = self.apply_to_raw_samples(
+            raw_samples.into(),
             audio.info.sample_rate,
             audio.info.num_channels,
         )?;
-        audio.samples.as_mut_vec().append(samples.as_mut_vec());
+        audio.samples.merge(processed);
         Ok(audio)
     }
+
     fn apply_to_raw_samples(
         &self,
         samples: AudioSamples,
         sample_rate: usize,
         num_channels: usize,
     ) -> DengjenResult<AudioSamples> {
-        let samples = samples.into_vec();
-        let input_len = samples.len();
-        if input_len == 0 {
-            return Ok(samples.into());
+        if samples.is_empty() {
+            return Ok(samples);
         }
-        let mut out_buf: Vec<f32> = Vec::new();
+        let input = samples.into_vec();
+
+        // SAFETY: `stream` is created, fed, flushed, and destroyed within this block on
+        // every path (including the error path), so no libsonic resource escapes it.
         unsafe {
             let stream = sonic_sys::sonicCreateStream(sample_rate as i32, num_channels as i32);
-            if let Some(rate) = self.rate {
-                sonic_sys::sonicSetSpeed(
-                    stream,
-                    utils::percent_to_param(rate, RATE_RANGE.0, RATE_RANGE.1),
-                );
+
+            if let Some(pct) = self.rate {
+                let speed = utils::percent_to_param(pct, RATE_RANGE.0, RATE_RANGE.1);
+                sonic_sys::sonicSetSpeed(stream, speed);
             }
-            if let Some(volume) = self.volume {
-                sonic_sys::sonicSetVolume(
-                    stream,
-                    utils::percent_to_param(volume, VOLUME_RANGE.0, VOLUME_RANGE.1),
-                );
+            if let Some(pct) = self.volume {
+                let volume = utils::percent_to_param(pct, VOLUME_RANGE.0, VOLUME_RANGE.1);
+                sonic_sys::sonicSetVolume(stream, volume);
             }
-            if let Some(pitch) = self.pitch {
-                sonic_sys::sonicSetPitch(
-                    stream,
-                    utils::percent_to_param(pitch, PITCH_RANGE.0, PITCH_RANGE.1),
-                );
+            if let Some(pct) = self.pitch {
+                let pitch = utils::percent_to_param(pct, PITCH_RANGE.0, PITCH_RANGE.1);
+                sonic_sys::sonicSetPitch(stream, pitch);
             }
-            sonic_sys::sonicWriteFloatToStream(stream, samples.as_ptr(), input_len as i32);
+
+            sonic_sys::sonicWriteFloatToStream(stream, input.as_ptr(), input.len() as i32);
             sonic_sys::sonicFlushStream(stream);
-            let num_samples = sonic_sys::sonicSamplesAvailable(stream);
-            if num_samples <= 0 {
-                return Err(
-                    DengjenError::OperationError("Sonic Error: failed to apply audio config. Invalid parameter value for rate, volume, or pitch".to_string())
-                );
+
+            let available = sonic_sys::sonicSamplesAvailable(stream);
+            if available <= 0 {
+                sonic_sys::sonicDestroyStream(stream);
+                return Err(DengjenError::OperationError(
+                    "Sonic Error: failed to apply audio config. Invalid parameter value for rate, volume, or pitch".to_string(),
+                ));
             }
-            out_buf.reserve_exact(num_samples as usize);
+
+            let mut output: Vec<f32> = Vec::with_capacity(available as usize);
             sonic_sys::sonicReadFloatFromStream(
                 stream,
-                out_buf.spare_capacity_mut().as_mut_ptr().cast(),
-                num_samples,
+                output.spare_capacity_mut().as_mut_ptr().cast(),
+                available,
             );
+            output.set_len(available as usize);
+
             sonic_sys::sonicDestroyStream(stream);
-            out_buf.set_len(num_samples as usize);
+
+            Ok(output.into())
         }
-        Ok(out_buf.into())
     }
-    #[inline(always)]
+
     fn generate_silence(
         &self,
         time_ms: usize,
@@ -110,8 +113,8 @@ impl AudioOutputConfig {
         num_channels: usize,
     ) -> DengjenResult<AudioSamples> {
         let num_samples = (time_ms * sample_rate) / 1000;
-        let silence_samples = vec![0f32; num_samples];
-        self.apply_to_raw_samples(silence_samples.into(), sample_rate, num_channels)
+        let silence = vec![0f32; num_samples];
+        self.apply_to_raw_samples(silence.into(), sample_rate, num_channels)
     }
 }
 
@@ -697,5 +700,121 @@ mod cancellation_tests {
                 "chunk_size must not compound across sentences"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod audio_output_config_tests {
+    use super::*;
+
+    fn sine_samples(n: usize) -> Vec<f32> {
+        (0..n).map(|i| (i as f32 * 0.01).sin() * 0.5).collect()
+    }
+
+    #[test]
+    fn apply_to_raw_samples_on_empty_input_is_a_noop() {
+        let config = AudioOutputConfig {
+            rate: Some(50),
+            volume: Some(50),
+            pitch: Some(50),
+            appended_silence_ms: None,
+        };
+        let result = config
+            .apply_to_raw_samples(AudioSamples::from(Vec::new()), 16000, 1)
+            .unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn apply_to_raw_samples_with_no_config_set_preserves_length_and_signal() {
+        let config = AudioOutputConfig {
+            rate: None,
+            volume: None,
+            pitch: None,
+            appended_silence_ms: None,
+        };
+        let input = sine_samples(1000);
+        let result = config
+            .apply_to_raw_samples(AudioSamples::from(input.clone()), 16000, 1)
+            .unwrap();
+        assert_eq!(result.len(), input.len());
+        let max_diff = result
+            .as_vec()
+            .iter()
+            .zip(input.iter())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0f32, f32::max);
+        assert!(
+            max_diff < 0.01,
+            "expected near-identity passthrough with no config set, max diff was {max_diff}"
+        );
+    }
+
+    #[test]
+    fn apply_to_raw_samples_with_volume_zero_mutes_the_signal() {
+        let config = AudioOutputConfig {
+            rate: None,
+            volume: Some(0),
+            pitch: None,
+            appended_silence_ms: None,
+        };
+        let input = sine_samples(1000);
+        let result = config
+            .apply_to_raw_samples(AudioSamples::from(input), 16000, 1)
+            .unwrap();
+        let max_abs = result.as_vec().iter().fold(0f32, |a, &b| a.max(b.abs()));
+        assert_eq!(max_abs, 0.0, "volume=0 must mute the signal entirely");
+    }
+
+    #[test]
+    fn apply_to_raw_samples_with_volume_100_preserves_amplitude() {
+        let config = AudioOutputConfig {
+            rate: None,
+            volume: Some(100),
+            pitch: None,
+            appended_silence_ms: None,
+        };
+        let input = sine_samples(1000);
+        let result = config
+            .apply_to_raw_samples(AudioSamples::from(input), 16000, 1)
+            .unwrap();
+        let max_abs = result.as_vec().iter().fold(0f32, |a, &b| a.max(b.abs()));
+        assert!(
+            (max_abs - 0.5).abs() < 0.01,
+            "expected peak amplitude close to the input's 0.5, got {max_abs}"
+        );
+    }
+
+    #[test]
+    fn generate_silence_produces_the_expected_sample_count_and_is_silent() {
+        let config = AudioOutputConfig {
+            rate: None,
+            volume: Some(50),
+            pitch: None,
+            appended_silence_ms: None,
+        };
+        let silence = config.generate_silence(1000, 16000, 1).unwrap();
+        assert_eq!(silence.len(), 16000, "1000ms @ 16000Hz must be 16000 samples");
+        let max_abs = silence.as_vec().iter().fold(0f32, |a, &b| a.max(b.abs()));
+        assert_eq!(max_abs, 0.0, "generated silence must contain only zeros");
+    }
+
+    #[test]
+    fn apply_appends_generated_silence_when_configured() {
+        let config = AudioOutputConfig {
+            rate: None,
+            volume: None,
+            pitch: None,
+            appended_silence_ms: Some(500),
+        };
+        let samples = AudioSamples::from(sine_samples(100));
+        let audio = Audio::new(samples, 16000, None);
+        let original_len = audio.len();
+        let result = config.apply(audio).unwrap();
+        assert_eq!(
+            result.len(),
+            original_len + 8000,
+            "500ms @ 16000Hz of silence (8000 samples) must be appended"
+        );
     }
 }
