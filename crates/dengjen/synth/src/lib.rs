@@ -9,9 +9,14 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-const RATE_RANGE: (f32, f32) = (0.5f32, 5.5f32);
-const VOLUME_RANGE: (f32, f32) = (0.0f32, 1.0f32);
-const PITCH_RANGE: (f32, f32) = (0.5f32, 1.5f32);
+struct ParamRange {
+    min: f32,
+    max: f32,
+}
+
+const RATE_RANGE: ParamRange = ParamRange { min: 0.5, max: 5.5 };
+const VOLUME_RANGE: ParamRange = ParamRange { min: 0.0, max: 1.0 };
+const PITCH_RANGE: ParamRange = ParamRange { min: 0.5, max: 1.5 };
 
 pub static SYNTHESIS_THREAD_POOL: Lazy<ThreadPool> = Lazy::new(|| {
     let num_cpus = std::thread::available_parallelism()
@@ -69,15 +74,15 @@ impl AudioOutputConfig {
             let stream = sonic_sys::sonicCreateStream(sample_rate as i32, num_channels as i32);
 
             if let Some(pct) = self.rate {
-                let speed = utils::percent_to_param(pct, RATE_RANGE.0, RATE_RANGE.1);
+                let speed = utils::percent_to_param(pct, RATE_RANGE.min, RATE_RANGE.max);
                 sonic_sys::sonicSetSpeed(stream, speed);
             }
             if let Some(pct) = self.volume {
-                let volume = utils::percent_to_param(pct, VOLUME_RANGE.0, VOLUME_RANGE.1);
+                let volume = utils::percent_to_param(pct, VOLUME_RANGE.min, VOLUME_RANGE.max);
                 sonic_sys::sonicSetVolume(stream, volume);
             }
             if let Some(pct) = self.pitch {
-                let pitch = utils::percent_to_param(pct, PITCH_RANGE.0, PITCH_RANGE.1);
+                let pitch = utils::percent_to_param(pct, PITCH_RANGE.min, PITCH_RANGE.max);
                 sonic_sys::sonicSetPitch(stream, pitch);
             }
 
