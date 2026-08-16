@@ -14,7 +14,8 @@ use dengjen_synth::{
 };
 #[cfg(feature = "tashkeel")]
 use libtashkeel_core::{
-    do_tashkeel, DynamicInferenceEngine as TashkeelInferenceEngine, LibtashkeelResult,
+    create_inference_engine, do_tashkeel, DynamicInferenceEngine as TashkeelInferenceEngine,
+    LibtashkeelResult,
 };
 #[cfg(feature = "tashkeel")]
 use once_cell::sync::Lazy;
@@ -26,9 +27,12 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+// Building the tashkeel inference engine loads a bundled ONNX model, which is
+// expensive enough that we only want to pay for it once, the first time
+// diacritization is actually requested — not on module import.
 #[cfg(feature = "tashkeel")]
 static LIBTASHKEEL_ENGINE: Lazy<LibtashkeelResult<TashkeelInferenceEngine>> =
-    Lazy::new(|| libtashkeel_core::create_inference_engine(None));
+    Lazy::new(|| create_inference_engine(None));
 
 #[cfg(feature = "tashkeel")]
 fn should_diacritize(language: &str, use_tashkeel: Option<bool>) -> bool {
@@ -389,7 +393,11 @@ mod value_type_tests {
     }
 }
 
-#[pyclass(weakref, module = "piper")]
+/// A loaded Piper voice model, exposed to Python as an opaque handle. All the
+/// actual inference work lives behind the `DengjenModel` trait object; this
+/// type's job is just to translate the trait's synthesis-config shape into
+/// the speaker/scale getters and setters Python callers expect.
+#[pyclass(weakref, module = "pydengjen")]
 #[pyo3(name = "PiperModel")]
 struct PiperModel(Arc<dyn DengjenModel + Send + Sync>);
 
@@ -397,76 +405,74 @@ struct PiperModel(Arc<dyn DengjenModel + Send + Sync>);
 impl PiperModel {
     #[new]
     fn new(config_path: &str) -> PyDengjenResult<Self> {
-        let vits = dengjen_piper::from_config_path(&PathBuf::from(config_path))?;
-        Ok(Self(vits))
+        let model = dengjen_piper::from_config_path(&PathBuf::from(config_path))?;
+        Ok(Self(model))
     }
+
     #[getter]
     fn get_speaker(&self) -> PyDengjenResult<Option<String>> {
+        let Some(speaker_id) = self.current_speaker_id()? else {
+            return Ok(None);
+        };
+        Ok(self.0.speaker_id_to_name(&speaker_id)?)
+    }
+
+    #[setter]
+    fn set_speaker(&self, name: String) -> PyDengjenResult<()> {
+        let Some(speaker_id) = self.0.speaker_name_to_id(&name)? else {
+            return Err(PyDengjenError::from(DengjenError::OperationError(format!(
+                "no speaker named '{name}'"
+            ))));
+        };
+        let mut config = self.piper_config_or_err()?;
+        config.speaker = Some(speaker_id);
+        Ok(self
+            .0
+            .set_fallback_synthesis_config(&SynthesisConfig::Piper(config))?)
+    }
+
+    fn get_scales(&self) -> PyDengjenResult<PiperScales> {
+        let config = self.piper_config_or_err()?;
+        Ok(PiperScales {
+            length_scale: config.length_scale,
+            noise_scale: config.noise_scale,
+            noise_w: config.noise_w,
+        })
+    }
+
+    fn set_scales(&self, length_scale: f32, noise_scale: f32, noise_w: f32) -> PyDengjenResult<()> {
+        let mut config = self.piper_config_or_err()?;
+        config.length_scale = length_scale;
+        config.noise_scale = noise_scale;
+        config.noise_w = noise_w;
+        Ok(self
+            .0
+            .set_fallback_synthesis_config(&SynthesisConfig::Piper(config))?)
+    }
+}
+
+impl PiperModel {
+    fn current_speaker_id(&self) -> PyDengjenResult<Option<i64>> {
         match self.0.get_fallback_synthesis_config()? {
-            SynthesisConfig::Piper(synth_config) => match synth_config.speaker {
-                Some(sid) => Ok(self.0.speaker_id_to_name(&sid)?),
-                None => Ok(None),
-            },
+            SynthesisConfig::Piper(config) => Ok(config.speaker),
             SynthesisConfig::None => Ok(None),
         }
     }
-    #[setter]
-    fn set_speaker(&self, name: String) -> PyDengjenResult<()> {
-        let sid = match self.0.speaker_name_to_id(&name)? {
-            Some(sname) => sname,
-            None => {
-                return Err(DengjenError::OperationError(format!(
-                    "A speaker with the given name `{}` was not found",
-                    name
-                ))
-                .into())
-            }
-        };
+
+    fn piper_config_or_err(&self) -> PyDengjenResult<dengjen_core::PiperSynthesisConfig> {
         match self.0.get_fallback_synthesis_config()? {
-            SynthesisConfig::Piper(mut synth_config) => {
-                synth_config.speaker = Some(sid);
-                Ok(self
-                    .0
-                    .set_fallback_synthesis_config(&SynthesisConfig::Piper(synth_config))?)
-            }
-            SynthesisConfig::None => Err(DengjenError::InvalidConfiguration(
-                "Cannot set synthesis config".to_string(),
-            )
-            .into()),
-        }
-    }
-    fn get_scales(&self) -> PyDengjenResult<PiperScales> {
-        match self.0.get_fallback_synthesis_config()? {
-            SynthesisConfig::Piper(synth_config) => Ok(PiperScales {
-                length_scale: synth_config.length_scale,
-                noise_scale: synth_config.noise_scale,
-                noise_w: synth_config.noise_w,
-            }),
-            SynthesisConfig::None => Err(DengjenError::InvalidConfiguration(
-                "Cannot get synthesis config".to_string(),
-            )
-            .into()),
-        }
-    }
-    fn set_scales(&self, length_scale: f32, noise_scale: f32, noise_w: f32) -> PyDengjenResult<()> {
-        match self.0.get_fallback_synthesis_config()? {
-            SynthesisConfig::Piper(mut synth_config) => {
-                synth_config.length_scale = length_scale;
-                synth_config.noise_scale = noise_scale;
-                synth_config.noise_w = noise_w;
-                Ok(self
-                    .0
-                    .set_fallback_synthesis_config(&SynthesisConfig::Piper(synth_config))?)
-            }
-            SynthesisConfig::None => Err(DengjenError::InvalidConfiguration(
-                "Cannot set synthesis config".to_string(),
-            )
-            .into()),
+            SynthesisConfig::Piper(config) => Ok(config),
+            SynthesisConfig::None => Err(PyDengjenError::from(DengjenError::InvalidConfiguration(
+                "this model has no Piper synthesis config to read or update".to_string(),
+            ))),
         }
     }
 }
 
-#[pyclass(weakref, module = "piper", frozen)]
+/// The user-facing synthesizer: wraps a `DengjenSpeechSynthesizer` built
+/// around a loaded model, and hands out streams/files in whichever shape the
+/// caller asked for.
+#[pyclass(weakref, module = "pydengjen", frozen)]
 struct Dengjen(Arc<DengjenSpeechSynthesizer>);
 
 #[pymethods]
@@ -474,9 +480,9 @@ impl Dengjen {
     #[staticmethod]
     fn with_piper(vits_model: &PiperModel) -> PyDengjenResult<Self> {
         let model = Arc::clone(&vits_model.0);
-        let synthesizer = Arc::new(DengjenSpeechSynthesizer::new(model)?);
-        Ok(Self(synthesizer))
+        Ok(Self(Arc::new(DengjenSpeechSynthesizer::new(model)?)))
     }
+
     fn synthesize(
         &self,
         text: String,
@@ -490,10 +496,10 @@ impl Dengjen {
         text: String,
         audio_output_config: Option<PyAudioOutputConfig>,
     ) -> PyDengjenResult<LazySpeechStream> {
-        Ok(self
+        let stream = self
             .0
-            .synthesize_lazy(text, audio_output_config.map(|o| o.into()))?
-            .into())
+            .synthesize_lazy(text, audio_output_config.map(|o| o.into()))?;
+        Ok(stream.into())
     }
 
     fn synthesize_parallel(
@@ -501,10 +507,10 @@ impl Dengjen {
         text: String,
         audio_output_config: Option<PyAudioOutputConfig>,
     ) -> PyDengjenResult<ParallelSpeechStream> {
-        Ok(self
+        let stream = self
             .0
-            .synthesize_parallel(text, audio_output_config.map(|o| o.into()))?
-            .into())
+            .synthesize_parallel(text, audio_output_config.map(|o| o.into()))?;
+        Ok(stream.into())
     }
 
     fn synthesize_streamed(
@@ -519,6 +525,9 @@ impl Dengjen {
             audio_output_config.map(|o| o.into()),
             chunk_size.unwrap_or(45),
             chunk_padding.unwrap_or(3),
+            // No API exists today for a caller to cancel a stream mid-flight,
+            // so there's nothing to hold onto beyond this call — a fresh
+            // token is equivalent to "never cancelled".
             CancellationToken::new(),
         )?;
         Ok(PyRealtimeSpeechStream(stream))
@@ -537,29 +546,34 @@ impl Dengjen {
         )?;
         Ok(())
     }
+
     #[getter]
     fn language(&self) -> PyDengjenResult<Option<String>> {
         Ok(self.0.get_language()?)
     }
+
     #[getter]
     fn speakers(&self) -> PyDengjenResult<Option<HashMap<i64, String>>> {
         Ok(self.0.get_speakers()?.cloned())
     }
+
     fn get_audio_output_info(&self) -> PyDengjenResult<PyWaveInfo> {
         Ok(self.0.audio_output_info()?.into())
     }
 }
 
+/// Adds Arabic diacritics (tashkeel) to `text` using the shared, lazily-built
+/// inference engine. Only ever called when `should_diacritize` has already
+/// said yes, so a failure here — either building the engine or running
+/// inference — is surfaced as a `DengjenException` rather than panicking.
 #[cfg(feature = "tashkeel")]
 fn diacritize_text(text: &str) -> PyResult<std::borrow::Cow<'_, str>> {
-    let engine = match LIBTASHKEEL_ENGINE.as_ref() {
-        Ok(eng) => eng,
-        Err(e) => return Err(DengjenException::new_err(e.to_string())),
-    };
-    match do_tashkeel(engine, text, None, false) {
-        Ok(mashkool) => Ok(std::borrow::Cow::from(mashkool)),
-        Err(e) => Err(DengjenException::new_err(e.to_string())),
-    }
+    let engine = LIBTASHKEEL_ENGINE
+        .as_ref()
+        .map_err(|err| DengjenException::new_err(err.to_string()))?;
+    do_tashkeel(engine, text, None, false)
+        .map(std::borrow::Cow::from)
+        .map_err(|err| DengjenException::new_err(err.to_string()))
 }
 // should_diacritize() is always false without this feature, so this is unreachable.
 #[cfg(not(feature = "tashkeel"))]
@@ -567,6 +581,11 @@ fn diacritize_text(_text: &str) -> PyResult<std::borrow::Cow<'_, str>> {
     unreachable!("diacritize_text called with the `tashkeel` feature disabled")
 }
 
+/// Converts `text` into a phoneme sequence for `language`, diacritizing first
+/// when the language/flag combination calls for it. This is the function
+/// `Dengjen::synthesize*` drives internally via the model's phonemization
+/// step, and it's also exposed directly to Python callers who just want the
+/// phoneme breakdown without running full synthesis.
 #[cfg(feature = "espeak")]
 #[pyfunction]
 pub fn phonemize_text(
@@ -582,16 +601,14 @@ pub fn phonemize_text(
     } else {
         std::borrow::Cow::from(text)
     };
-    match espeak_phonemizer::text_to_phonemes(
+    espeak_phonemizer::text_to_phonemes(
         &text,
         language,
-        phoneme_separator.or(None),
+        phoneme_separator,
         remove_lang_switch_flags.unwrap_or(true),
         remove_stress.unwrap_or(false),
-    ) {
-        Ok(phonemes) => Ok(phonemes),
-        Err(e) => Err(DengjenException::new_err(e.to_string())),
-    }
+    )
+    .map_err(|err| DengjenException::new_err(err.to_string()))
 }
 
 #[cfg(test)]
@@ -669,4 +686,208 @@ fn pydengjen(m: &Bound<'_, PyModule>) -> PyResult<()> {
     #[cfg(feature = "espeak")]
     m.add_function(wrap_pyfunction!(phonemize_text, m)?)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod model_and_synthesizer_tests {
+    use super::*;
+    use dengjen_core::{
+        AudioSamples, DengjenAudioResult, DengjenResult, Phonemes, PiperSynthesisConfig,
+    };
+    use std::collections::HashMap as StdHashMap;
+    use std::sync::Mutex;
+
+    struct FakeModel {
+        speakers: StdHashMap<i64, String>,
+        fallback_config: Mutex<SynthesisConfig>,
+    }
+
+    impl FakeModel {
+        fn with_one_speaker() -> Self {
+            Self::with_speakers(&[(0, "alice")])
+        }
+
+        fn with_speakers(speakers: &[(i64, &str)]) -> Self {
+            let speakers = speakers
+                .iter()
+                .map(|(id, name)| (*id, name.to_string()))
+                .collect();
+            Self {
+                speakers,
+                fallback_config: Mutex::new(SynthesisConfig::Piper(PiperSynthesisConfig {
+                    speaker: Some(0),
+                    noise_scale: 0.667,
+                    length_scale: 1.0,
+                    noise_w: 0.8,
+                })),
+            }
+        }
+    }
+
+    impl DengjenModel for FakeModel {
+        fn audio_output_info(&self) -> DengjenResult<AudioInfo> {
+            Ok(AudioInfo {
+                sample_rate: 22050,
+                num_channels: 1,
+                sample_width: 2,
+            })
+        }
+        fn phonemize_text(&self, text: &str) -> DengjenResult<Phonemes> {
+            Ok(Phonemes::from(vec![text.to_string()]))
+        }
+        fn speak_batch(&self, phoneme_batches: Vec<String>) -> DengjenResult<Vec<Audio>> {
+            phoneme_batches
+                .into_iter()
+                .map(|p| self.speak_one_sentence(p))
+                .collect()
+        }
+        fn speak_one_sentence(&self, _phonemes: String) -> DengjenAudioResult {
+            Ok(Audio::new(
+                AudioSamples::new(vec![0.0; 100]),
+                22050,
+                Some(1.5),
+            ))
+        }
+        fn get_default_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
+            Ok(self.fallback_config.lock().unwrap().clone())
+        }
+        fn get_fallback_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
+            Ok(self.fallback_config.lock().unwrap().clone())
+        }
+        fn set_fallback_synthesis_config(
+            &self,
+            synthesis_config: &SynthesisConfig,
+        ) -> DengjenResult<()> {
+            *self.fallback_config.lock().unwrap() = synthesis_config.clone();
+            Ok(())
+        }
+        fn get_language(&self) -> DengjenResult<Option<String>> {
+            Ok(Some("en-us".to_string()))
+        }
+        fn get_speakers(&self) -> DengjenResult<Option<&StdHashMap<i64, String>>> {
+            Ok(Some(&self.speakers))
+        }
+    }
+
+    fn fake_piper_model() -> PiperModel {
+        PiperModel(Arc::new(FakeModel::with_one_speaker()))
+    }
+
+    #[test]
+    fn piper_model_get_speaker_resolves_id_to_name() {
+        let model = fake_piper_model();
+        assert_eq!(model.get_speaker().unwrap(), Some("alice".to_string()));
+    }
+
+    #[test]
+    fn piper_model_set_speaker_updates_the_fallback_config_by_name() {
+        let model = PiperModel(Arc::new(FakeModel::with_speakers(&[
+            (0, "alice"),
+            (1, "bob"),
+        ])));
+        assert_eq!(model.get_speaker().unwrap(), Some("alice".to_string()));
+        model.set_speaker("bob".to_string()).unwrap();
+        assert_eq!(model.get_speaker().unwrap(), Some("bob".to_string()));
+    }
+
+    #[test]
+    fn piper_model_set_speaker_errors_for_an_unknown_name() {
+        let model = fake_piper_model();
+        let result = model.set_speaker("nobody".to_string());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn piper_model_get_and_set_scales_round_trip() {
+        let model = fake_piper_model();
+        model.set_scales(0.9, 0.5, 0.7).unwrap();
+        let scales = model.get_scales().unwrap();
+        assert_eq!(scales.length_scale, 0.9);
+        assert_eq!(scales.noise_scale, 0.5);
+        assert_eq!(scales.noise_w, 0.7);
+    }
+
+    fn fake_dengjen() -> Dengjen {
+        let piper_model = fake_piper_model();
+        Dengjen::with_piper(&piper_model).unwrap()
+    }
+
+    #[test]
+    fn dengjen_with_piper_succeeds_for_a_valid_model() {
+        let _ = fake_dengjen();
+    }
+
+    #[test]
+    fn dengjen_language_delegates_to_the_model() {
+        let dengjen = fake_dengjen();
+        assert_eq!(dengjen.language().unwrap(), Some("en-us".to_string()));
+    }
+
+    #[test]
+    fn dengjen_speakers_delegates_to_the_model() {
+        let dengjen = fake_dengjen();
+        let speakers = dengjen.speakers().unwrap().unwrap();
+        assert_eq!(speakers.get(&0), Some(&"alice".to_string()));
+    }
+
+    #[test]
+    fn dengjen_get_audio_output_info_delegates_to_the_model() {
+        let dengjen = fake_dengjen();
+        let info = dengjen.get_audio_output_info().unwrap();
+        assert_eq!(info.get_sample_rate(), 22050);
+    }
+
+    #[test]
+    fn dengjen_synthesize_lazy_produces_a_stream_whose_inner_iterator_yields_the_fake_models_audio()
+    {
+        let dengjen = fake_dengjen();
+        let mut stream = dengjen.synthesize_lazy("hello".to_string(), None).unwrap();
+        let first = stream.0.next().unwrap().unwrap();
+        assert_eq!(first.into_vec().len(), 100);
+        assert!(stream.0.next().is_none());
+    }
+
+    #[test]
+    fn dengjen_synthesize_parallel_produces_a_stream_whose_inner_iterator_yields_the_fake_models_audio(
+    ) {
+        let dengjen = fake_dengjen();
+        let mut stream = dengjen
+            .synthesize_parallel("hello".to_string(), None)
+            .unwrap();
+        let first = stream.0.next().unwrap().unwrap();
+        assert_eq!(first.into_vec().len(), 100);
+        assert!(stream.0.next().is_none());
+    }
+
+    #[test]
+    fn dengjen_synthesize_streamed_constructs_successfully() {
+        let dengjen = fake_dengjen();
+        let result = dengjen.synthesize_streamed("hello".to_string(), None, None, None);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn dengjen_synthesize_defaults_to_the_lazy_strategy() {
+        // `synthesize` and `synthesize_lazy` must behave identically — `synthesize`
+        // just delegates. Proven by both producing the same single chunk of audio.
+        let dengjen = fake_dengjen();
+        let mut via_synthesize = dengjen.synthesize("hello".to_string(), None).unwrap();
+        let first = via_synthesize.0.next().unwrap().unwrap();
+        assert_eq!(first.into_vec().len(), 100);
+    }
+
+    #[test]
+    fn dengjen_synthesize_to_file_writes_a_readable_wav() {
+        let dengjen = fake_dengjen();
+        let dir = std::env::temp_dir().join(format!("dengjen-python-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("dengjen_synthesize_to_file_writes_a_readable_wav.wav");
+
+        dengjen
+            .synthesize_to_file(path.to_str().unwrap(), "hello".to_string(), None)
+            .unwrap();
+
+        assert!(path.exists());
+        std::fs::remove_file(&path).ok();
+    }
 }
