@@ -160,6 +160,26 @@ impl DengjenGrpcService {
         })
     }
 
+    /// Turns an already-resolved Piper config into gRPC-facing `SynthesisOptions`,
+    /// looking up the speaker's display name when set and otherwise deferring to
+    /// `on_unset_speaker` (the two config sources disagree on the unset fallback).
+    fn synth_options_from_piper_config(
+        model: &(impl DengjenModel + ?Sized),
+        config: dengjen_core::PiperSynthesisConfig,
+        on_unset_speaker: impl FnOnce() -> DengjenGrpcResult<Option<String>>,
+    ) -> DengjenGrpcResult<grpc::SynthesisOptions> {
+        let speaker = match config.speaker {
+            Some(ref speaker_id) => model.speaker_id_to_name(speaker_id)?,
+            None => on_unset_speaker()?,
+        };
+        Ok(grpc::SynthesisOptions {
+            speaker,
+            length_scale: Some(config.length_scale),
+            noise_scale: Some(config.noise_scale),
+            noise_w: Some(config.noise_w),
+        })
+    }
+
     fn synth_options_from_default_config(
         model: &(impl DengjenModel + ?Sized),
     ) -> DengjenGrpcResult<grpc::SynthesisOptions> {
@@ -172,22 +192,12 @@ impl DengjenGrpcService {
                 .into())
             }
         };
-        let speaker = match config.speaker {
-            Some(ref sid) => model.speaker_id_to_name(sid)?,
-            None => Some("Default".to_string()),
-        };
-        Ok(grpc::SynthesisOptions {
-            speaker,
-            length_scale: Some(config.length_scale),
-            noise_scale: Some(config.noise_scale),
-            noise_w: Some(config.noise_w),
-        })
+        Self::synth_options_from_piper_config(model, config, || Ok(Some("Default".to_string())))
     }
 
     /// Reads a model's fallback synthesis config as gRPC-facing `SynthesisOptions`,
     /// resolving an unset speaker to speaker ID `0`'s name.
     fn synth_options_from_model(
-        &self,
         model: &(impl DengjenModel + ?Sized),
     ) -> DengjenGrpcResult<grpc::SynthesisOptions> {
         let config = match model.get_fallback_synthesis_config()? {
@@ -199,14 +209,7 @@ impl DengjenGrpcService {
                 .into())
             }
         };
-        let speaker_id = config.speaker.unwrap_or(0);
-        let speaker = model.speaker_id_to_name(&speaker_id)?;
-        Ok(grpc::SynthesisOptions {
-            speaker,
-            length_scale: Some(config.length_scale),
-            noise_scale: Some(config.noise_scale),
-            noise_w: Some(config.noise_w),
-        })
+        Self::synth_options_from_piper_config(model, config, || Ok(model.speaker_id_to_name(&0)?))
     }
 
     fn lookup_synth_options(&self, voice_id: &str) -> DengjenGrpcResult<grpc::SynthesisOptions> {
@@ -217,7 +220,7 @@ impl DengjenGrpcService {
                 voice_id
             ))
         })?;
-        self.synth_options_from_model(voice.model_ref())
+        Self::synth_options_from_model(voice.model_ref())
     }
 
     /// Applies each `Some` field of `synth_opts` onto the voice's fallback synthesis
@@ -259,7 +262,7 @@ impl DengjenGrpcService {
             config.noise_w = noise_w;
         }
         model.set_fallback_synthesis_config(&SynthesisConfig::Piper(config))?;
-        self.synth_options_from_model(model)
+        Self::synth_options_from_model(model)
     }
 }
 
@@ -272,6 +275,29 @@ fn output_config_from_speech_args(args: Option<grpc::SpeechArgs>) -> Option<Audi
         pitch: args.pitch.map(|v| v as u8),
         appended_silence_ms: args.appended_silence_ms,
     })
+}
+
+/// Drains a blocking synthesis-result iterator into a channel, mapping each
+/// produced item to its wire message via `to_message`. Stops early either by
+/// forwarding a mapped error (once, then returning) or silently once the
+/// receiver side has gone away (`blocking_send` failing).
+fn drain_stream_into_channel<Chunk, Message>(
+    stream: impl Iterator<Item = DengjenResult<Chunk>>,
+    tx: mpsc::Sender<Result<Message, Status>>,
+    to_message: impl Fn(Chunk) -> Message,
+) {
+    for chunk_result in stream {
+        let chunk = match chunk_result {
+            Ok(chunk) => chunk,
+            Err(e) => {
+                tx.blocking_send(Err(DengjenGrpcError::from(e).into())).ok();
+                return;
+            }
+        };
+        if tx.blocking_send(Ok(to_message(chunk))).is_err() {
+            return;
+        }
+    }
 }
 
 #[tonic::async_trait]
@@ -342,22 +368,10 @@ impl DengjenGrpc for DengjenGrpcService {
 
         let (tx, rx) = mpsc::channel(512);
         tokio::task::spawn_blocking(move || {
-            for wav_result in dengjen_stream {
-                let wav = match wav_result {
-                    Ok(wav) => wav,
-                    Err(e) => {
-                        tx.blocking_send(Err(DengjenGrpcError::from(e).into())).ok();
-                        return;
-                    }
-                };
-                let synth_result = grpc::SynthesisResult {
-                    wav_samples: wav.as_wave_bytes(),
-                    rtf: wav.real_time_factor().unwrap_or_default(),
-                };
-                if tx.blocking_send(Ok(synth_result)).is_err() {
-                    return;
-                }
-            }
+            drain_stream_into_channel(dengjen_stream, tx, |wav| grpc::SynthesisResult {
+                wav_samples: wav.as_wave_bytes(),
+                rtf: wav.real_time_factor().unwrap_or_default(),
+            });
         });
         Ok(Response::new(ReceiverStream::new(rx)))
     }
@@ -395,21 +409,9 @@ impl DengjenGrpc for DengjenGrpcService {
                     return;
                 }
             };
-            for wav_result in realtime_speech_stream {
-                let wav = match wav_result {
-                    Ok(wav) => wav,
-                    Err(e) => {
-                        tx.blocking_send(Err(DengjenGrpcError::from(e).into())).ok();
-                        return;
-                    }
-                };
-                let synth_result = grpc::WaveSamples {
-                    wav_samples: wav.as_wave_bytes(),
-                };
-                if tx.blocking_send(Ok(synth_result)).is_err() {
-                    return;
-                }
-            }
+            drain_stream_into_channel(realtime_speech_stream, tx, |wav| grpc::WaveSamples {
+                wav_samples: wav.as_wave_bytes(),
+            });
         });
         Ok(Response::new(ReceiverStream::new(rx)))
     }
@@ -452,7 +454,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         log::error!("Could not initialize onnxruntime environment");
     }
 
-    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), resolve_listen_port());
+    let addr = SocketAddr::new(
+        IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+        resolve_listen_port(),
+    );
     log::info!("Starting Dengjen GRPC server at address: {}", addr);
 
     let server = DengjenGrpcServer::new(DengjenGrpcService::new());
@@ -475,7 +480,10 @@ mod error_mapping_tests {
     fn dengjen_error_display_delegates_to_the_wrapped_error() {
         let inner = DengjenError::OperationError("boom".to_string());
         let err = DengjenGrpcError::from(inner);
-        assert_eq!(err.to_string(), DengjenError::OperationError("boom".to_string()).to_string());
+        assert_eq!(
+            err.to_string(),
+            DengjenError::OperationError("boom".to_string()).to_string()
+        );
     }
 
     #[test]
@@ -487,37 +495,43 @@ mod error_mapping_tests {
 
     #[test]
     fn failed_to_load_resource_maps_to_status_aborted() {
-        let status: Status = DengjenGrpcError::from(DengjenError::FailedToLoadResource("x".into())).into();
+        let status: Status =
+            DengjenGrpcError::from(DengjenError::FailedToLoadResource("x".into())).into();
         assert_eq!(status.code(), tonic::Code::Aborted);
     }
 
     #[test]
     fn phonemization_error_maps_to_status_aborted() {
-        let status: Status = DengjenGrpcError::from(DengjenError::PhonemizationError("x".into())).into();
+        let status: Status =
+            DengjenGrpcError::from(DengjenError::PhonemizationError("x".into())).into();
         assert_eq!(status.code(), tonic::Code::Aborted);
     }
 
     #[test]
     fn inference_error_maps_to_status_internal() {
-        let status: Status = DengjenGrpcError::from(DengjenError::InferenceError("x".into())).into();
+        let status: Status =
+            DengjenGrpcError::from(DengjenError::InferenceError("x".into())).into();
         assert_eq!(status.code(), tonic::Code::Internal);
     }
 
     #[test]
     fn invalid_configuration_maps_to_status_invalid_argument() {
-        let status: Status = DengjenGrpcError::from(DengjenError::InvalidConfiguration("x".into())).into();
+        let status: Status =
+            DengjenGrpcError::from(DengjenError::InvalidConfiguration("x".into())).into();
         assert_eq!(status.code(), tonic::Code::InvalidArgument);
     }
 
     #[test]
     fn unsupported_operation_maps_to_status_unimplemented() {
-        let status: Status = DengjenGrpcError::from(DengjenError::UnsupportedOperation("x".into())).into();
+        let status: Status =
+            DengjenGrpcError::from(DengjenError::UnsupportedOperation("x".into())).into();
         assert_eq!(status.code(), tonic::Code::Unimplemented);
     }
 
     #[test]
     fn operation_error_maps_to_status_unknown() {
-        let status: Status = DengjenGrpcError::from(DengjenError::OperationError("x".into())).into();
+        let status: Status =
+            DengjenGrpcError::from(DengjenError::OperationError("x".into())).into();
         assert_eq!(status.code(), tonic::Code::Unknown);
     }
 }
@@ -534,7 +548,11 @@ mod voice_loading_tests {
 
     impl DengjenModel for FakeModel {
         fn audio_output_info(&self) -> DengjenResult<CoreAudioInfo> {
-            Ok(CoreAudioInfo { sample_rate: 22050, num_channels: 1, sample_width: 2 })
+            Ok(CoreAudioInfo {
+                sample_rate: 22050,
+                num_channels: 1,
+                sample_width: 2,
+            })
         }
         fn phonemize_text(&self, _text: &str) -> DengjenResult<Phonemes> {
             Ok(Phonemes::from(vec!["fake".to_string()]))
@@ -568,12 +586,16 @@ mod voice_loading_tests {
     fn service_with_voice(voice_id: &str, model: FakeModel) -> DengjenGrpcService {
         let service = DengjenGrpcService::new();
         let voice = Voice::new(Arc::new(model)).unwrap();
-        service.0.write().unwrap().insert(voice_id.to_string(), voice);
+        service
+            .0
+            .write()
+            .unwrap()
+            .insert(voice_id.to_string(), voice);
         service
     }
 
     #[test]
-    fn load_dengjen_voice_reports_voice_not_found_for_a_missing_config_path() {
+    fn load_voice_from_config_reports_voice_not_found_for_a_missing_config_path() {
         let service = DengjenGrpcService::new();
         let result = service.load_voice_from_config(PathBuf::from("/does/not/exist.json"));
         match result {
@@ -585,15 +607,17 @@ mod voice_loading_tests {
     }
 
     #[test]
-    fn create_speech_synthesis_stream_reports_voice_not_found_for_an_unloaded_voice() {
+    fn open_synthesis_stream_reports_voice_not_found_for_an_unloaded_voice() {
         let service = DengjenGrpcService::new();
         let result = service.open_synthesis_stream("missing", "hi".to_string(), None);
         assert!(matches!(result, Err(DengjenGrpcError::VoiceNotFound(_))));
     }
 
     #[test]
-    fn create_speech_synthesis_stream_succeeds_for_a_loaded_voice() {
-        let model = FakeModel { speakers: StdHashMap::new() };
+    fn open_synthesis_stream_succeeds_for_a_loaded_voice() {
+        let model = FakeModel {
+            speakers: StdHashMap::new(),
+        };
         let service = service_with_voice("v1", model);
         let result = service.open_synthesis_stream("v1", "hi".to_string(), None);
         assert!(result.is_ok());
@@ -607,7 +631,9 @@ mod voice_loading_tests {
         let service = service_with_voice("v1", model);
         let voices = service.0.read().unwrap();
         let voice = voices.get("v1").unwrap();
-        let info = service.build_voice_info("v1".to_string(), voice.model_ref()).unwrap();
+        let info = service
+            .build_voice_info("v1".to_string(), voice.model_ref())
+            .unwrap();
         assert_eq!(info.voice_id, "v1");
         assert_eq!(info.language.as_deref(), Some("en-US"));
         assert_eq!(info.speakers.get(&1), Some(&"Alice".to_string()));
@@ -620,19 +646,28 @@ mod voice_loading_tests {
 
     #[test]
     fn get_voice_info_defaults_speaker_name_to_default_when_none_configured() {
-        let model = FakeModel { speakers: StdHashMap::new() };
+        let model = FakeModel {
+            speakers: StdHashMap::new(),
+        };
         let service = service_with_voice("v1", model);
         let voices = service.0.read().unwrap();
         let voice = voices.get("v1").unwrap();
-        let info = service.build_voice_info("v1".to_string(), voice.model_ref()).unwrap();
-        assert_eq!(info.synth_options.unwrap().speaker.as_deref(), Some("Default"));
+        let info = service
+            .build_voice_info("v1".to_string(), voice.model_ref())
+            .unwrap();
+        assert_eq!(
+            info.synth_options.unwrap().speaker.as_deref(),
+            Some("Default")
+        );
     }
 }
 
 #[cfg(test)]
 mod synth_options_tests {
     use super::*;
-    use dengjen_core::{Audio, AudioInfo as CoreAudioInfo, DengjenAudioResult, Phonemes, PiperSynthesisConfig};
+    use dengjen_core::{
+        Audio, AudioInfo as CoreAudioInfo, DengjenAudioResult, Phonemes, PiperSynthesisConfig,
+    };
     use std::collections::HashMap as StdHashMap;
     use std::sync::Mutex as StdMutex;
 
@@ -643,7 +678,11 @@ mod synth_options_tests {
 
     impl DengjenModel for ConfigurableModel {
         fn audio_output_info(&self) -> DengjenResult<CoreAudioInfo> {
-            Ok(CoreAudioInfo { sample_rate: 22050, num_channels: 1, sample_width: 2 })
+            Ok(CoreAudioInfo {
+                sample_rate: 22050,
+                num_channels: 1,
+                sample_width: 2,
+            })
         }
         fn phonemize_text(&self, _text: &str) -> DengjenResult<Phonemes> {
             Ok(Phonemes::from(vec!["fake".to_string()]))
@@ -674,30 +713,50 @@ mod synth_options_tests {
     fn service_with_voice(voice_id: &str, model: ConfigurableModel) -> DengjenGrpcService {
         let service = DengjenGrpcService::new();
         let voice = Voice::new(Arc::new(model)).unwrap();
-        service.0.write().unwrap().insert(voice_id.to_string(), voice);
+        service
+            .0
+            .write()
+            .unwrap()
+            .insert(voice_id.to_string(), voice);
         service
     }
 
     #[test]
-    fn get_synth_options_reports_voice_not_found_for_an_unloaded_voice() {
+    fn lookup_synth_options_reports_voice_not_found_for_an_unloaded_voice() {
         let service = DengjenGrpcService::new();
-        assert!(matches!(service.lookup_synth_options("missing"), Err(DengjenGrpcError::VoiceNotFound(_))));
+        assert!(matches!(
+            service.lookup_synth_options("missing"),
+            Err(DengjenGrpcError::VoiceNotFound(_))
+        ));
     }
 
     #[test]
-    fn set_synth_options_reports_voice_not_found_for_an_unloaded_voice() {
+    fn apply_synth_options_reports_voice_not_found_for_an_unloaded_voice() {
         let service = DengjenGrpcService::new();
-        let opts = grpc::SynthesisOptions { speaker: None, length_scale: None, noise_scale: None, noise_w: None };
-        assert!(matches!(service.apply_synth_options("missing", opts), Err(DengjenGrpcError::VoiceNotFound(_))));
+        let opts = grpc::SynthesisOptions {
+            speaker: None,
+            length_scale: None,
+            noise_scale: None,
+            noise_w: None,
+        };
+        assert!(matches!(
+            service.apply_synth_options("missing", opts),
+            Err(DengjenGrpcError::VoiceNotFound(_))
+        ));
     }
 
     #[test]
-    fn get_synth_options_reads_the_models_fallback_config_defaulting_speaker_to_id_zero() {
+    fn lookup_synth_options_reads_the_models_fallback_config_defaulting_speaker_to_id_zero() {
         let mut speakers = StdHashMap::new();
         speakers.insert(0i64, "Narrator".to_string());
         let model = ConfigurableModel {
             speakers,
-            config: StdMutex::new(PiperSynthesisConfig { speaker: None, noise_scale: 0.5, length_scale: 1.0, noise_w: 0.2 }),
+            config: StdMutex::new(PiperSynthesisConfig {
+                speaker: None,
+                noise_scale: 0.5,
+                length_scale: 1.0,
+                noise_w: 0.2,
+            }),
         };
         let service = service_with_voice("v1", model);
         let opts = service.lookup_synth_options("v1").unwrap();
@@ -708,13 +767,18 @@ mod synth_options_tests {
     }
 
     #[test]
-    fn set_synth_options_updates_only_the_provided_fields_and_persists_them() {
+    fn apply_synth_options_updates_only_the_provided_fields_and_persists_them() {
         let mut speakers = StdHashMap::new();
         speakers.insert(0i64, "Narrator".to_string());
         speakers.insert(7i64, "Robot".to_string());
         let model = ConfigurableModel {
             speakers,
-            config: StdMutex::new(PiperSynthesisConfig { speaker: Some(0), noise_scale: 0.5, length_scale: 1.0, noise_w: 0.2 }),
+            config: StdMutex::new(PiperSynthesisConfig {
+                speaker: Some(0),
+                noise_scale: 0.5,
+                length_scale: 1.0,
+                noise_w: 0.2,
+            }),
         };
         let service = service_with_voice("v1", model);
 
@@ -727,20 +791,37 @@ mod synth_options_tests {
         let result = service.apply_synth_options("v1", update).unwrap();
         assert_eq!(result.speaker.as_deref(), Some("Robot"));
         assert_eq!(result.length_scale, Some(2.0));
-        assert_eq!(result.noise_scale, Some(0.5), "unset field must be left unchanged");
-        assert_eq!(result.noise_w, Some(0.2), "unset field must be left unchanged");
+        assert_eq!(
+            result.noise_scale,
+            Some(0.5),
+            "unset field must be left unchanged"
+        );
+        assert_eq!(
+            result.noise_w,
+            Some(0.2),
+            "unset field must be left unchanged"
+        );
 
         let persisted = service.lookup_synth_options("v1").unwrap();
-        assert_eq!(persisted.speaker.as_deref(), Some("Robot"), "change must persist on the model");
+        assert_eq!(
+            persisted.speaker.as_deref(),
+            Some("Robot"),
+            "change must persist on the model"
+        );
     }
 
     #[test]
-    fn set_synth_options_ignores_an_unknown_speaker_name() {
+    fn apply_synth_options_ignores_an_unknown_speaker_name() {
         let mut speakers = StdHashMap::new();
         speakers.insert(0i64, "Narrator".to_string());
         let model = ConfigurableModel {
             speakers,
-            config: StdMutex::new(PiperSynthesisConfig { speaker: Some(0), noise_scale: 0.5, length_scale: 1.0, noise_w: 0.2 }),
+            config: StdMutex::new(PiperSynthesisConfig {
+                speaker: Some(0),
+                noise_scale: 0.5,
+                length_scale: 1.0,
+                noise_w: 0.2,
+            }),
         };
         let service = service_with_voice("v1", model);
         let update = grpc::SynthesisOptions {
@@ -750,7 +831,10 @@ mod synth_options_tests {
             noise_w: None,
         };
         let result = service.apply_synth_options("v1", update).unwrap();
-        assert_eq!(result.speaker.as_deref(), Some("Narrator"), "unknown speaker name must leave the current speaker unchanged");
+        assert_eq!(
+            result.speaker.as_deref(),
+            Some("Narrator"),
+            "unknown speaker name must leave the current speaker unchanged"
+        );
     }
 }
-
