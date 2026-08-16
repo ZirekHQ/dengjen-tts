@@ -59,113 +59,131 @@ impl From<DengjenGrpcError> for Status {
     }
 }
 
+/// A loaded voice, backed by a speech synthesizer wrapping some `DengjenModel`.
 struct Voice(Arc<DengjenSpeechSynthesizer>);
 
 impl Voice {
     fn new(model: Arc<dyn DengjenModel + Send + Sync>) -> DengjenResult<Self> {
-        let synth = Arc::new(DengjenSpeechSynthesizer::new(model)?);
-        Ok(Self(synth))
+        Ok(Self(Arc::new(DengjenSpeechSynthesizer::new(model)?)))
     }
+
+    /// `DengjenSpeechSynthesizer` implements `DengjenModel` by delegating to the
+    /// wrapped model, so the synthesizer itself can stand in as the model reference.
     fn model_ref(&self) -> &dyn DengjenModel {
         self.synth_ref()
     }
+
     fn synth_ref(&self) -> &DengjenSpeechSynthesizer {
-        self.0.as_ref()
+        &self.0
     }
 }
 
+/// Registry of loaded voices, keyed by voice ID.
 struct DengjenGrpcService(RwLock<HashMap<String, Voice>>);
 
 impl DengjenGrpcService {
     fn new() -> Self {
-        Self(Default::default())
+        Self(RwLock::new(HashMap::new()))
     }
+
+    /// Derives a stable voice ID from a canonicalized config path.
+    fn voice_id_for_path(config_path: &std::path::Path) -> String {
+        let canonical_path = config_path
+            .canonicalize()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        (xxh3_64(canonical_path.as_bytes()) / VOICE_ID_REDUCTION_FACTOR).to_string()
+    }
+
     fn _load_dengjen_voice(&self, config_path: PathBuf) -> DengjenGrpcResult<grpc::VoiceInfo> {
-        let voice_id = if config_path.is_file() {
-            let voice_path = config_path
-                .canonicalize()
-                .unwrap()
-                .to_string_lossy()
-                .into_owned();
-            (xxh3_64(voice_path.as_bytes()) / VOICE_ID_REDUCTION_FACTOR).to_string()
-        } else {
+        if !config_path.is_file() {
             return Err(DengjenGrpcError::VoiceNotFound(format!(
                 "Config file does not exists: `{}`",
                 config_path.display()
             )));
-        };
-        if let Some(voice) = (self.0.read().unwrap()).get(&voice_id) {
+        }
+        let voice_id = Self::voice_id_for_path(&config_path);
+        if let Some(voice) = self.0.read().unwrap().get(&voice_id) {
             return self._get_voice_info(voice_id, voice.model_ref());
         }
-        let piper_model = dengjen_piper::from_config_path(&config_path)?;
+
+        let model = dengjen_piper::from_config_path(&config_path)?;
         log::info!(
             "Loaded Vits voice from: `{}`. Voice ID: {}",
             config_path.display(),
             voice_id
         );
-        let voice = Voice::new(piper_model)?;
+        let voice = Voice::new(model)?;
         let voice_info = self._get_voice_info(voice_id.clone(), voice.model_ref())?;
-        (self.0.write().unwrap()).insert(voice_id, voice);
+        self.0.write().unwrap().insert(voice_id, voice);
         Ok(voice_info)
     }
+
     fn _create_speech_synthesis_stream(
         &self,
         voice_id: &str,
         text: String,
         output_config: Option<AudioOutputConfig>,
     ) -> DengjenGrpcResult<DengjenSpeechStreamLazy> {
-        match (self.0.read().unwrap()).get(voice_id) {
-            Some(voice) => Ok(voice.synth_ref().synthesize_lazy(text, output_config)?),
-            None => Err(DengjenGrpcError::VoiceNotFound(format!(
+        let voices = self.0.read().unwrap();
+        let voice = voices.get(voice_id).ok_or_else(|| {
+            DengjenGrpcError::VoiceNotFound(format!(
                 "A voice with the key `{}` has not been loaded",
                 voice_id
-            ))),
-        }
+            ))
+        })?;
+        Ok(voice.synth_ref().synthesize_lazy(text, output_config)?)
     }
+
     fn _get_voice_info(
         &self,
         voice_id: String,
         model: &(impl DengjenModel + ?Sized),
     ) -> DengjenGrpcResult<grpc::VoiceInfo> {
-        let wav_info = model.audio_output_info()?;
-        let speakers = model.get_speakers()?;
+        let audio_info = model.audio_output_info()?;
+        let speakers = model.get_speakers()?.cloned().unwrap_or_default();
         let language = model.get_language()?;
-        let audio_info = grpc::AudioInfo {
-            sample_rate: wav_info.sample_rate as u32,
-            num_channels: wav_info.num_channels as u32,
-            sample_width: wav_info.sample_width as u32,
-        };
-        let synth_options = {
-            let default_synth_config = match model.get_default_synthesis_config()? {
-                SynthesisConfig::Piper(config) => config,
-                SynthesisConfig::None => {
-                    return Err(DengjenError::InvalidConfiguration(
-                        "Invalid synthesis config for Vits model".to_string(),
-                    )
-                    .into())
-                }
-            };
-            let speaker = match default_synth_config.speaker {
-                Some(ref sid) => model.speaker_id_to_name(sid)?,
-                None => Some("Default".to_string()),
-            };
-            grpc::SynthesisOptions {
-                speaker,
-                length_scale: Some(default_synth_config.length_scale),
-                noise_scale: Some(default_synth_config.noise_scale),
-                noise_w: Some(default_synth_config.noise_w),
-            }
-        };
+        let synth_options = Self::synth_options_from_default_config(model)?;
         Ok(grpc::VoiceInfo {
             voice_id,
             synth_options: Some(synth_options),
             language,
-            speakers: speakers.cloned().unwrap_or_default(),
-            audio: Some(audio_info),
+            speakers,
+            audio: Some(grpc::AudioInfo {
+                sample_rate: audio_info.sample_rate as u32,
+                num_channels: audio_info.num_channels as u32,
+                sample_width: audio_info.sample_width as u32,
+            }),
             supports_streaming_output: Some(model.supports_streaming_output()),
             quality: None,
         })
     }
+
+    fn synth_options_from_default_config(
+        model: &(impl DengjenModel + ?Sized),
+    ) -> DengjenGrpcResult<grpc::SynthesisOptions> {
+        let config = match model.get_default_synthesis_config()? {
+            SynthesisConfig::Piper(config) => config,
+            SynthesisConfig::None => {
+                return Err(DengjenError::InvalidConfiguration(
+                    "Invalid synthesis config for Vits model".to_string(),
+                )
+                .into())
+            }
+        };
+        let speaker = match config.speaker {
+            Some(ref sid) => model.speaker_id_to_name(sid)?,
+            None => Some("Default".to_string()),
+        };
+        Ok(grpc::SynthesisOptions {
+            speaker,
+            length_scale: Some(config.length_scale),
+            noise_scale: Some(config.noise_scale),
+            noise_w: Some(config.noise_w),
+        })
+    }
+
     fn _get_synth_options_from_model(
         &self,
         model: &(impl DengjenModel + ?Sized),
@@ -499,6 +517,113 @@ mod error_mapping_tests {
     fn operation_error_maps_to_status_unknown() {
         let status: Status = DengjenGrpcError::from(DengjenError::OperationError("x".into())).into();
         assert_eq!(status.code(), tonic::Code::Unknown);
+    }
+}
+
+#[cfg(test)]
+mod voice_loading_tests {
+    use super::*;
+    use dengjen_core::{Audio, AudioInfo as CoreAudioInfo, DengjenAudioResult, Phonemes};
+    use std::collections::HashMap as StdHashMap;
+
+    struct FakeModel {
+        speakers: StdHashMap<i64, String>,
+    }
+
+    impl DengjenModel for FakeModel {
+        fn audio_output_info(&self) -> DengjenResult<CoreAudioInfo> {
+            Ok(CoreAudioInfo { sample_rate: 22050, num_channels: 1, sample_width: 2 })
+        }
+        fn phonemize_text(&self, _text: &str) -> DengjenResult<Phonemes> {
+            Ok(Phonemes::from(vec!["fake".to_string()]))
+        }
+        fn speak_batch(&self, _phoneme_batches: Vec<String>) -> DengjenResult<Vec<Audio>> {
+            Ok(Vec::new())
+        }
+        fn speak_one_sentence(&self, _phonemes: String) -> DengjenAudioResult {
+            Ok(Audio::new(Default::default(), 22050, None))
+        }
+        fn get_default_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
+            Ok(SynthesisConfig::Piper(Default::default()))
+        }
+        fn get_fallback_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
+            Ok(SynthesisConfig::Piper(Default::default()))
+        }
+        fn set_fallback_synthesis_config(&self, _c: &SynthesisConfig) -> DengjenResult<()> {
+            Ok(())
+        }
+        fn get_speakers(&self) -> DengjenResult<Option<&StdHashMap<i64, String>>> {
+            Ok(Some(&self.speakers))
+        }
+        fn get_language(&self) -> DengjenResult<Option<String>> {
+            Ok(Some("en-US".to_string()))
+        }
+        fn supports_streaming_output(&self) -> bool {
+            true
+        }
+    }
+
+    fn service_with_voice(voice_id: &str, model: FakeModel) -> DengjenGrpcService {
+        let service = DengjenGrpcService::new();
+        let voice = Voice::new(Arc::new(model)).unwrap();
+        service.0.write().unwrap().insert(voice_id.to_string(), voice);
+        service
+    }
+
+    #[test]
+    fn load_dengjen_voice_reports_voice_not_found_for_a_missing_config_path() {
+        let service = DengjenGrpcService::new();
+        let result = service._load_dengjen_voice(PathBuf::from("/does/not/exist.json"));
+        match result {
+            Err(DengjenGrpcError::VoiceNotFound(msg)) => {
+                assert!(msg.contains("/does/not/exist.json"), "message was: {msg}");
+            }
+            other => panic!("expected VoiceNotFound, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn create_speech_synthesis_stream_reports_voice_not_found_for_an_unloaded_voice() {
+        let service = DengjenGrpcService::new();
+        let result = service._create_speech_synthesis_stream("missing", "hi".to_string(), None);
+        assert!(matches!(result, Err(DengjenGrpcError::VoiceNotFound(_))));
+    }
+
+    #[test]
+    fn create_speech_synthesis_stream_succeeds_for_a_loaded_voice() {
+        let model = FakeModel { speakers: StdHashMap::new() };
+        let service = service_with_voice("v1", model);
+        let result = service._create_speech_synthesis_stream("v1", "hi".to_string(), None);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn get_voice_info_reports_speakers_audio_and_language() {
+        let mut speakers = StdHashMap::new();
+        speakers.insert(1i64, "Alice".to_string());
+        let model = FakeModel { speakers };
+        let service = service_with_voice("v1", model);
+        let voices = service.0.read().unwrap();
+        let voice = voices.get("v1").unwrap();
+        let info = service._get_voice_info("v1".to_string(), voice.model_ref()).unwrap();
+        assert_eq!(info.voice_id, "v1");
+        assert_eq!(info.language.as_deref(), Some("en-US"));
+        assert_eq!(info.speakers.get(&1), Some(&"Alice".to_string()));
+        assert_eq!(info.supports_streaming_output, Some(true));
+        let audio = info.audio.unwrap();
+        assert_eq!(audio.sample_rate, 22050);
+        assert_eq!(audio.num_channels, 1);
+        assert_eq!(audio.sample_width, 2);
+    }
+
+    #[test]
+    fn get_voice_info_defaults_speaker_name_to_default_when_none_configured() {
+        let model = FakeModel { speakers: StdHashMap::new() };
+        let service = service_with_voice("v1", model);
+        let voices = service.0.read().unwrap();
+        let voice = voices.get("v1").unwrap();
+        let info = service._get_voice_info("v1".to_string(), voice.model_ref()).unwrap();
+        assert_eq!(info.synth_options.unwrap().speaker.as_deref(), Some("Default"));
     }
 }
 
