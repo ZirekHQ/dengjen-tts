@@ -722,6 +722,31 @@ mod model_and_synthesizer_tests {
                 })),
             }
         }
+
+        /// A model whose fallback config has no speaker id set yet, but is
+        /// still a valid `Piper` config — distinct from `with_no_config()`.
+        fn with_speaker_unset() -> Self {
+            Self {
+                speakers: StdHashMap::from([(0, "alice".to_string())]),
+                fallback_config: Mutex::new(SynthesisConfig::Piper(PiperSynthesisConfig {
+                    speaker: None,
+                    noise_scale: 0.667,
+                    length_scale: 1.0,
+                    noise_w: 0.8,
+                })),
+            }
+        }
+
+        /// A model with no synthesis config at all (the `None` variant), as
+        /// opposed to a `Piper` config that simply has no speaker set. Keeps
+        /// a speaker table so `set_speaker`'s name-to-id lookup succeeds and
+        /// the test exercises the config-write failure, not a lookup miss.
+        fn with_no_config() -> Self {
+            Self {
+                speakers: StdHashMap::from([(0, "alice".to_string())]),
+                fallback_config: Mutex::new(SynthesisConfig::None),
+            }
+        }
     }
 
     impl DengjenModel for FakeModel {
@@ -805,6 +830,30 @@ mod model_and_synthesizer_tests {
         assert_eq!(scales.length_scale, 0.9);
         assert_eq!(scales.noise_scale, 0.5);
         assert_eq!(scales.noise_w, 0.7);
+    }
+
+    #[test]
+    fn piper_model_get_speaker_returns_none_for_a_piper_config_with_no_speaker_set() {
+        let model = PiperModel(Arc::new(FakeModel::with_speaker_unset()));
+        assert_eq!(model.get_speaker().unwrap(), None);
+    }
+
+    #[test]
+    fn piper_model_get_scales_errors_when_there_is_no_synthesis_config() {
+        let model = PiperModel(Arc::new(FakeModel::with_no_config()));
+        assert!(model.get_scales().is_err());
+    }
+
+    #[test]
+    fn piper_model_set_scales_errors_when_there_is_no_synthesis_config() {
+        let model = PiperModel(Arc::new(FakeModel::with_no_config()));
+        assert!(model.set_scales(0.9, 0.5, 0.7).is_err());
+    }
+
+    #[test]
+    fn piper_model_set_speaker_errors_when_there_is_no_synthesis_config() {
+        let model = PiperModel(Arc::new(FakeModel::with_no_config()));
+        assert!(model.set_speaker("alice".to_string()).is_err());
     }
 
     fn fake_dengjen() -> Dengjen {
