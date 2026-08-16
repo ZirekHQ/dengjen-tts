@@ -2,10 +2,25 @@
 
 A cross-platform Rust engine for neural TTS models.
 
+## Features
 
-## Supported models
+* **Models**: [Piper](https://github.com/rhasspy/piper) and [Kokoro](https://github.com/hexgrad/kokoro) ONNX voices, including Kokoro per-voice style embeddings
+* **Phonemization**: eSpeak-ng (100+ languages, IPA output) and Arabic diacritization via `libtashkeel`
+* **Multi-speaker voices**: select by `speaker_id`
+* **Streaming synthesis**: chunked output (`chunk_size`/`chunk_padding`) and a realtime gRPC stream
+* **Prosody control**: rate, pitch, and volume via `sonic-sys` (libsonic)
+* **Synthesis modes**: lazy, parallel, and batched, selectable per request
+* **Bindings**: native Rust, C-API (`libdengjen`), Python (`pyo3`), gRPC (any language over the wire), and a CLI
 
-* [Piper](https://github.com/rhasspy/piper)
+Not yet supported, tracked in the issues linked below:
+
+* GPU execution providers (CUDA/CoreML/DirectML) — [#45](https://github.com/ZirekHQ/dengjen/issues/45)
+* Native Go/Java/Kotlin bindings — [#46](https://github.com/ZirekHQ/dengjen/issues/46)
+* MeloTTS model support — [#47](https://github.com/ZirekHQ/dengjen/issues/47)
+* Generic VITS/Matcha-TTS model loader — [#48](https://github.com/ZirekHQ/dengjen/issues/48)
+
+Out of scope: RHVoice-style formant/statistical synthesis is a different synthesis paradigm from
+this engine's neural-ONNX pipeline and isn't planned.
 
 
 # Crates
