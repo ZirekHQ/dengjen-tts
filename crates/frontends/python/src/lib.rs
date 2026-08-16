@@ -307,7 +307,11 @@ mod value_type_tests {
 
     #[test]
     fn py_wave_info_exposes_the_wrapped_audio_info_fields() {
-        let info = AudioInfo { sample_rate: 22050, num_channels: 1, sample_width: 2 };
+        let info = AudioInfo {
+            sample_rate: 22050,
+            num_channels: 1,
+            sample_width: 2,
+        };
         let py_info = PyWaveInfo::from(info);
         assert_eq!(py_info.get_sample_rate(), 22050);
         assert_eq!(py_info.get_num_channels(), 1);
@@ -335,7 +339,11 @@ mod value_type_tests {
     }
 
     fn sample_wave_samples() -> WaveSamples {
-        WaveSamples(Audio::new(AudioSamples::new(vec![0.0, 0.25, -0.25, 0.5]), 22050, Some(3.5)))
+        WaveSamples(Audio::new(
+            AudioSamples::new(vec![0.0, 0.25, -0.25, 0.5]),
+            22050,
+            Some(3.5),
+        ))
     }
 
     #[test]
