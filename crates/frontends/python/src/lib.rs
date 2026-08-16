@@ -674,17 +674,25 @@ mod error_plumbing_tests {
 /// A fast, local neural text-to-speech engine
 #[pymodule]
 fn pydengjen(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add("DengjenException", m.py().get_type::<DengjenException>())?;
+    // Core synthesis types: top-level API and model interaction
     m.add_class::<Dengjen>()?;
     m.add_class::<PiperModel>()?;
     m.add_class::<PiperScales>()?;
     m.add_class::<PyAudioOutputConfig>()?;
     m.add_class::<WaveSamples>()?;
+
+    // Stream types: different synthesis strategies exposed via Python iterator protocol
     m.add_class::<LazySpeechStream>()?;
     m.add_class::<ParallelSpeechStream>()?;
     m.add_class::<PyRealtimeSpeechStream>()?;
+
+    // Error handling: the exception type for all Dengjen failures
+    m.add("DengjenException", m.py().get_type::<DengjenException>())?;
+
+    // Optional text phonemization (requires espeak feature)
     #[cfg(feature = "espeak")]
     m.add_function(wrap_pyfunction!(phonemize_text, m)?)?;
+
     Ok(())
 }
 
