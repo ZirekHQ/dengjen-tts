@@ -67,7 +67,7 @@ impl From<PyDengjenError> for PyErr {
     }
 }
 
-#[pyclass(weakref, module = "piper", frozen)]
+#[pyclass(weakref, module = "pydengjen", frozen)]
 #[pyo3(name = "AudioInfo")]
 struct PyWaveInfo(AudioInfo);
 
@@ -77,10 +77,12 @@ impl PyWaveInfo {
     fn get_sample_rate(&self) -> usize {
         self.0.sample_rate
     }
+
     #[getter]
     fn get_num_channels(&self) -> usize {
         self.0.num_channels
     }
+
     #[getter]
     fn get_sample_width(&self) -> usize {
         self.0.sample_width
@@ -88,12 +90,12 @@ impl PyWaveInfo {
 }
 
 impl From<AudioInfo> for PyWaveInfo {
-    fn from(other: AudioInfo) -> Self {
-        Self(other)
+    fn from(info: AudioInfo) -> Self {
+        PyWaveInfo(info)
     }
 }
 
-#[pyclass(weakref, module = "piper", frozen, from_py_object)]
+#[pyclass(weakref, module = "pydengjen", frozen, from_py_object)]
 #[pyo3(name = "AudioOutputConfig")]
 #[derive(Clone)]
 struct PyAudioOutputConfig(AudioOutputConfig);
@@ -107,7 +109,7 @@ impl PyAudioOutputConfig {
         pitch: Option<u8>,
         appended_silence_ms: Option<u32>,
     ) -> Self {
-        Self(AudioOutputConfig {
+        PyAudioOutputConfig(AudioOutputConfig {
             rate,
             volume,
             pitch,
@@ -117,46 +119,53 @@ impl PyAudioOutputConfig {
 }
 
 impl From<PyAudioOutputConfig> for AudioOutputConfig {
-    fn from(other: PyAudioOutputConfig) -> Self {
-        other.0
+    fn from(config: PyAudioOutputConfig) -> Self {
+        config.0
     }
 }
 
-#[pyclass(weakref, module = "piper", frozen)]
+#[pyclass(weakref, module = "pydengjen", frozen)]
 struct WaveSamples(Audio);
 
 #[pymethods]
 impl WaveSamples {
     fn get_wave_bytes(&self, py: Python) -> Py<PyAny> {
-        let bytes_vec = py.detach(move || self.0.as_wave_bytes());
-        PyBytes::new(py, &bytes_vec).into()
+        let wav_data = py.detach(move || self.0.as_wave_bytes());
+        PyBytes::new(py, &wav_data).into()
     }
+
     fn save_to_file(&self, filename: &str) -> PyDengjenResult<()> {
-        Ok(self
-            .0
+        self.0
             .save_to_file(&PathBuf::from(filename))
-            .map_err(DengjenError::from)?)
+            .map_err(|e| PyDengjenError::from(DengjenError::from(e)))?;
+        Ok(())
     }
+
     #[getter]
     fn sample_rate(&self) -> usize {
         self.0.info.sample_rate
     }
+
     #[getter]
     fn num_channels(&self) -> usize {
         self.0.info.num_channels
     }
+
     #[getter]
     fn sample_width(&self) -> usize {
         self.0.info.sample_width
     }
+
     #[getter]
     fn inference_ms(&self) -> Option<f32> {
         self.0.inference_ms()
     }
+
     #[getter]
     fn duration_ms(&self) -> f32 {
         self.0.duration_ms()
     }
+
     #[getter]
     fn real_time_factor(&self) -> Option<f32> {
         self.0.real_time_factor()
@@ -240,7 +249,7 @@ impl PyRealtimeSpeechStream {
     }
 }
 
-#[pyclass(weakref, module = "piper")]
+#[pyclass(weakref, module = "pydengjen")]
 struct PiperScales {
     #[allow(dead_code)]
     length_scale: f32,
@@ -254,11 +263,93 @@ struct PiperScales {
 impl PiperScales {
     #[new]
     fn new(length_scale: f32, noise_scale: f32, noise_w: f32) -> PyDengjenResult<Self> {
-        Ok(Self {
+        Ok(PiperScales {
             length_scale,
             noise_scale,
             noise_w,
         })
+    }
+}
+
+#[cfg(test)]
+mod value_type_tests {
+    use super::*;
+    use dengjen_core::AudioSamples;
+    use std::io::Read;
+
+    #[test]
+    fn py_wave_info_exposes_the_wrapped_audio_info_fields() {
+        let info = AudioInfo { sample_rate: 22050, num_channels: 1, sample_width: 2 };
+        let py_info = PyWaveInfo::from(info);
+        assert_eq!(py_info.get_sample_rate(), 22050);
+        assert_eq!(py_info.get_num_channels(), 1);
+        assert_eq!(py_info.get_sample_width(), 2);
+    }
+
+    #[test]
+    fn py_audio_output_config_new_stores_every_field() {
+        let config = PyAudioOutputConfig::new(Some(150), Some(80), Some(50), Some(200));
+        let inner: AudioOutputConfig = config.into();
+        assert_eq!(inner.rate, Some(150));
+        assert_eq!(inner.volume, Some(80));
+        assert_eq!(inner.pitch, Some(50));
+        assert_eq!(inner.appended_silence_ms, Some(200));
+    }
+
+    #[test]
+    fn py_audio_output_config_new_accepts_all_none() {
+        let config = PyAudioOutputConfig::new(None, None, None, None);
+        let inner: AudioOutputConfig = config.into();
+        assert_eq!(inner.rate, None);
+        assert_eq!(inner.volume, None);
+        assert_eq!(inner.pitch, None);
+        assert_eq!(inner.appended_silence_ms, None);
+    }
+
+    fn sample_wave_samples() -> WaveSamples {
+        WaveSamples(Audio::new(AudioSamples::new(vec![0.0, 0.25, -0.25, 0.5]), 22050, Some(3.5)))
+    }
+
+    #[test]
+    fn wave_samples_getters_reflect_the_wrapped_audio() {
+        let samples = sample_wave_samples();
+        assert_eq!(samples.sample_rate(), 22050);
+        assert_eq!(samples.num_channels(), 1);
+        assert_eq!(samples.sample_width(), 2);
+        assert_eq!(samples.inference_ms(), Some(3.5));
+    }
+
+    #[test]
+    fn wave_samples_save_to_file_writes_a_readable_wav() {
+        let samples = sample_wave_samples();
+        let dir = std::env::temp_dir().join(format!("dengjen-python-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("wave_samples_save_to_file_writes_a_readable_wav.wav");
+        let path_str = path.to_str().unwrap();
+
+        samples.save_to_file(path_str).unwrap();
+
+        let mut file = std::fs::File::open(&path).unwrap();
+        let mut header = [0u8; 4];
+        file.read_exact(&mut header).unwrap();
+        assert_eq!(&header, b"RIFF");
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn wave_samples_save_to_file_reports_the_underlying_error() {
+        let samples = sample_wave_samples();
+        let result = samples.save_to_file("/nonexistent-directory-dengjen-test/out.wav");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn piper_scales_new_stores_every_field() {
+        let scales = PiperScales::new(0.9, 0.5, 0.7).unwrap();
+        assert_eq!(scales.length_scale, 0.9);
+        assert_eq!(scales.noise_scale, 0.5);
+        assert_eq!(scales.noise_w, 0.7);
     }
 }
 
