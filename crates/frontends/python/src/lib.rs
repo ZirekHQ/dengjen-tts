@@ -32,32 +32,38 @@ static LIBTASHKEEL_ENGINE: Lazy<LibtashkeelResult<TashkeelInferenceEngine>> =
 
 #[cfg(feature = "tashkeel")]
 fn should_diacritize(language: &str, use_tashkeel: Option<bool>) -> bool {
-    (language == "ar") && use_tashkeel.unwrap_or(true)
+    if language != "ar" {
+        return false;
+    }
+    use_tashkeel.unwrap_or(true)
 }
+
 #[cfg(not(feature = "tashkeel"))]
 fn should_diacritize(_language: &str, _use_tashkeel: Option<bool>) -> bool {
     false
 }
+
 type PyDengjenResult<T> = Result<T, PyDengjenError>;
 
 create_exception!(
-    piper,
+    pydengjen,
     DengjenException,
     PyException,
-    "Base Exception for all exceptions raised by piper."
+    "Base Exception for all exceptions raised by pydengjen."
 );
 
+#[derive(Debug)]
 struct PyDengjenError(DengjenError);
 
-impl From<PyDengjenError> for PyErr {
-    fn from(other: PyDengjenError) -> Self {
-        DengjenException::new_err(other.0.to_string())
+impl From<DengjenError> for PyDengjenError {
+    fn from(err: DengjenError) -> Self {
+        PyDengjenError(err)
     }
 }
 
-impl From<DengjenError> for PyDengjenError {
-    fn from(other: DengjenError) -> Self {
-        Self(other)
+impl From<PyDengjenError> for PyErr {
+    fn from(py_err: PyDengjenError) -> Self {
+        DengjenException::new_err(py_err.0.to_string())
     }
 }
 
@@ -462,7 +468,7 @@ pub fn phonemize_text(
 }
 
 #[cfg(test)]
-mod tests {
+mod error_plumbing_tests {
     use super::*;
 
     #[cfg(feature = "tashkeel")]
@@ -483,11 +489,41 @@ mod tests {
         assert!(!should_diacritize("ar", Some(false)));
     }
 
+    #[cfg(feature = "tashkeel")]
+    #[test]
+    fn should_diacritize_true_for_arabic_language_when_explicitly_enabled() {
+        assert!(should_diacritize("ar", Some(true)));
+    }
+
     #[cfg(not(feature = "tashkeel"))]
     #[test]
     fn should_diacritize_always_false_when_tashkeel_disabled() {
         assert!(!should_diacritize("ar", None));
         assert!(!should_diacritize("ar", Some(true)));
+    }
+
+    #[test]
+    fn py_dengjen_error_wraps_the_original_error_unchanged() {
+        let original = DengjenError::OperationError("boom".to_string());
+        let wrapped = PyDengjenError::from(original);
+        assert!(matches!(wrapped.0, DengjenError::OperationError(ref s) if s == "boom"));
+    }
+
+    #[test]
+    fn py_dengjen_error_preserves_variant_across_each_error_kind() {
+        let cases = [
+            DengjenError::FailedToLoadResource("a".to_string()),
+            DengjenError::PhonemizationError("b".to_string()),
+            DengjenError::InferenceError("c".to_string()),
+            DengjenError::InvalidConfiguration("d".to_string()),
+            DengjenError::UnsupportedOperation("e".to_string()),
+            DengjenError::OperationError("f".to_string()),
+        ];
+        for original in cases {
+            let expected = original.to_string();
+            let wrapped = PyDengjenError::from(original);
+            assert_eq!(wrapped.0.to_string(), expected);
+        }
     }
 }
 
