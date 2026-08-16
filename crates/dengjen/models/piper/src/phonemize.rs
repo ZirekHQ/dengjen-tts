@@ -1,5 +1,5 @@
 use crate::config::{ModelConfig, PhonemeType};
-use dengjen_core::{DengjenError, DengjenResult, Phonemes};
+use dengjen_tts_core::{DengjenError, DengjenResult, Phonemes};
 
 #[cfg(feature = "tashkeel")]
 pub(crate) type TashkeelEngine = libtashkeel_core::DynamicInferenceEngine;

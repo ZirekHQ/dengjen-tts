@@ -5,10 +5,10 @@
 #![allow(non_local_definitions)]
 #![forbid(unsafe_code)]
 
-use dengjen_core::{
+use dengjen_tts_core::{
     Audio, AudioInfo, CancellationToken, DengjenError, DengjenModel, SynthesisConfig,
 };
-use dengjen_synth::{
+use dengjen_tts::{
     AudioOutputConfig, DengjenSpeechStreamLazy, DengjenSpeechStreamParallel,
     DengjenSpeechSynthesizer, RealtimeSpeechStream,
 };
@@ -264,7 +264,7 @@ struct PiperModel(Arc<dyn DengjenModel + Send + Sync>);
 impl PiperModel {
     #[new]
     fn new(config_path: &str) -> PyDengjenResult<Self> {
-        let vits = dengjen_piper::from_config_path(&PathBuf::from(config_path))?;
+        let vits = dengjen_tts_piper::from_config_path(&PathBuf::from(config_path))?;
         Ok(Self(vits))
     }
     #[getter]

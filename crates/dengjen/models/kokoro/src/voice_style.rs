@@ -1,4 +1,4 @@
-use dengjen_core::{DengjenError, DengjenResult};
+use dengjen_tts_core::{DengjenError, DengjenResult};
 use ndarray::Array2;
 use std::collections::HashMap;
 use std::path::Path;

@@ -1,7 +1,7 @@
 [workspace]
 
 [package]
-name = "dengjen-piper-fuzz"
+name = "dengjen-tts-piper-fuzz"
 version = "0.0.0"
 publish = false
 edition = "2021"
@@ -13,7 +13,7 @@ cargo-fuzz = true
 arbitrary = { version = "1", features = ["derive"] }
 libfuzzer-sys = "0.4"
 
-[dependencies.dengjen-piper]
+[dependencies.dengjen-tts-piper]
 path = ".."
 # `map_phonemes_to_ids` needs neither; skipping them avoids the workspace-only
 # `[patch.crates-io]` for `libtashkeel_core` (this fuzz crate has its own `[workspace]`,

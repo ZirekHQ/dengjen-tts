@@ -1,8 +1,8 @@
 #![forbid(unsafe_code)]
 
 use clap::Parser;
-use dengjen_piper::PiperSynthesisConfig;
-use dengjen_synth::{
+use dengjen_tts_piper::PiperSynthesisConfig;
+use dengjen_tts::{
     AudioOutputConfig, AudioSamples, CancellationToken, DengjenModel, DengjenResult,
     DengjenSpeechSynthesizer, SynthesisConfig,
 };
@@ -216,10 +216,10 @@ fn detect_model_type(config_path: &std::path::Path) -> anyhow::Result<String> {
 
 fn load_voice(
     config_path: &std::path::Path,
-) -> anyhow::Result<std::sync::Arc<dyn dengjen_synth::DengjenModel + Send + Sync>> {
+) -> anyhow::Result<std::sync::Arc<dyn dengjen_tts::DengjenModel + Send + Sync>> {
     match detect_model_type(config_path)?.as_str() {
-        "kokoro" => Ok(dengjen_kokoro::from_config_path(config_path)?),
-        _ => Ok(dengjen_piper::from_config_path(config_path)?),
+        "kokoro" => Ok(dengjen_tts_kokoro::from_config_path(config_path)?),
+        _ => Ok(dengjen_tts_piper::from_config_path(config_path)?),
     }
 }
 

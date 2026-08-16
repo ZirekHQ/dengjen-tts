@@ -1,6 +1,6 @@
 use core::hint::black_box;
-use dengjen_piper::from_config_path;
-use dengjen_synth::{
+use dengjen_tts_piper::from_config_path;
+use dengjen_tts::{
     AudioOutputConfig, AudioSamples, DengjenModel, DengjenResult, DengjenSpeechSynthesizer,
 };
 use once_cell::sync::Lazy;

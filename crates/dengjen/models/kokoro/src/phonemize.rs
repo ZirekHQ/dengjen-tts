@@ -1,4 +1,4 @@
-use dengjen_core::{DengjenError, DengjenResult};
+use dengjen_tts_core::{DengjenError, DengjenResult};
 
 /// Ordered longest-pattern-first. Each entry is (espeak IPA substring, Kokoro phoneme symbol).
 #[cfg_attr(not(feature = "espeak"), allow(dead_code))]

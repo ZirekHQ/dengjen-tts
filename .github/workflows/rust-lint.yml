@@ -72,7 +72,7 @@ jobs:
   # Miri can't run this workspace's unsafe code: every unsafe block here calls into real linked
   # C libraries (onnxruntime, libsonic, espeak-ng), and Miri doesn't support arbitrary FFI.
   # AddressSanitizer does support real FFI, so it's used instead — validated locally to be clean
-  # against libdengjen (the public C ABI) and dengjen-synth (the sonic-sys FFI boundary).
+  # against libdengjen (the public C ABI) and dengjen-tts (the sonic-sys FFI boundary).
   asan:
     runs-on: ubuntu-latest
     steps:
@@ -96,14 +96,14 @@ jobs:
             exit 1
           fi
           echo "DENGJEN_ESPEAKNG_DATA_DIRECTORY=$data_dir" >> "$GITHUB_ENV"
-      - name: cargo test under AddressSanitizer (libdengjen, dengjen-synth)
+      - name: cargo test under AddressSanitizer (libdengjen, dengjen-tts)
         env:
           RUSTFLAGS: -Z sanitizer=address
         # test_lazy_stream/test_parallel_stream/test_realtime_stream need real model fixture
-        # files not present in CI (same reason CI.yml's main test job excludes dengjen-synth
+        # files not present in CI (same reason CI.yml's main test job excludes dengjen-tts
         # entirely); everything else, including the synthetic-model tests in the same binary,
         # still runs.
-        run: cargo +nightly test -p libdengjen -p dengjen-synth -Zbuild-std --target x86_64-unknown-linux-gnu -- --skip test_lazy_stream --skip test_parallel_stream --skip test_realtime_stream
+        run: cargo +nightly test -p libdengjen -p dengjen-tts -Zbuild-std --target x86_64-unknown-linux-gnu -- --skip test_lazy_stream --skip test_parallel_stream --skip test_realtime_stream
       - name: cargo test under AddressSanitizer (espeak-phonemizer, single-threaded)
         env:
           RUSTFLAGS: -Z sanitizer=address

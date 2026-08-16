@@ -5,7 +5,7 @@ use crate::inference::{
 };
 use crate::phonemize::{create_tashkeel_engine, TashkeelEngine};
 use crate::VitsModelCommons;
-use dengjen_core::{
+use dengjen_tts_core::{
     Audio, AudioInfo, AudioSamples, AudioStreamIterator, CancellationToken, DengjenAudioResult,
     DengjenError, DengjenModel, DengjenResult, Phonemes, PiperSynthesisConfig, SynthesisConfig,
 };
