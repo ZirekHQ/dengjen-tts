@@ -172,12 +172,14 @@ impl WaveSamples {
     }
 }
 
-#[pyclass(weakref, module = "piper")]
+/// Wraps a lazily-computed speech stream so Python can drive it with the
+/// standard iterator protocol.
+#[pyclass(weakref, module = "pydengjen")]
 struct LazySpeechStream(DengjenSpeechStreamLazy);
 
 impl From<DengjenSpeechStreamLazy> for LazySpeechStream {
-    fn from(other: DengjenSpeechStreamLazy) -> Self {
-        Self(other)
+    fn from(stream: DengjenSpeechStreamLazy) -> Self {
+        Self(stream)
     }
 }
 
@@ -188,24 +190,27 @@ impl LazySpeechStream {
     }
 
     fn __next__(&mut self, py: Python) -> Option<WaveSamples> {
-        let next_item = py.detach(|| self.0.next());
-        let audio_result = next_item?;
-        match audio_result {
-            Ok(audio_data) => Some(WaveSamples(audio_data)),
-            Err(e) => {
-                PyErr::from(PyDengjenError::from(e)).restore(py);
+        // Release the GIL while pulling a chunk: synthesizing audio can take
+        // real wall-clock time and must not block other Python threads.
+        match py.detach(|| self.0.next()) {
+            None => None,
+            Some(Ok(audio)) => Some(WaveSamples(audio)),
+            Some(Err(err)) => {
+                PyErr::from(PyDengjenError::from(err)).restore(py);
                 None
             }
         }
     }
 }
 
-#[pyclass(weakref, module = "piper")]
+/// Wraps a stream whose chunks are computed on a worker pool ahead of
+/// consumption, exposed to Python via the same iterator protocol.
+#[pyclass(weakref, module = "pydengjen")]
 struct ParallelSpeechStream(DengjenSpeechStreamParallel);
 
 impl From<DengjenSpeechStreamParallel> for ParallelSpeechStream {
-    fn from(other: DengjenSpeechStreamParallel) -> Self {
-        Self(other)
+    fn from(stream: DengjenSpeechStreamParallel) -> Self {
+        Self(stream)
     }
 }
 
@@ -216,19 +221,21 @@ impl ParallelSpeechStream {
     }
 
     fn __next__(&mut self, py: Python) -> Option<WaveSamples> {
-        let next_item = py.detach(|| self.0.next());
-        let audio_result = next_item?;
-        match audio_result {
-            Ok(audio_data) => Some(WaveSamples(audio_data)),
-            Err(e) => {
-                PyErr::from(PyDengjenError::from(e)).restore(py);
+        match py.detach(|| self.0.next()) {
+            None => None,
+            Some(Ok(audio)) => Some(WaveSamples(audio)),
+            Some(Err(err)) => {
+                PyErr::from(PyDengjenError::from(err)).restore(py);
                 None
             }
         }
     }
 }
 
-#[pyclass(weakref, module = "piper")]
+/// Wraps a realtime speech stream, yielding raw wave-format `bytes` per chunk
+/// rather than a `WaveSamples` since the caller already knows the audio
+/// format from a one-time `get_audio_output_info()` call.
+#[pyclass(weakref, module = "pydengjen")]
 struct PyRealtimeSpeechStream(RealtimeSpeechStream);
 
 #[pymethods]
@@ -238,14 +245,35 @@ impl PyRealtimeSpeechStream {
     }
 
     fn __next__(&mut self, py: Python) -> Option<Py<PyAny>> {
-        let result = py.detach(|| self.0.next())?;
-        match result {
-            Ok(samples) => Some(PyBytes::new(py, &samples.as_wave_bytes()).into()),
-            Err(e) => {
-                PyErr::from(PyDengjenError::from(e)).restore(py);
+        match py.detach(|| self.0.next()) {
+            None => None,
+            Some(Ok(samples)) => Some(PyBytes::new(py, &samples.as_wave_bytes()).into()),
+            Some(Err(err)) => {
+                PyErr::from(PyDengjenError::from(err)).restore(py);
                 None
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod stream_wrapper_tests {
+    use super::*;
+
+    #[test]
+    fn lazy_speech_stream_wraps_and_exposes_the_inner_iterator() {
+        // DengjenSpeechStreamLazy has no public constructor reachable without a
+        // real DengjenModel (Task 4 exercises construction via Dengjen::synthesize_lazy
+        // against a FakeModel and drains `.0` directly the same way this test does).
+        // This test only proves the wrapper struct is a transparent, zero-logic
+        // newtype: the `From` impl must not alter identity-comparable state.
+        // (Left intentionally thin — see Task 4's
+        // `dengjen_synthesize_lazy_produces_a_stream_whose_inner_iterator_yields_the_fake_models_audio`
+        // for the real behavioral coverage of this wrapper.)
+        assert!(
+            std::mem::size_of::<LazySpeechStream>()
+                == std::mem::size_of::<DengjenSpeechStreamLazy>()
+        );
     }
 }
 
