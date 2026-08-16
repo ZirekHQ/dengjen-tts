@@ -63,9 +63,15 @@ for a real reason, not as a bulk sweep.
   toolchain, `-Z sanitizer=address -Z build-std`). **Miri cannot be used here**: every `unsafe`
   block in this workspace calls into a real linked C library (onnxruntime, libsonic, espeak-ng),
   and Miri doesn't support arbitrary FFI. ASan does, and is validated to run clean against real
-  memory (it caught and this session fixed a test-fixture leak in `libdengjen`'s unit tests —
-  `ExternError`'s message is intentionally not freed by `Drop`, per `ffi_support`'s contract;
-  tests must call `out_error.manually_release()` after asserting on it).
+  memory. It caught and this session fixed two real leaks: `ExternError`'s message isn't freed
+  by `Drop` per `ffi_support`'s contract, so `libdengjen` tests must call
+  `out_error.manually_release()` after asserting on it; and `espeak-phonemizer`'s
+  `init_espeakng` leaked its data-path `CString` by leaking a raw pointer with nothing left to
+  hold it (fixed by owning it in a `static`). One known leak is suppressed rather than fixed:
+  `deps/espeak-ng`'s own `SetVoiceByName` voice-table allocation (vendored upstream C, not code
+  we control) — see `.github/asan-suppressions/lsan.txt` for the repro and reasoning. Don't add
+  to that file without the same evidence: a local repro and a stack trace confirming the leak
+  is entirely inside third-party code.
 
 - `fuzz-build` — build-only smoke check for `crates/dengjen/models/piper/fuzz` (`cargo-fuzz`
   target `map_phonemes_to_ids`), so the harness doesn't bit-rot. It targets
