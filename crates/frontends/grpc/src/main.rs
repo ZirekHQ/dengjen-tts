@@ -11,10 +11,10 @@ use tonic::transport::Server;
 use tonic::{Request, Response, Status};
 use xxhash_rust::xxh3::xxh3_64;
 
-type DengjenGrpcResult<T> = Result<T, DengjenGrpcError>;
-
 const DEFAULT_DENGJEN_GRPC_SERVER_PORT: u16 = 49314;
 const VOICE_ID_REDUCTION_FACTOR: u64 = 10000000000000;
+
+type DengjenGrpcResult<T> = Result<T, DengjenGrpcError>;
 
 pub mod grpc {
     tonic::include_proto!("dengjen_grpc");
@@ -31,25 +31,24 @@ impl std::error::Error for DengjenGrpcError {}
 impl std::fmt::Display for DengjenGrpcError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DengjenGrpcError::DengjenError(e) => e.fmt(f),
-            DengjenGrpcError::VoiceNotFound(msg) => write!(f, "{}", msg),
+            Self::DengjenError(e) => write!(f, "{}", e),
+            Self::VoiceNotFound(msg) => write!(f, "{}", msg),
         }
     }
 }
 
 impl From<DengjenError> for DengjenGrpcError {
-    fn from(other: DengjenError) -> Self {
-        Self::DengjenError(other)
+    fn from(err: DengjenError) -> Self {
+        Self::DengjenError(err)
     }
 }
 
 impl From<DengjenGrpcError> for Status {
-    fn from(other: DengjenGrpcError) -> Self {
-        match other {
-            DengjenGrpcError::DengjenError(dengjen_error) => match dengjen_error {
-                DengjenError::FailedToLoadResource(msg) | DengjenError::PhonemizationError(msg) => {
-                    Status::aborted(msg)
-                }
+    fn from(err: DengjenGrpcError) -> Self {
+        match err {
+            DengjenGrpcError::DengjenError(e) => match e {
+                DengjenError::FailedToLoadResource(msg) => Status::aborted(msg),
+                DengjenError::PhonemizationError(msg) => Status::aborted(msg),
                 DengjenError::InferenceError(msg) => Status::internal(msg),
                 DengjenError::InvalidConfiguration(msg) => Status::invalid_argument(msg),
                 DengjenError::UnsupportedOperation(msg) => Status::unimplemented(msg),
@@ -442,4 +441,64 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[cfg(test)]
+mod error_mapping_tests {
+    use super::*;
+
+    #[test]
+    fn voice_not_found_displays_its_message_verbatim() {
+        let err = DengjenGrpcError::VoiceNotFound("no such voice".to_string());
+        assert_eq!(err.to_string(), "no such voice");
+    }
+
+    #[test]
+    fn dengjen_error_display_delegates_to_the_wrapped_error() {
+        let inner = DengjenError::OperationError("boom".to_string());
+        let err = DengjenGrpcError::from(inner);
+        assert_eq!(err.to_string(), DengjenError::OperationError("boom".to_string()).to_string());
+    }
+
+    #[test]
+    fn voice_not_found_maps_to_status_not_found() {
+        let status: Status = DengjenGrpcError::VoiceNotFound("x".to_string()).into();
+        assert_eq!(status.code(), tonic::Code::NotFound);
+        assert_eq!(status.message(), "x");
+    }
+
+    #[test]
+    fn failed_to_load_resource_maps_to_status_aborted() {
+        let status: Status = DengjenGrpcError::from(DengjenError::FailedToLoadResource("x".into())).into();
+        assert_eq!(status.code(), tonic::Code::Aborted);
+    }
+
+    #[test]
+    fn phonemization_error_maps_to_status_aborted() {
+        let status: Status = DengjenGrpcError::from(DengjenError::PhonemizationError("x".into())).into();
+        assert_eq!(status.code(), tonic::Code::Aborted);
+    }
+
+    #[test]
+    fn inference_error_maps_to_status_internal() {
+        let status: Status = DengjenGrpcError::from(DengjenError::InferenceError("x".into())).into();
+        assert_eq!(status.code(), tonic::Code::Internal);
+    }
+
+    #[test]
+    fn invalid_configuration_maps_to_status_invalid_argument() {
+        let status: Status = DengjenGrpcError::from(DengjenError::InvalidConfiguration("x".into())).into();
+        assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    }
+
+    #[test]
+    fn unsupported_operation_maps_to_status_unimplemented() {
+        let status: Status = DengjenGrpcError::from(DengjenError::UnsupportedOperation("x".into())).into();
+        assert_eq!(status.code(), tonic::Code::Unimplemented);
+    }
+
+    #[test]
+    fn operation_error_maps_to_status_unknown() {
+        let status: Status = DengjenGrpcError::from(DengjenError::OperationError("x".into())).into();
+        assert_eq!(status.code(), tonic::Code::Unknown);
+    }
+}
 
