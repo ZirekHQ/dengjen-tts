@@ -1,10 +1,12 @@
+#![forbid(unsafe_code)]
+
 use clap::Parser;
-use serde::Deserialize;
 use dengjen_piper::PiperSynthesisConfig;
 use dengjen_synth::{
     AudioOutputConfig, AudioSamples, CancellationToken, DengjenModel, DengjenResult,
     DengjenSpeechSynthesizer, SynthesisConfig,
 };
+use serde::Deserialize;
 use std::fs::File;
 use std::io::{self, prelude::*};
 use std::path::PathBuf;
@@ -212,7 +214,9 @@ fn detect_model_type(config_path: &std::path::Path) -> anyhow::Result<String> {
         .to_string())
 }
 
-fn load_voice(config_path: &std::path::Path) -> anyhow::Result<std::sync::Arc<dyn dengjen_synth::DengjenModel + Send + Sync>> {
+fn load_voice(
+    config_path: &std::path::Path,
+) -> anyhow::Result<std::sync::Arc<dyn dengjen_synth::DengjenModel + Send + Sync>> {
     match detect_model_type(config_path)?.as_str() {
         "kokoro" => Ok(dengjen_kokoro::from_config_path(config_path)?),
         _ => Ok(dengjen_piper::from_config_path(config_path)?),
@@ -333,9 +337,18 @@ mod tests {
 
     #[test]
     fn synthesis_mode_from_str_parses_known_values_case_insensitively() {
-        assert!(matches!(SynthesisMode::from_str("Lazy"), Ok(SynthesisMode::Lazy)));
-        assert!(matches!(SynthesisMode::from_str("PARALLEL"), Ok(SynthesisMode::Parallel)));
-        assert!(matches!(SynthesisMode::from_str("realtime"), Ok(SynthesisMode::Realtime)));
+        assert!(matches!(
+            SynthesisMode::from_str("Lazy"),
+            Ok(SynthesisMode::Lazy)
+        ));
+        assert!(matches!(
+            SynthesisMode::from_str("PARALLEL"),
+            Ok(SynthesisMode::Parallel)
+        ));
+        assert!(matches!(
+            SynthesisMode::from_str("realtime"),
+            Ok(SynthesisMode::Realtime)
+        ));
     }
 
     #[test]

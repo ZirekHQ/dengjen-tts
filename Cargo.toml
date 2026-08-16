@@ -18,6 +18,19 @@ members = [
 [workspace.package]
 license = "GPL-3.0-or-later"
 
+# Applies to every member crate that opts in with `[lints] workspace = true`.
+# CI (.github/workflows/rust-lint.yml) already runs `cargo clippy -- -D warnings`, which
+# escalates every enabled lint below to a hard failure — so anything added here must already
+# be clean across the workspace (verified before enabling; see CLAUDE.md for the current
+# known-debt lints that are deliberately NOT enabled here yet).
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+missing_safety_doc = "deny"
+undocumented_unsafe_blocks = "deny"
+
 [patch.crates-io]
 libtashkeel_core = { path = "./deps/libtashkeel/crates/core" }
 

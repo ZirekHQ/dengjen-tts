@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use grpc::dengjen_grpc_server::{DengjenGrpc, DengjenGrpcServer};
 use dengjen_core::{CancellationToken, DengjenError, DengjenModel, DengjenResult, SynthesisConfig};
 use dengjen_synth::{AudioOutputConfig, DengjenSpeechStreamLazy, DengjenSpeechSynthesizer};

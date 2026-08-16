@@ -1,8 +1,10 @@
+#![forbid(unsafe_code)]
+
+use dengjen_core::{AudioInfo, DengjenError, DengjenModel, DengjenResult, Phonemes};
 #[cfg(feature = "espeak")]
 use espeak_phonemizer::text_to_phonemes;
 #[cfg(feature = "tashkeel")]
 use libtashkeel_core::do_tashkeel;
-use dengjen_core::{AudioInfo, Phonemes, DengjenError, DengjenModel, DengjenResult};
 #[cfg(feature = "espeak")]
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -15,12 +17,12 @@ mod phonemize;
 mod streaming;
 
 pub use config::*;
+use config::{load_model_config, resolve_default_speaker_id};
 pub use inference::VitsModel;
-pub use streaming::VitsStreamingModel;
-use config::{load_model_config, map_phonemes_to_ids, resolve_default_speaker_id};
-use phonemize::{phonemize_dispatch, TashkeelEngine};
 #[cfg(feature = "espeak")]
 use phonemize::should_diacritize;
+use phonemize::{phonemize_dispatch, TashkeelEngine};
+pub use streaming::VitsStreamingModel;
 
 const BOS: &str = "^";
 const EOS: &str = "$";
@@ -121,7 +123,13 @@ trait VitsModelCommons {
         bos_id: i64,
         eos_id: i64,
     ) -> Vec<i64> {
-        map_phonemes_to_ids(&self.get_config().phoneme_id_map, phonemes, pad_id, bos_id, eos_id)
+        map_phonemes_to_ids(
+            &self.get_config().phoneme_id_map,
+            phonemes,
+            pad_id,
+            bos_id,
+            eos_id,
+        )
     }
     #[cfg(feature = "espeak")]
     fn do_phonemize_text(&self, text: &str) -> DengjenResult<Phonemes> {

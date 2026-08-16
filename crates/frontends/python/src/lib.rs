@@ -3,14 +3,19 @@
 // on the impl itself doesn't survive the macro expansion, so it's silenced
 // crate-wide here instead.
 #![allow(non_local_definitions)]
+#![forbid(unsafe_code)]
 
-use dengjen_core::{Audio, AudioInfo, CancellationToken, DengjenError, DengjenModel, SynthesisConfig};
+use dengjen_core::{
+    Audio, AudioInfo, CancellationToken, DengjenError, DengjenModel, SynthesisConfig,
+};
 use dengjen_synth::{
     AudioOutputConfig, DengjenSpeechStreamLazy, DengjenSpeechStreamParallel,
-    DengjenSpeechSynthesizer, RealtimeSpeechStream
+    DengjenSpeechSynthesizer, RealtimeSpeechStream,
 };
 #[cfg(feature = "tashkeel")]
-use libtashkeel_core::{LibtashkeelResult, DynamicInferenceEngine as TashkeelInferenceEngine, do_tashkeel};
+use libtashkeel_core::{
+    do_tashkeel, DynamicInferenceEngine as TashkeelInferenceEngine, LibtashkeelResult,
+};
 #[cfg(feature = "tashkeel")]
 use once_cell::sync::Lazy;
 use pyo3::create_exception;
@@ -22,7 +27,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 #[cfg(feature = "tashkeel")]
-static LIBTASHKEEL_ENGINE: Lazy<LibtashkeelResult<TashkeelInferenceEngine>>=
+static LIBTASHKEEL_ENGINE: Lazy<LibtashkeelResult<TashkeelInferenceEngine>> =
     Lazy::new(|| libtashkeel_core::create_inference_engine(None));
 
 #[cfg(feature = "tashkeel")]
@@ -41,7 +46,6 @@ create_exception!(
     PyException,
     "Base Exception for all exceptions raised by piper."
 );
-
 
 struct PyDengjenError(DengjenError);
 
@@ -122,7 +126,10 @@ impl WaveSamples {
         PyBytes::new(py, &bytes_vec).into()
     }
     fn save_to_file(&self, filename: &str) -> PyDengjenResult<()> {
-        Ok(self.0.save_to_file(&PathBuf::from(filename)).map_err(DengjenError::from)?)
+        Ok(self
+            .0
+            .save_to_file(&PathBuf::from(filename))
+            .map_err(DengjenError::from)?)
     }
     #[getter]
     fn sample_rate(&self) -> usize {
@@ -257,8 +264,7 @@ struct PiperModel(Arc<dyn DengjenModel + Send + Sync>);
 impl PiperModel {
     #[new]
     fn new(config_path: &str) -> PyDengjenResult<Self> {
-        let vits =
-            dengjen_piper::from_config_path(&PathBuf::from(config_path))?;
+        let vits = dengjen_piper::from_config_path(&PathBuf::from(config_path))?;
         Ok(Self(vits))
     }
     #[getter]
@@ -290,9 +296,10 @@ impl PiperModel {
                     .0
                     .set_fallback_synthesis_config(&SynthesisConfig::Piper(synth_config))?)
             }
-            SynthesisConfig::None => {
-                Err(DengjenError::InvalidConfiguration("Cannot set synthesis config".to_string()).into())
-            }
+            SynthesisConfig::None => Err(DengjenError::InvalidConfiguration(
+                "Cannot set synthesis config".to_string(),
+            )
+            .into()),
         }
     }
     fn get_scales(&self) -> PyDengjenResult<PiperScales> {
@@ -302,9 +309,10 @@ impl PiperModel {
                 noise_scale: synth_config.noise_scale,
                 noise_w: synth_config.noise_w,
             }),
-            SynthesisConfig::None => {
-                Err(DengjenError::InvalidConfiguration("Cannot get synthesis config".to_string()).into())
-            }
+            SynthesisConfig::None => Err(DengjenError::InvalidConfiguration(
+                "Cannot get synthesis config".to_string(),
+            )
+            .into()),
         }
     }
     fn set_scales(&self, length_scale: f32, noise_scale: f32, noise_w: f32) -> PyDengjenResult<()> {
@@ -317,9 +325,10 @@ impl PiperModel {
                     .0
                     .set_fallback_synthesis_config(&SynthesisConfig::Piper(synth_config))?)
             }
-            SynthesisConfig::None => {
-                Err(DengjenError::InvalidConfiguration("Cannot set synthesis config".to_string()).into())
-            }
+            SynthesisConfig::None => Err(DengjenError::InvalidConfiguration(
+                "Cannot set synthesis config".to_string(),
+            )
+            .into()),
         }
     }
 }
@@ -388,8 +397,11 @@ impl Dengjen {
         text: String,
         audio_output_config: Option<PyAudioOutputConfig>,
     ) -> PyDengjenResult<()> {
-        self.0
-            .synthesize_to_file(&PathBuf::from(filename), text, audio_output_config.map(|o| o.into()))?;
+        self.0.synthesize_to_file(
+            &PathBuf::from(filename),
+            text,
+            audio_output_config.map(|o| o.into()),
+        )?;
         Ok(())
     }
     #[getter]
@@ -409,11 +421,11 @@ impl Dengjen {
 fn diacritize_text(text: &str) -> PyResult<std::borrow::Cow<'_, str>> {
     let engine = match LIBTASHKEEL_ENGINE.as_ref() {
         Ok(eng) => eng,
-        Err(e) => return Err(DengjenException::new_err(e.to_string()))
+        Err(e) => return Err(DengjenException::new_err(e.to_string())),
     };
     match do_tashkeel(engine, text, None, false) {
         Ok(mashkool) => Ok(std::borrow::Cow::from(mashkool)),
-        Err(e) => Err(DengjenException::new_err(e.to_string()))
+        Err(e) => Err(DengjenException::new_err(e.to_string())),
     }
 }
 // should_diacritize() is always false without this feature, so this is unreachable.
@@ -430,7 +442,7 @@ pub fn phonemize_text(
     phoneme_separator: Option<char>,
     remove_lang_switch_flags: Option<bool>,
     remove_stress: Option<bool>,
-    use_tashkeel: Option<bool>
+    use_tashkeel: Option<bool>,
 ) -> PyResult<Vec<String>> {
     let text = if should_diacritize(language, use_tashkeel) {
         diacritize_text(text)?
@@ -442,13 +454,12 @@ pub fn phonemize_text(
         language,
         phoneme_separator.or(None),
         remove_lang_switch_flags.unwrap_or(true),
-        remove_stress.unwrap_or(false)
+        remove_stress.unwrap_or(false),
     ) {
         Ok(phonemes) => Ok(phonemes),
-        Err(e) => Err(DengjenException::new_err(e.to_string()))
+        Err(e) => Err(DengjenException::new_err(e.to_string())),
     }
 }
-
 
 #[cfg(test)]
 mod tests {

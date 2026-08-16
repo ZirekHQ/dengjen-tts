@@ -48,6 +48,9 @@ fn init_espeakng() -> ESpeakResult<()> {
     } else {
         std::ptr::null()
     };
+    // SAFETY: `es_data_path_ptr` is either null or a valid, NUL-terminated pointer produced by
+    // `rust_string_to_c` immediately above. This runs inside the `ESPEAKNG_INIT` `Lazy`, so
+    // eSpeak-ng's global state cannot be touched by another call concurrently with this one.
     let es_sample_rate = unsafe {
         espeakng::espeak_Initialize(
             espeakng::espeak_AUDIO_OUTPUT_AUDIO_OUTPUT_RETRIEVAL,
@@ -110,6 +113,8 @@ fn phonemize_line(
     }
     let language_c = CString::new(language)
         .map_err(|_| ESpeakError(format!("Failed to set eSpeak-ng voice to: `{}` ", language)))?;
+    // SAFETY: `language_c` is a valid, NUL-terminated CString kept alive across this call.
+    // eSpeak-ng is not thread-safe; the `_guard` held above serializes every call into it.
     let set_voice_res = unsafe { espeakng::espeak_SetVoiceByName(language_c.as_ptr()) };
     if set_voice_res != espeakng::espeak_ERROR_EE_OK {
         return Err(ESpeakError(format!(
@@ -134,6 +139,11 @@ fn phonemize_line(
     let mut terminator: ffi::c_int = 0;
     let terminator_ptr: *mut ffi::c_int = &mut terminator;
     while !text_c_char.is_null() {
+        // SAFETY: `text_c_char_ptr` points at a valid, NUL-terminated C string owned by
+        // `text_c`/`text_c_char`, which outlives this call; `terminator_ptr` is a valid `&mut
+        // c_int` reinterpreted as a raw pointer. The `_guard` held for the whole function
+        // serializes access to eSpeak-ng, so `res` — a pointer into eSpeak-ng's own internal
+        // buffer — stays valid for `FfiStr::from_raw` until the next call under the same lock.
         let ph_str = unsafe {
             let res = espeakng::espeak_TextToPhonemesWithTerminator(
                 text_c_char_ptr,
