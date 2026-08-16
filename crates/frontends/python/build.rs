@@ -13,7 +13,10 @@ fn main() {
 
     // Paths for the espeak-ng data copy operation
     let src = root.join("deps").join("dev").join("espeak-ng-data");
-    let dst = crate_dir.join("python").join("pydengjen").join("espeak-ng-data");
+    let dst = crate_dir
+        .join("python")
+        .join("pydengjen")
+        .join("espeak-ng-data");
 
     // Avoid re-copying data if it already exists
     if dst.exists() {
