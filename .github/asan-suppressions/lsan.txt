@@ -1,0 +1,15 @@
+# LeakSanitizer suppressions for the `asan` CI job (.github/workflows/rust-lint.yml).
+#
+# Each entry here is a known leak we don't control, not one we've decided to ignore in our
+# own code. Adding to this file should come with the same evidence as the one below: a local
+# repro under ASan and a stack trace showing the allocation is entirely inside third-party/
+# vendored code we don't patch.
+#
+# DoVoiceChange (deps/espeak-ng/src/libespeak-ng/synthesize.c): espeak-ng's own voice-table
+# allocation leaks ~1.3KB per call to espeak_(ng_)SetVoiceByName when the requested voice
+# differs from the currently loaded one. This is vendored upstream C code, not something
+# dengjen's Rust FFI layer controls. Reproduced locally on 2026-08-16 via:
+#   DENGJEN_ESPEAKNG_DATA_DIRECTORY=<path> RUSTFLAGS="-Z sanitizer=address" \
+#     cargo +nightly test -p espeak-phonemizer -Zbuild-std \
+#     --target x86_64-unknown-linux-gnu -- --test-threads=1
+leak:DoVoiceChange
