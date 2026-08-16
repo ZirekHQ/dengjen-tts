@@ -2,25 +2,25 @@ use std::env;
 use std::path::PathBuf;
 
 fn main() {
-    let cargo_manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    let workspace_root = cargo_manifest_dir
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap();
-    let espeak_data_dir = workspace_root
-        .join("deps")
-        .join("dev")
-        .join("espeak-ng-data");
-    let target_dir = cargo_manifest_dir
-        .join("python")
-        .join("pydengjen")
-        .join("espeak-ng-data");
-    if target_dir.exists() {
+    // Establish the crate root directory from cargo environment
+    let crate_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+
+    // Navigate to workspace root (three levels up from crate root)
+    let root = crate_dir
+        .ancestors()
+        .nth(3)
+        .expect("unable to find workspace root");
+
+    // Paths for the espeak-ng data copy operation
+    let src = root.join("deps").join("dev").join("espeak-ng-data");
+    let dst = crate_dir.join("python").join("pydengjen").join("espeak-ng-data");
+
+    // Avoid re-copying data if it already exists
+    if dst.exists() {
         return;
     }
-    let options = fs_extra::dir::CopyOptions::new();
-    fs_extra::dir::copy(&espeak_data_dir, target_dir.parent().unwrap(), &options).unwrap();
+
+    // Copy data directory to Python package
+    let copy_config = fs_extra::dir::CopyOptions::new();
+    fs_extra::dir::copy(&src, dst.parent().unwrap(), &copy_config).unwrap();
 }
