@@ -35,7 +35,10 @@ fn cli_synthesizes_from_a_real_kokoro_voice() {
     );
 
     let wav_bytes = std::fs::read(&output_path).expect("expected CLI to write an output WAV file");
-    assert!(!wav_bytes.is_empty(), "expected non-empty WAV bytes in output file");
+    assert!(
+        !wav_bytes.is_empty(),
+        "expected non-empty WAV bytes in output file"
+    );
 
     std::fs::remove_dir_all(&dir).ok();
 }

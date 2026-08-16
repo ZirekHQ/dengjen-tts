@@ -131,7 +131,11 @@ mod tests {
         let Some(result) = phonemize_or_skip("Hello there. General Kenobi.", "en-US") else {
             return;
         };
-        assert_eq!(result.len(), 2, "expected one entry per sentence, got {result:?}");
+        assert_eq!(
+            result.len(),
+            2,
+            "expected one entry per sentence, got {result:?}"
+        );
         assert!(result.iter().all(|s| !s.trim().is_empty()));
     }
 
@@ -148,7 +152,10 @@ mod tests {
             return;
         };
         let joined = result.join("");
-        assert!(!joined.contains('('), "unstripped lang-switch flag in {joined:?}");
+        assert!(
+            !joined.contains('('),
+            "unstripped lang-switch flag in {joined:?}"
+        );
     }
 
     #[cfg(not(feature = "espeak"))]

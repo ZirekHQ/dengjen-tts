@@ -33,7 +33,9 @@ pub(crate) fn phonemize_dispatch(
 }
 
 #[cfg(feature = "tashkeel")]
-pub(crate) fn create_tashkeel_engine(config: &ModelConfig) -> DengjenResult<Option<TashkeelEngine>> {
+pub(crate) fn create_tashkeel_engine(
+    config: &ModelConfig,
+) -> DengjenResult<Option<TashkeelEngine>> {
     if !should_diacritize(&config.espeak.voice) {
         return Ok(None);
     }
@@ -64,7 +66,9 @@ mod tests {
 
     #[test]
     fn phonemize_dispatch_passes_text_through_unchanged_for_text_phoneme_type() {
-        let result = phonemize_dispatch(PhonemeType::Text, "hello").unwrap().unwrap();
+        let result = phonemize_dispatch(PhonemeType::Text, "hello")
+            .unwrap()
+            .unwrap();
         assert_eq!(result.sentences(), &vec!["hello".to_string()]);
     }
 

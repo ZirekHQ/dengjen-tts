@@ -113,9 +113,14 @@ impl DengjenModel for VitsStreamingModel {
         Ok(SynthesisConfig::Piper(self.factory_synthesis_config()))
     }
     fn get_fallback_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
-        Ok(SynthesisConfig::Piper(self.synth_config.read().unwrap().clone()))
+        Ok(SynthesisConfig::Piper(
+            self.synth_config.read().unwrap().clone(),
+        ))
     }
-    fn set_fallback_synthesis_config(&self, synthesis_config: &SynthesisConfig) -> DengjenResult<()> {
+    fn set_fallback_synthesis_config(
+        &self,
+        synthesis_config: &SynthesisConfig,
+    ) -> DengjenResult<()> {
         self._do_set_default_synth_config(expect_piper_config(synthesis_config)?)
     }
     fn get_language(&self) -> DengjenResult<Option<String>> {
@@ -173,7 +178,9 @@ fn extract_named_array(
     values: &SessionOutputs,
     name: &str,
 ) -> DengjenResult<Array<f32, Dim<IxDynImpl>>> {
-    let (shape, data) = values[name].try_extract_tensor::<f32>().map_err(inference_error)?;
+    let (shape, data) = values[name]
+        .try_extract_tensor::<f32>()
+        .map_err(inference_error)?;
     Ok(Array::from_shape_vec(shape.to_ixdyn(), data.to_vec()).unwrap())
 }
 
@@ -216,7 +223,9 @@ impl EncoderOutputs {
         let inputs = self.decoder_inputs(self.z.view(), self.y_mask.view());
         let mut session = session.lock().unwrap();
         let outputs = session.run(inputs.as_slice()).map_err(inference_error)?;
-        let (_, samples) = outputs[0].try_extract_tensor::<f32>().map_err(inference_error)?;
+        let (_, samples) = outputs[0]
+            .try_extract_tensor::<f32>()
+            .map_err(inference_error)?;
         Ok(samples.to_vec().into())
     }
 }
@@ -272,7 +281,9 @@ impl SpeechStreamer {
 
         let mut session = self.decoder_model.lock().unwrap();
         let outputs = session.run(inputs.as_slice()).map_err(inference_error)?;
-        let (shape, data) = outputs[0].try_extract_tensor::<f32>().map_err(inference_error)?;
+        let (shape, data) = outputs[0]
+            .try_extract_tensor::<f32>()
+            .map_err(inference_error)?;
         let waveform = ArrayView::from_shape(shape.to_ixdyn(), data).map_err(|e| {
             DengjenError::with_message(format!("Invalid model audio output shape: {}", e))
         })?;

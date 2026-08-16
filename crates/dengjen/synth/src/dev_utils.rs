@@ -1,9 +1,9 @@
 use core::hint::black_box;
-use once_cell::sync::Lazy;
 use dengjen_piper::from_config_path;
 use dengjen_synth::{
     AudioOutputConfig, AudioSamples, DengjenModel, DengjenResult, DengjenSpeechSynthesizer,
 };
+use once_cell::sync::Lazy;
 use std::path::PathBuf;
 use std::sync::Arc;
 

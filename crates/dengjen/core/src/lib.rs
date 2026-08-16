@@ -1,14 +1,10 @@
+#![forbid(unsafe_code)]
+
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 
-
-pub use audio_ops::{
-    Audio,
-    AudioInfo,
-    AudioSamples,
-    WaveWriterError
-};
+pub use audio_ops::{Audio, AudioInfo, AudioSamples, WaveWriterError};
 
 mod cancellation;
 pub use cancellation::CancellationToken;
@@ -18,7 +14,8 @@ pub use synthesis_config::{PiperSynthesisConfig, SynthesisConfig};
 
 pub type DengjenResult<T> = Result<T, DengjenError>;
 pub type DengjenAudioResult = DengjenResult<Audio>;
-pub type AudioStreamIterator<'a> = Box<dyn Iterator<Item = DengjenResult<AudioSamples>> + Send + Sync + 'a>;
+pub type AudioStreamIterator<'a> =
+    Box<dyn Iterator<Item = DengjenResult<AudioSamples>> + Send + Sync + 'a>;
 
 #[derive(Debug)]
 pub enum DengjenError {
@@ -88,7 +85,6 @@ impl std::fmt::Display for Phonemes {
     }
 }
 
-
 pub trait DengjenModel {
     fn audio_output_info(&self) -> DengjenResult<AudioInfo>;
     fn phonemize_text(&self, text: &str) -> DengjenResult<Phonemes>;
@@ -97,7 +93,10 @@ pub trait DengjenModel {
 
     fn get_default_synthesis_config(&self) -> DengjenResult<SynthesisConfig>;
     fn get_fallback_synthesis_config(&self) -> DengjenResult<SynthesisConfig>;
-    fn set_fallback_synthesis_config(&self, synthesis_config: &SynthesisConfig) -> DengjenResult<()>;
+    fn set_fallback_synthesis_config(
+        &self,
+        synthesis_config: &SynthesisConfig,
+    ) -> DengjenResult<()>;
 
     fn get_language(&self) -> DengjenResult<Option<String>> {
         Ok(None)
@@ -136,8 +135,8 @@ pub trait DengjenModel {
         #[allow(unused_variables)] cancel_token: CancellationToken,
     ) -> DengjenResult<AudioStreamIterator<'_>> {
         Err(DengjenError::UnsupportedOperation(
-                "Streaming synthesis is not supported for this model".to_string(),
-            ))
+            "Streaming synthesis is not supported for this model".to_string(),
+        ))
     }
 }
 
@@ -152,7 +151,11 @@ mod tests {
 
     impl DengjenModel for NullModel {
         fn audio_output_info(&self) -> DengjenResult<AudioInfo> {
-            Ok(AudioInfo { sample_rate: 22050, num_channels: 1, sample_width: 2 })
+            Ok(AudioInfo {
+                sample_rate: 22050,
+                num_channels: 1,
+                sample_width: 2,
+            })
         }
         fn phonemize_text(&self, _text: &str) -> DengjenResult<Phonemes> {
             Ok(Phonemes::from(Vec::new()))
@@ -169,7 +172,10 @@ mod tests {
         fn get_fallback_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
             Ok(SynthesisConfig::None)
         }
-        fn set_fallback_synthesis_config(&self, _synthesis_config: &SynthesisConfig) -> DengjenResult<()> {
+        fn set_fallback_synthesis_config(
+            &self,
+            _synthesis_config: &SynthesisConfig,
+        ) -> DengjenResult<()> {
             Ok(())
         }
     }
@@ -216,12 +222,8 @@ mod tests {
 
     #[test]
     fn default_stream_synthesis_returns_unsupported_operation_error() {
-        let result = NullModel.stream_synthesis(
-            "phonemes".to_string(),
-            100,
-            3,
-            CancellationToken::new(),
-        );
+        let result =
+            NullModel.stream_synthesis("phonemes".to_string(), 100, 3, CancellationToken::new());
         assert!(matches!(result, Err(DengjenError::UnsupportedOperation(_))));
     }
 
@@ -235,4 +237,3 @@ mod tests {
         assert_eq!(NullModel.speaker_name_to_id("foo").unwrap(), None);
     }
 }
-

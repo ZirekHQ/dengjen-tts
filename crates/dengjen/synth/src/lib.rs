@@ -145,7 +145,11 @@ impl DengjenSpeechSynthesizer {
         output_config: Option<AudioOutputConfig>,
     ) -> SpeechSynthesisTaskProvider {
         let model = self.clone_model();
-        SpeechSynthesisTaskProvider { model, text, output_config }
+        SpeechSynthesisTaskProvider {
+            model,
+            text,
+            output_config,
+        }
     }
 
     pub fn synthesize_lazy(
@@ -235,7 +239,10 @@ impl DengjenModel for DengjenSpeechSynthesizer {
     fn get_fallback_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
         self.model.get_fallback_synthesis_config()
     }
-    fn set_fallback_synthesis_config(&self, synthesis_config: &SynthesisConfig) -> DengjenResult<()> {
+    fn set_fallback_synthesis_config(
+        &self,
+        synthesis_config: &SynthesisConfig,
+    ) -> DengjenResult<()> {
         self.model.set_fallback_synthesis_config(synthesis_config)
     }
     fn get_language(&self) -> DengjenResult<Option<String>> {
@@ -256,7 +263,8 @@ impl DengjenModel for DengjenSpeechSynthesizer {
         chunk_size: usize,
         chunk_padding: usize,
         cancel_token: CancellationToken,
-    ) -> DengjenResult<Box<dyn Iterator<Item = DengjenResult<AudioSamples>> + Send + Sync + 'a>> {
+    ) -> DengjenResult<Box<dyn Iterator<Item = DengjenResult<AudioSamples>> + Send + Sync + 'a>>
+    {
         self.model
             .stream_synthesis(phonemes, chunk_size, chunk_padding, cancel_token)
     }
@@ -444,8 +452,11 @@ impl RealtimeSpeechStream {
         if !cancel_token.is_cancelled() {
             if let Some(output_config) = audio_output_config {
                 if let Some(silence_ms) = output_config.appended_silence_ms {
-                    let silence_result =
-                        output_config.generate_silence(silence_ms as usize, sample_rate, num_channels);
+                    let silence_result = output_config.generate_silence(
+                        silence_ms as usize,
+                        sample_rate,
+                        num_channels,
+                    );
                     tx.send(silence_result)?;
                 }
             }
@@ -545,7 +556,11 @@ mod cancellation_tests {
 
     impl DengjenModel for CountingStreamModel {
         fn audio_output_info(&self) -> DengjenResult<AudioInfo> {
-            Ok(AudioInfo { sample_rate: 16000, num_channels: 1, sample_width: 2 })
+            Ok(AudioInfo {
+                sample_rate: 16000,
+                num_channels: 1,
+                sample_width: 2,
+            })
         }
         fn phonemize_text(&self, _text: &str) -> DengjenResult<Phonemes> {
             Ok(Phonemes::from(vec!["sentence".to_string(); self.sentences]))
@@ -554,7 +569,9 @@ mod cancellation_tests {
             Ok(Vec::new())
         }
         fn speak_one_sentence(&self, _phonemes: String) -> DengjenAudioResult {
-            Err(DengjenError::OperationError("not used by this test".to_string()))
+            Err(DengjenError::OperationError(
+                "not used by this test".to_string(),
+            ))
         }
         fn get_default_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
             Ok(SynthesisConfig::None)
@@ -650,7 +667,10 @@ mod cancellation_tests {
 
         let mut received = 0;
         while received < 3 {
-            let _ = stream.next().expect("stream ended before 3 chunks").unwrap();
+            let _ = stream
+                .next()
+                .expect("stream ended before 3 chunks")
+                .unwrap();
             received += 1;
         }
 
@@ -706,7 +726,11 @@ mod cancellation_tests {
         );
 
         let seen = chunk_sizes_seen.lock().unwrap();
-        assert_eq!(seen.len(), 20, "expected one stream_synthesis call per sentence");
+        assert_eq!(
+            seen.len(),
+            20,
+            "expected one stream_synthesis call per sentence"
+        );
         for &size in seen.iter() {
             assert!(
                 size <= MAX_STREAM_CHUNK_SIZE,
@@ -779,7 +803,10 @@ mod cancellation_tests {
                 .as_vec()
                 .iter()
                 .fold(0f32, |a, &b| a.max(b.abs()));
-            assert_eq!(max_abs, 0.0, "appended silence chunk must contain only zeros");
+            assert_eq!(
+                max_abs, 0.0,
+                "appended silence chunk must contain only zeros"
+            );
         }
     }
 }
@@ -875,7 +902,11 @@ mod audio_output_config_tests {
             appended_silence_ms: None,
         };
         let silence = config.generate_silence(1000, 16000, 1).unwrap();
-        assert_eq!(silence.len(), 16000, "1000ms @ 16000Hz must be 16000 samples");
+        assert_eq!(
+            silence.len(),
+            16000,
+            "1000ms @ 16000Hz must be 16000 samples"
+        );
         let max_abs = silence.as_vec().iter().fold(0f32, |a, &b| a.max(b.abs()));
         assert_eq!(max_abs, 0.0, "generated silence must contain only zeros");
     }
@@ -911,7 +942,11 @@ mod lazy_parallel_tests {
 
     impl DengjenModel for CannedSentenceModel {
         fn audio_output_info(&self) -> DengjenResult<AudioInfo> {
-            Ok(AudioInfo { sample_rate: 16000, num_channels: 1, sample_width: 2 })
+            Ok(AudioInfo {
+                sample_rate: 16000,
+                num_channels: 1,
+                sample_width: 2,
+            })
         }
         fn phonemize_text(&self, _text: &str) -> DengjenResult<Phonemes> {
             Ok(Phonemes::from(
@@ -961,7 +996,11 @@ mod lazy_parallel_tests {
             .collect();
         assert_eq!(results.len(), 3);
         let lens: Vec<usize> = results.into_iter().map(|r| r.unwrap().len()).collect();
-        assert_eq!(lens, vec![1, 2, 3], "lazy stream must preserve sentence order");
+        assert_eq!(
+            lens,
+            vec![1, 2, 3],
+            "lazy stream must preserve sentence order"
+        );
     }
 
     #[test]

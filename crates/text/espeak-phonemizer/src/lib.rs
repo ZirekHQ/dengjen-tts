@@ -1,6 +1,6 @@
 mod espeakng;
 
-use ffi_support::{rust_string_to_c, FfiStr};
+use ffi_support::FfiStr;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use std::env;
@@ -37,6 +37,11 @@ static LANG_SWITCH_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r"\([^)]*\)").
 static STRESS_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r"[ˈˌ]").unwrap());
 static ESPEAKNG_INIT: Lazy<ESpeakResult<()>> = Lazy::new(init_espeakng);
 static ESPEAK_LOCK: Mutex<()> = Mutex::new(());
+// eSpeak-ng keeps referencing the data-path string for as long as it's initialized (the whole
+// process lifetime), so the CString must outlive `init_espeakng`. Owning it here — rather than
+// leaking a bare pointer via `into_raw` with nothing left to hold it — keeps it reachable from a
+// GC root, so LeakSanitizer doesn't (correctly) flag it as an unreachable leak.
+static ESPEAKNG_DATA_PATH: Mutex<Option<CString>> = Mutex::new(None);
 
 fn init_espeakng() -> ESpeakResult<()> {
     let data_dir = match env::var(DENGJEN_ESPEAKNG_DATA_DIRECTORY) {
@@ -44,10 +49,18 @@ fn init_espeakng() -> ESpeakResult<()> {
         Err(_) => env::current_exe().unwrap().parent().unwrap().to_path_buf(),
     };
     let es_data_path_ptr = if data_dir.join("espeak-ng-data").exists() {
-        rust_string_to_c(data_dir.display().to_string())
+        let path = CString::new(data_dir.display().to_string())
+            .expect("Error: Rust string contained an interior null byte.");
+        let ptr = path.as_ptr();
+        *ESPEAKNG_DATA_PATH.lock().unwrap_or_else(|e| e.into_inner()) = Some(path);
+        ptr
     } else {
         std::ptr::null()
     };
+    // SAFETY: `es_data_path_ptr` is either null or a valid, NUL-terminated pointer into the
+    // `CString` now owned by `ESPEAKNG_DATA_PATH`, which outlives this call. This runs inside
+    // the `ESPEAKNG_INIT` `Lazy`, so eSpeak-ng's global state cannot be touched by another call
+    // concurrently with this one.
     let es_sample_rate = unsafe {
         espeakng::espeak_Initialize(
             espeakng::espeak_AUDIO_OUTPUT_AUDIO_OUTPUT_RETRIEVAL,
@@ -110,6 +123,8 @@ fn phonemize_line(
     }
     let language_c = CString::new(language)
         .map_err(|_| ESpeakError(format!("Failed to set eSpeak-ng voice to: `{}` ", language)))?;
+    // SAFETY: `language_c` is a valid, NUL-terminated CString kept alive across this call.
+    // eSpeak-ng is not thread-safe; the `_guard` held above serializes every call into it.
     let set_voice_res = unsafe { espeakng::espeak_SetVoiceByName(language_c.as_ptr()) };
     if set_voice_res != espeakng::espeak_ERROR_EE_OK {
         return Err(ESpeakError(format!(
@@ -134,6 +149,11 @@ fn phonemize_line(
     let mut terminator: ffi::c_int = 0;
     let terminator_ptr: *mut ffi::c_int = &mut terminator;
     while !text_c_char.is_null() {
+        // SAFETY: `text_c_char_ptr` points at a valid, NUL-terminated C string owned by
+        // `text_c`/`text_c_char`, which outlives this call; `terminator_ptr` is a valid `&mut
+        // c_int` reinterpreted as a raw pointer. The `_guard` held for the whole function
+        // serializes access to eSpeak-ng, so `res` — a pointer into eSpeak-ng's own internal
+        // buffer — stays valid for `FfiStr::from_raw` until the next call under the same lock.
         let ph_str = unsafe {
             let res = espeakng::espeak_TextToPhonemesWithTerminator(
                 text_c_char_ptr,

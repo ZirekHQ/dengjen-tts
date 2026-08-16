@@ -1,5 +1,5 @@
 use once_cell::sync::Lazy;
-use std::{ collections::HashMap, f32::consts::PI};
+use std::{collections::HashMap, f32::consts::PI};
 
 #[derive(Debug, PartialEq)]
 pub enum AudioOpsError {
@@ -26,7 +26,6 @@ static HANN_WINDOW_LOOKUP_TABLE: Lazy<HashMap<usize, Vec<f32>>> = Lazy::new(|| {
         .map(|length| (length, calculate_hann_window(length)))
         .collect()
 });
-
 
 /// Returns a Hann window of the given length, serving it from a precomputed lookup table
 /// when available and computing it on demand otherwise.
@@ -90,7 +89,10 @@ mod tests {
         assert_eq!(window[63], 0.0);
         let max = window.iter().cloned().fold(f32::MIN, f32::max);
         let max_index = window.iter().position(|&v| v == max).unwrap();
-        assert!((28..36).contains(&max_index), "expected peak near center, got index {max_index}");
+        assert!(
+            (28..36).contains(&max_index),
+            "expected peak near center, got index {max_index}"
+        );
     }
 
     #[test]
@@ -109,4 +111,3 @@ mod tests {
         assert_eq!(window[9], 0.0);
     }
 }
-

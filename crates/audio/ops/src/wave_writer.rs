@@ -34,7 +34,11 @@ where
         buffer,
     ) {
         Ok(w) => w,
-        Err(_) => return Err(WaveWriterError("Failed to initialize wave writer".to_string())),
+        Err(_) => {
+            return Err(WaveWriterError(
+                "Failed to initialize wave writer".to_string(),
+            ))
+        }
     };
 
     for sample in samples {
@@ -155,7 +159,9 @@ mod tests {
             first_call_done: false,
         };
 
-        writer.write_all(&buffer).expect("write_all should retry past the short write");
+        writer
+            .write_all(&buffer)
+            .expect("write_all should retry past the short write");
 
         assert_eq!(writer.data, buffer);
     }

@@ -1,6 +1,8 @@
-use grpc::dengjen_grpc_server::{DengjenGrpc, DengjenGrpcServer};
+#![forbid(unsafe_code)]
+
 use dengjen_core::{CancellationToken, DengjenError, DengjenModel, DengjenResult, SynthesisConfig};
 use dengjen_synth::{AudioOutputConfig, DengjenSpeechStreamLazy, DengjenSpeechSynthesizer};
+use grpc::dengjen_grpc_server::{DengjenGrpc, DengjenGrpcServer};
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;

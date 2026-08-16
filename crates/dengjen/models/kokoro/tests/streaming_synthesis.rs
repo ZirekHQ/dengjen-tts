@@ -60,13 +60,11 @@ fn supports_streaming_output_is_true() {
 #[test]
 fn chunk_size_zero_returns_unsupported_operation() {
     let model = load_synthetic_model("chunk_size_zero_returns_unsupported_operation");
-    let result = model.stream_synthesis(
-        TEST_PHONEMES.to_string(),
-        0,
-        3,
-        CancellationToken::new(),
-    );
-    assert!(matches!(result, Err(dengjen_core::DengjenError::UnsupportedOperation(_))));
+    let result = model.stream_synthesis(TEST_PHONEMES.to_string(), 0, 3, CancellationToken::new());
+    assert!(matches!(
+        result,
+        Err(dengjen_core::DengjenError::UnsupportedOperation(_))
+    ));
 }
 
 #[test]
@@ -99,7 +97,11 @@ fn streamed_chunks_total_matches_speak_one_sentence_total() {
         .map(|r| r.expect("chunk synthesis failed").into_vec())
         .collect();
 
-    assert_eq!(chunks.len(), 4, "16000 samples / 4096 chunk_size = 3 full chunks + 1 remainder");
+    assert_eq!(
+        chunks.len(),
+        4,
+        "16000 samples / 4096 chunk_size = 3 full chunks + 1 remainder"
+    );
     for chunk in &chunks[..3] {
         assert_eq!(chunk.len(), 4096);
     }

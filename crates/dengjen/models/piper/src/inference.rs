@@ -131,7 +131,9 @@ impl VitsModel {
         let outputs = session.run(inputs.as_slice()).map_err(inference_error)?;
         let inference_ms = started_at.elapsed().as_millis() as f32;
 
-        let (_, samples) = outputs[0].try_extract_tensor::<f32>().map_err(inference_error)?;
+        let (_, samples) = outputs[0]
+            .try_extract_tensor::<f32>()
+            .map_err(inference_error)?;
         Ok(Audio::new(
             samples.to_vec().into(),
             self.config.audio.sample_rate as usize,
@@ -182,9 +184,14 @@ impl DengjenModel for VitsModel {
         Ok(SynthesisConfig::Piper(self.factory_synthesis_config()))
     }
     fn get_fallback_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
-        Ok(SynthesisConfig::Piper(self.synth_config.read().unwrap().clone()))
+        Ok(SynthesisConfig::Piper(
+            self.synth_config.read().unwrap().clone(),
+        ))
     }
-    fn set_fallback_synthesis_config(&self, synthesis_config: &SynthesisConfig) -> DengjenResult<()> {
+    fn set_fallback_synthesis_config(
+        &self,
+        synthesis_config: &SynthesisConfig,
+    ) -> DengjenResult<()> {
         self._do_set_default_synth_config(expect_piper_config(synthesis_config)?)
     }
     fn get_language(&self) -> DengjenResult<Option<String>> {

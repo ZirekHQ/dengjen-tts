@@ -1,7 +1,7 @@
 use crate::config::KokoroVoiceConfig;
 use crate::phonemize::text_to_kokoro_phonemes;
-use crate::voice_style::VoiceStyles;
 use crate::vocab::Vocab;
+use crate::voice_style::VoiceStyles;
 use dengjen_core::{
     Audio, AudioInfo, AudioSamples, AudioStreamIterator, CancellationToken, DengjenAudioResult,
     DengjenError, DengjenModel, DengjenResult, Phonemes, SynthesisConfig,
@@ -41,11 +41,10 @@ impl KokoroModel {
             })?;
         let vocab = Vocab::load(&config.vocab_path)?;
         let voice_styles = VoiceStyles::load(&config.voices_dir, &config.voices)?;
-        let default_voice = config
-            .voices
-            .first()
-            .cloned()
-            .ok_or_else(|| DengjenError::FailedToLoadResource("No voices in config".to_string()))?;
+        let default_voice =
+            config.voices.first().cloned().ok_or_else(|| {
+                DengjenError::FailedToLoadResource("No voices in config".to_string())
+            })?;
         Ok(Self {
             session: Mutex::new(session),
             vocab,
@@ -70,15 +69,20 @@ impl KokoroModel {
         let mut session = self.session.lock().unwrap();
         let outputs = session
             .run(ort::inputs![
-                Tensor::from_array(input_ids).map_err(|e| DengjenError::with_message(e.to_string()))?,
+                Tensor::from_array(input_ids)
+                    .map_err(|e| DengjenError::with_message(e.to_string()))?,
                 Tensor::from_array(style).map_err(|e| DengjenError::with_message(e.to_string()))?,
                 Tensor::from_array(speed).map_err(|e| DengjenError::with_message(e.to_string()))?,
             ])
             .map_err(|e| DengjenError::InferenceError(format!("Kokoro inference failed: {}", e)))?;
-        let (_, data) = outputs[0]
-            .try_extract_tensor::<f32>()
-            .map_err(|e| DengjenError::InferenceError(format!("Failed to extract Kokoro output: {}", e)))?;
-        Ok(Audio::new(data.to_vec().into(), self.sample_rate as usize, None))
+        let (_, data) = outputs[0].try_extract_tensor::<f32>().map_err(|e| {
+            DengjenError::InferenceError(format!("Failed to extract Kokoro output: {}", e))
+        })?;
+        Ok(Audio::new(
+            data.to_vec().into(),
+            self.sample_rate as usize,
+            None,
+        ))
     }
 }
 
@@ -116,7 +120,10 @@ impl DengjenModel for KokoroModel {
         Ok(SynthesisConfig::None)
     }
 
-    fn set_fallback_synthesis_config(&self, _synthesis_config: &SynthesisConfig) -> DengjenResult<()> {
+    fn set_fallback_synthesis_config(
+        &self,
+        _synthesis_config: &SynthesisConfig,
+    ) -> DengjenResult<()> {
         Ok(())
     }
 
@@ -230,7 +237,10 @@ mod tests {
         let mut streamer = KokoroAudioStreamer::new(samples, 3, cancel_token.clone());
         assert!(streamer.next().is_some());
         cancel_token.cancel();
-        assert!(streamer.next().is_none(), "no further chunks should be yielded once cancelled");
+        assert!(
+            streamer.next().is_none(),
+            "no further chunks should be yielded once cancelled"
+        );
     }
 
     #[test]
@@ -245,6 +255,9 @@ mod tests {
         let samples = AudioSamples::new(vec![0.0; 9]);
         let mut streamer = KokoroAudioStreamer::new(samples, 0, CancellationToken::new());
         assert!(streamer.next().is_none());
-        assert!(streamer.next().is_none(), "should remain exhausted after first call");
+        assert!(
+            streamer.next().is_none(),
+            "should remain exhausted after first call"
+        );
     }
 }

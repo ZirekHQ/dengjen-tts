@@ -1,6 +1,8 @@
+#![forbid(unsafe_code)]
+
+pub(crate) mod hanning_window;
 mod samples;
 mod wave_writer;
-pub(crate) mod hanning_window;
 
 pub use hanning_window::AudioOpsError;
 pub use samples::{Audio, AudioInfo, AudioSamples};

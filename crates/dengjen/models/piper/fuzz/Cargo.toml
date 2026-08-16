@@ -1,0 +1,28 @@
+[workspace]
+
+[package]
+name = "dengjen-piper-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+arbitrary = { version = "1", features = ["derive"] }
+libfuzzer-sys = "0.4"
+
+[dependencies.dengjen-piper]
+path = ".."
+# `map_phonemes_to_ids` needs neither; skipping them avoids the workspace-only
+# `[patch.crates-io]` for `libtashkeel_core` (this fuzz crate has its own `[workspace]`,
+# so it doesn't inherit the root's patch table) and the espeak-ng/cmake build dependency.
+default-features = false
+
+[[bin]]
+name = "map_phonemes_to_ids"
+path = "fuzz_targets/map_phonemes_to_ids.rs"
+test = false
+doc = false
+bench = false

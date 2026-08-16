@@ -11,6 +11,9 @@ repository = "https://github.com/mush42/sonic-sys"
 homepage = "https://github.com/mush42/sonic-sys"
 readme = "README.md"
 
+[lints]
+workspace = true
+
 [build-dependencies.bindgen]
 version = "0.59.1"
 default-features = false
