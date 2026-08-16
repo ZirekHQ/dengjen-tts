@@ -43,3 +43,87 @@ jobs:
       - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          components: rustfmt
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          # Licenses/bans/sources are cheap and don't need a full build. Advisories are also
+          # covered by the separate `rustsec/audit-check` job above (kept as belt-and-braces).
+          command: check licenses bans sources
+
+  # Miri can't run this workspace's unsafe code: every unsafe block here calls into real linked
+  # C libraries (onnxruntime, libsonic, espeak-ng), and Miri doesn't support arbitrary FFI.
+  # AddressSanitizer does support real FFI, so it's used instead — validated locally to be clean
+  # against libdengjen (the public C ABI) and dengjen-synth (the sonic-sys FFI boundary).
+  asan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: git-submodule-fix
+        run: git config --global protocol.file.allow always
+      - name: install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev llvm-dev cmake protobuf-compiler espeak-ng
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@7c8d7d138f5c09cef361f8214cf96882cd029cdb # nightly
+        with:
+          toolchain: nightly
+          components: rust-src
+      - name: locate espeak-ng-data directory
+        run: |
+          data_dir="$(dirname "$(find /usr -maxdepth 5 -type d -name espeak-ng-data -not -path '/usr/share/doc/*' | head -n1)")"
+          if [ -z "$data_dir" ] || [ "$data_dir" = "." ]; then
+            echo "Could not locate an espeak-ng-data directory" >&2
+            exit 1
+          fi
+          echo "DENGJEN_ESPEAKNG_DATA_DIRECTORY=$data_dir" >> "$GITHUB_ENV"
+      - name: cargo test under AddressSanitizer (libdengjen, dengjen-synth)
+        env:
+          RUSTFLAGS: -Z sanitizer=address
+        run: cargo +nightly test -p libdengjen -p dengjen-synth -Zbuild-std --target x86_64-unknown-linux-gnu
+      - name: cargo test under AddressSanitizer (espeak-phonemizer, single-threaded)
+        env:
+          RUSTFLAGS: -Z sanitizer=address
+        run: cargo +nightly test -p espeak-phonemizer -Zbuild-std --target x86_64-unknown-linux-gnu -- --test-threads=1
+
+  # Build-only smoke check so the fuzz target doesn't silently bit-rot. Actual fuzzing
+  # (finding new crashes) is a longer-running job better suited to a schedule than every PR —
+  # run it manually with `cargo fuzz run map_phonemes_to_ids` from crates/dengjen/models/piper.
+  fuzz-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: git-submodule-fix
+        run: git config --global protocol.file.allow always
+      - name: install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev llvm-dev cmake protobuf-compiler
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@7c8d7d138f5c09cef361f8214cf96882cd029cdb # nightly
+        with:
+          toolchain: nightly
+          components: rust-src
+      - run: cargo install cargo-fuzz --locked
+      - name: cargo fuzz build (map_phonemes_to_ids)
+        working-directory: crates/dengjen/models/piper
+        run: cargo +nightly fuzz build
