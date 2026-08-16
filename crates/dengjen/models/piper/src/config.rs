@@ -95,7 +95,11 @@ pub(crate) fn load_model_config(
 /// `bos, (id, pad)*, eos`. Longest match wins, so a multi-character cluster such
 /// as `aɪ` is preferred over the single characters spelling it; characters the
 /// table doesn't cover are dropped rather than failing the utterance.
-pub(crate) fn map_phonemes_to_ids(
+///
+/// `phoneme_id_map` comes straight from an on-disk voice config file and is untrusted beyond
+/// having deserialized successfully — see the `fuzz/` target in this crate, which exercises
+/// this function against arbitrary maps and phoneme strings.
+pub fn map_phonemes_to_ids(
     phoneme_id_map: &HashMap<String, Vec<i64>>,
     phonemes: &str,
     pad_id: i64,
@@ -115,13 +119,17 @@ pub(crate) fn map_phonemes_to_ids(
     let mut cursor = 0;
     while cursor < chars.len() {
         let widest = longest_entry.min(chars.len() - cursor);
+        // An entry with an empty id list is treated the same as no entry at all: the
+        // config claims to cover this cluster but supplies no id, so it can't be emitted.
         let matched = (1..=widest).rev().find_map(|width| {
             let candidate: String = chars[cursor..cursor + width].iter().collect();
-            phoneme_id_map.get(&candidate).map(|entry| (width, entry))
+            phoneme_id_map
+                .get(&candidate)
+                .and_then(|entry| entry.first().map(|&id| (width, id)))
         });
         match matched {
-            Some((width, entry)) => {
-                phoneme_ids.push(*entry.first().unwrap());
+            Some((width, id)) => {
+                phoneme_ids.push(id);
                 phoneme_ids.push(pad_id);
                 cursor += width;
             }
@@ -217,6 +225,16 @@ mod tests {
     }
 
     #[test]
+    fn map_phonemes_to_ids_skips_an_entry_with_an_empty_id_list_instead_of_panicking() {
+        // Regression test for a fuzz-found panic: a config where a key maps to `[]` (valid
+        // JSON, invalid in practice) must not crash the whole utterance.
+        let mut map = single_char_phoneme_map();
+        map.insert("z".to_string(), vec![]);
+        let ids = map_phonemes_to_ids(&map, "azb", 3, 1, 2);
+        assert_eq!(ids, vec![1, 4, 3, 5, 3, 2]);
+    }
+
+    #[test]
     fn map_phonemes_to_ids_greedily_matches_multi_char_cluster_over_single_chars() {
         let mut map = single_char_phoneme_map();
         map.insert("aɪ".to_string(), vec![161]);
@@ -253,7 +271,10 @@ mod tests {
     #[test]
     fn load_model_config_errors_on_malformed_json() {
         let mut path = std::env::temp_dir();
-        path.push(format!("dengjen-piper-test-malformed-{}.json", std::process::id()));
+        path.push(format!(
+            "dengjen-piper-test-malformed-{}.json",
+            std::process::id()
+        ));
         std::fs::write(&path, b"{ not valid json").unwrap();
         let result = load_model_config(&path);
         std::fs::remove_file(&path).ok();
