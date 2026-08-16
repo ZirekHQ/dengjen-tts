@@ -1,5 +1,5 @@
-use dengjen_core::DengjenModel;
-use dengjen_kokoro::{KokoroModel, KokoroVoiceConfig};
+use dengjen_tts_core::DengjenModel;
+use dengjen_tts_kokoro::{KokoroModel, KokoroVoiceConfig};
 use std::io::Write;
 use std::path::PathBuf;
 

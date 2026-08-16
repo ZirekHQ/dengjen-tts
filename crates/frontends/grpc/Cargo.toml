@@ -1,5 +1,5 @@
 [package]
-name = "dengjen-grpc"
+name = "dengjen-tts-grpc"
 version = "0.2.0"
 edition = "2021"
 license.workspace = true
@@ -9,16 +9,16 @@ workspace = true
 
 [features]
 default = ["espeak"]
-espeak = ["dengjen-piper/espeak"]
+espeak = ["dengjen-tts-piper/espeak"]
 ort-dylib = ["ort/load-dynamic"]
 
 [dependencies]
 async-stream = "0.3.5"
 env_logger = "0.10.0"
 log = "0.4.18"
-dengjen-core = { version = "0.2.0", path = "../../dengjen/core" }
-dengjen-synth = { version = "0.2.0", path = "../../dengjen/synth" }
-dengjen-piper = { version = "0.2.0", path = "../../dengjen/models/piper" }
+dengjen-tts-core = { version = "0.2.0", path = "../../dengjen/core" }
+dengjen-tts = { version = "0.2.0", path = "../../dengjen/synth" }
+dengjen-tts-piper = { version = "0.2.0", path = "../../dengjen/models/piper" }
 prost = "0.13.3"
 tokio = { version = "1.41.1", features = ["macros", "rt-multi-thread"] }
 tokio-stream = "0.1.16"

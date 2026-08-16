@@ -10,22 +10,22 @@ in the same commit.
 
 - Fallible operations return `DengjenResult<T>` / the crate's own `Result` type. No panics on
   reachable error paths outside `#[cfg(test)]`.
-- `dengjen_core::DengjenError` is the shared error enum; FFI crates (`libdengjen`, `dengjen-grpc`,
-  `dengjen-python`) convert it at the boundary (see `DengjenFFIError` in
+- `dengjen_tts_core::DengjenError` is the shared error enum; FFI crates (`libdengjen`, `dengjen-tts-grpc`,
+  `dengjen-tts-python`) convert it at the boundary (see `DengjenFFIError` in
   `crates/frontends/capi/src/lib.rs` for the pattern).
 
 ## `unsafe` policy
 
-- `#![forbid(unsafe_code)]` is set on every crate that doesn't need FFI: `dengjen-core`,
-  `audio-ops`, `dengjen-piper`, `dengjen-cli`, `dengjen-grpc`, `dengjen-python`. Don't add
-  `unsafe` to these — if a dependency forces it (see `dengjen-kokoro` below), forbid can't be
+- `#![forbid(unsafe_code)]` is set on every crate that doesn't need FFI: `dengjen-tts-core`,
+  `audio-ops`, `dengjen-tts-piper`, `dengjen-tts-cli`, `dengjen-tts-grpc`, `dengjen-tts-python`. Don't add
+  `unsafe` to these — if a dependency forces it (see `dengjen-tts-kokoro` below), forbid can't be
   used and that has to be a deliberate, documented exception, not a silent drop.
-- `dengjen-kokoro` cannot use `forbid(unsafe_code)`: `ndarray::s!` (used in `voice_style.rs`)
+- `dengjen-tts-kokoro` cannot use `forbid(unsafe_code)`: `ndarray::s!` (used in `voice_style.rs`)
   expands to code containing `#[allow(unsafe_code)]`, which conflicts with `forbid` even though
   the crate's own source has zero `unsafe`. This is a rustc/ndarray interaction, not a gap in the
   crate — don't "fix" it by adding real unsafe code there.
 - The genuinely FFI-heavy crates (`libdengjen`, `sonic-sys`, `espeak-phonemizer`, and
-  `dengjen-synth`'s one call into `sonic-sys`) use `unsafe`, and it's enforced narrowly:
+  `dengjen-tts`'s one call into `sonic-sys`) use `unsafe`, and it's enforced narrowly:
   - `unsafe_op_in_unsafe_fn = "deny"` (workspace-wide) — inside an `unsafe fn`, each raw
     operation still needs its own `unsafe { }` block. Don't wrap an entire function body in one
     blanket block just to satisfy this (`cargo clippy --fix` will do exactly that — rewrite the
@@ -59,7 +59,7 @@ for a real reason, not as a bulk sweep.
   actual dependency tree as of 2026-08-16 plus this workspace's own `GPL-3.0-or-later`; a new
   dependency with an unlisted license fails the build on purpose — add it to `deny.toml`'s
   `allow` list only after checking it's actually acceptable, don't rubber-stamp).
-- `asan` — AddressSanitizer over `libdengjen`, `dengjen-synth`, and `espeak-phonemizer` (nightly
+- `asan` — AddressSanitizer over `libdengjen`, `dengjen-tts`, and `espeak-phonemizer` (nightly
   toolchain, `-Z sanitizer=address -Z build-std`). **Miri cannot be used here**: every `unsafe`
   block in this workspace calls into a real linked C library (onnxruntime, libsonic, espeak-ng),
   and Miri doesn't support arbitrary FFI. ASan does, and is validated to run clean against real
@@ -75,8 +75,8 @@ for a real reason, not as a bulk sweep.
 
 - `fuzz-build` — build-only smoke check for `crates/dengjen/models/piper/fuzz` (`cargo-fuzz`
   target `map_phonemes_to_ids`), so the harness doesn't bit-rot. It targets
-  `dengjen_piper::map_phonemes_to_ids` — the one function that parses untrusted, on-disk voice
-  config data (`phoneme_id_map`) by hand — with `default-features = false` on the `dengjen-piper`
+  `dengjen_tts_piper::map_phonemes_to_ids` — the one function that parses untrusted, on-disk voice
+  config data (`phoneme_id_map`) by hand — with `default-features = false` on the `dengjen-tts-piper`
   dependency to sidestep the `libtashkeel_core` workspace patch (this fuzz crate has its own
   `[workspace]` table, so it doesn't inherit the root's `[patch.crates-io]`) and the
   espeak-ng/cmake build dependency, neither of which the target needs. Actual fuzzing runs are

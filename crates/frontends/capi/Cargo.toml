@@ -13,17 +13,17 @@ crate-type = ["staticlib", "cdylib"]
 
 [features]
 default = ["piper", "espeak"]
-piper = ["dep:dengjen-piper", "dep:ort"]
-espeak = ["dengjen-piper/espeak"]
+piper = ["dep:dengjen-tts-piper", "dep:ort"]
+espeak = ["dengjen-tts-piper/espeak"]
 ort-dylib = ["ort/load-dynamic"]
 
 [dependencies]
-dengjen-core = { version = "0.2.0", path = "../../dengjen/core" }
-dengjen-synth = { version = "0.2.0", path = "../../dengjen/synth" }
+dengjen-tts-core = { version = "0.2.0", path = "../../dengjen/core" }
+dengjen-tts = { version = "0.2.0", path = "../../dengjen/synth" }
 ffi-support = "0.4.4"
 libc = "0.2.150"
 
-[dependencies.dengjen-piper]
+[dependencies.dengjen-tts-piper]
 version = "0.2.0"
 path = "../../dengjen/models/piper"
 optional = true

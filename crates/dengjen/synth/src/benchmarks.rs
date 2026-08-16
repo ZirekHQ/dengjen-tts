@@ -47,7 +47,7 @@ mod speech_streams {
                         output_config.clone(),
                         72,
                         3,
-                        dengjen_core::CancellationToken::new(),
+                        dengjen_tts_core::CancellationToken::new(),
                     )
                     .unwrap();
                 dev_utils::iterate_stream(black_box(audio_stream)).unwrap();
@@ -96,7 +96,7 @@ mod speech_streams {
                             output_config.clone(),
                             72,
                             3,
-                            dengjen_core::CancellationToken::new(),
+                            dengjen_tts_core::CancellationToken::new(),
                         )
                         .unwrap(),
                 );

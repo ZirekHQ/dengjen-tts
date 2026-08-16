@@ -68,7 +68,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
-name = "dengjen-core"
+name = "dengjen-tts-core"
 version = "0.2.0"
 dependencies = [
  "audio-ops",
@@ -76,10 +76,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "dengjen-piper"
+name = "dengjen-tts-piper"
 version = "0.2.0"
 dependencies = [
- "dengjen-core",
+ "dengjen-tts-core",
  "ndarray",
  "ort",
  "serde",
@@ -87,11 +87,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "dengjen-piper-fuzz"
+name = "dengjen-tts-piper-fuzz"
 version = "0.0.0"
 dependencies = [
  "arbitrary",
- "dengjen-piper",
+ "dengjen-tts-piper",
  "libfuzzer-sys",
 ]
 

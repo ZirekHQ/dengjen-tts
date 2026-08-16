@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use dengjen_core::{AudioInfo, DengjenError, DengjenModel, DengjenResult, Phonemes};
+use dengjen_tts_core::{AudioInfo, DengjenError, DengjenModel, DengjenResult, Phonemes};
 #[cfg(feature = "espeak")]
 use espeak_phonemizer::text_to_phonemes;
 #[cfg(feature = "tashkeel")]
@@ -52,7 +52,7 @@ pub fn from_config_path(config_path: &Path) -> DengjenResult<Arc<dyn DengjenMode
     }
 }
 
-pub use dengjen_core::PiperSynthesisConfig;
+pub use dengjen_tts_core::PiperSynthesisConfig;
 
 trait VitsModelCommons {
     fn get_synth_config(&self) -> &RwLock<PiperSynthesisConfig>;

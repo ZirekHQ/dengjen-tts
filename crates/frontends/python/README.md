@@ -1,3 +1,3 @@
-# dengjen-python
+# dengjen-tts-python
 
-Python bindings to `dengjen-synth` using `pyo3`.
+Python bindings to `dengjen-tts` using `pyo3`.

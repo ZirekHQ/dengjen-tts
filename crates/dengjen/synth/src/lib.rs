@@ -1,5 +1,5 @@
 mod utils;
-pub use dengjen_core::*;
+pub use dengjen_tts_core::*;
 
 use flume::{Receiver, SendError, Sender};
 use once_cell::sync::Lazy;

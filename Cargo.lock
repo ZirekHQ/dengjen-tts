@@ -380,14 +380,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "61803da095bee82a81bb1a452ecc25d3b2f1416d1897eb86430c6159ef717c17"
 
 [[package]]
-name = "dengjen-cli"
+name = "dengjen-tts"
+version = "0.2.0"
+dependencies = [
+ "audio-ops",
+ "dengjen-tts-core",
+ "dengjen-tts-kokoro",
+ "dengjen-tts-piper",
+ "divan",
+ "flume",
+ "once_cell",
+ "ort",
+ "rayon",
+ "sonic-sys",
+]
+
+[[package]]
+name = "dengjen-tts-cli"
 version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
- "dengjen-kokoro",
- "dengjen-piper",
- "dengjen-synth",
+ "dengjen-tts",
+ "dengjen-tts-kokoro",
+ "dengjen-tts-piper",
  "env_logger",
  "log",
  "ort",
@@ -396,7 +412,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "dengjen-core"
+name = "dengjen-tts-core"
 version = "0.2.0"
 dependencies = [
  "audio-ops",
@@ -404,13 +420,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "dengjen-grpc"
+name = "dengjen-tts-grpc"
 version = "0.2.0"
 dependencies = [
  "async-stream",
- "dengjen-core",
- "dengjen-piper",
- "dengjen-synth",
+ "dengjen-tts",
+ "dengjen-tts-core",
+ "dengjen-tts-piper",
  "env_logger",
  "log",
  "ort",
@@ -423,10 +439,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "dengjen-kokoro"
+name = "dengjen-tts-kokoro"
 version = "0.1.0"
 dependencies = [
- "dengjen-core",
+ "dengjen-tts-core",
  "espeak-phonemizer",
  "ndarray",
  "ort",
@@ -435,10 +451,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "dengjen-piper"
+name = "dengjen-tts-piper"
 version = "0.2.0"
 dependencies = [
- "dengjen-core",
+ "dengjen-tts-core",
  "espeak-phonemizer",
  "libtashkeel_core",
  "ndarray",
@@ -448,34 +464,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "dengjen-python"
+name = "dengjen-tts-python"
 version = "0.2.0"
 dependencies = [
- "dengjen-core",
- "dengjen-piper",
- "dengjen-synth",
+ "dengjen-tts",
+ "dengjen-tts-core",
+ "dengjen-tts-piper",
  "espeak-phonemizer",
  "fs_extra",
  "libtashkeel_core",
  "once_cell",
  "ort",
  "pyo3",
-]
-
-[[package]]
-name = "dengjen-synth"
-version = "0.2.0"
-dependencies = [
- "audio-ops",
- "dengjen-core",
- "dengjen-kokoro",
- "dengjen-piper",
- "divan",
- "flume",
- "once_cell",
- "ort",
- "rayon",
- "sonic-sys",
 ]
 
 [[package]]
@@ -906,9 +906,9 @@ name = "libdengjen"
 version = "0.1.0"
 dependencies = [
  "cbindgen",
- "dengjen-core",
- "dengjen-piper",
- "dengjen-synth",
+ "dengjen-tts",
+ "dengjen-tts-core",
+ "dengjen-tts-piper",
  "ffi-support",
  "libc",
  "ort",

@@ -1,7 +1,7 @@
 #![no_main]
 
 use arbitrary::Arbitrary;
-use dengjen_piper::map_phonemes_to_ids;
+use dengjen_tts_piper::map_phonemes_to_ids;
 use libfuzzer_sys::fuzz_target;
 use std::collections::HashMap;
 

@@ -1,7 +1,7 @@
-use dengjen_core::{
+use dengjen_tts::{AudioOutputConfig, DengjenSpeechSynthesizer, SYNTHESIS_THREAD_POOL};
+use dengjen_tts_core::{
     AudioSamples, CancellationToken, DengjenError, DengjenModel, DengjenResult, SynthesisConfig,
 };
-use dengjen_synth::{AudioOutputConfig, DengjenSpeechSynthesizer, SYNTHESIS_THREAD_POOL};
 use ffi_support::{call_with_result, define_string_destructor, ErrorCode, ExternError, FfiStr};
 use std::ops::Deref;
 use std::panic::AssertUnwindSafe;
@@ -195,8 +195,8 @@ pub struct PiperSynthConfig {
 }
 
 impl PiperSynthConfig {
-    fn as_piper_synth_config(&self) -> dengjen_piper::PiperSynthesisConfig {
-        dengjen_piper::PiperSynthesisConfig {
+    fn as_piper_synth_config(&self) -> dengjen_tts_piper::PiperSynthesisConfig {
+        dengjen_tts_piper::PiperSynthesisConfig {
             speaker: Some(self.speaker.into()),
             noise_scale: self.noise_scale,
             length_scale: self.length_scale,
@@ -458,7 +458,7 @@ fn _load_piper_voice(config_path_ptr: FfiStr) -> DengjenFFIResult<DengjenVoice> 
         .into_opt_string()
         .ok_or_else(DengjenFFIError::invalid_utf8)?;
     let config_path = PathBuf::from(config_path);
-    let piper_model = dengjen_piper::from_config_path(&config_path)?;
+    let piper_model = dengjen_tts_piper::from_config_path(&config_path)?;
     let synth = DengjenSpeechSynthesizer::new(piper_model)?;
     Ok(synth.into())
 }

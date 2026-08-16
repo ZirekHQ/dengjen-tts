@@ -1,4 +1,4 @@
-use dengjen_core::{DengjenError, DengjenResult};
+use dengjen_tts_core::{DengjenError, DengjenResult};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::Path;

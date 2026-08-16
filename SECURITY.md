@@ -14,7 +14,7 @@ Include, where possible: the affected crate/version, a minimal reproduction, and
 
 dengjen embeds several C libraries via FFI (onnxruntime, libsonic, espeak-ng). The public C ABI
 (`crates/frontends/capi`) is in scope, as is any `unsafe` code in `crates/audio/sonic-sys`,
-`crates/text/espeak-phonemizer`, and `dengjen-synth`'s FFI boundary. Denial-of-service reports
+`crates/text/espeak-phonemizer`, and `dengjen-tts`'s FFI boundary. Denial-of-service reports
 against malformed voice model/config files are in scope; resource-exhaustion reports against
 large-but-well-formed inputs are lower priority.
 

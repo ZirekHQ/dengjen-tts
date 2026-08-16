@@ -4,7 +4,7 @@ mod phonemize;
 mod vocab;
 mod voice_style;
 
-use dengjen_core::{DengjenModel, DengjenResult};
+use dengjen_tts_core::{DengjenModel, DengjenResult};
 use std::path::Path;
 use std::sync::Arc;
 

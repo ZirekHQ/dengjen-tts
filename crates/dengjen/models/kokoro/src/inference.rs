@@ -2,7 +2,7 @@ use crate::config::KokoroVoiceConfig;
 use crate::phonemize::text_to_kokoro_phonemes;
 use crate::vocab::Vocab;
 use crate::voice_style::VoiceStyles;
-use dengjen_core::{
+use dengjen_tts_core::{
     Audio, AudioInfo, AudioSamples, AudioStreamIterator, CancellationToken, DengjenAudioResult,
     DengjenError, DengjenModel, DengjenResult, Phonemes, SynthesisConfig,
 };
