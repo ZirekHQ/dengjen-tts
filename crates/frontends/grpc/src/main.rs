@@ -1,7 +1,9 @@
 #![forbid(unsafe_code)]
 
-use dengjen_tts_core::{CancellationToken, DengjenError, DengjenModel, DengjenResult, SynthesisConfig};
 use dengjen_tts::{AudioOutputConfig, DengjenSpeechStreamLazy, DengjenSpeechSynthesizer};
+use dengjen_tts_core::{
+    CancellationToken, DengjenError, DengjenModel, DengjenResult, SynthesisConfig,
+};
 use grpc::dengjen_grpc_server::{DengjenGrpc, DengjenGrpcServer};
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};

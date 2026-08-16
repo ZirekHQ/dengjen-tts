@@ -5,12 +5,12 @@
 #![allow(non_local_definitions)]
 #![forbid(unsafe_code)]
 
-use dengjen_tts_core::{
-    Audio, AudioInfo, CancellationToken, DengjenError, DengjenModel, SynthesisConfig,
-};
 use dengjen_tts::{
     AudioOutputConfig, DengjenSpeechStreamLazy, DengjenSpeechStreamParallel,
     DengjenSpeechSynthesizer, RealtimeSpeechStream,
+};
+use dengjen_tts_core::{
+    Audio, AudioInfo, CancellationToken, DengjenError, DengjenModel, SynthesisConfig,
 };
 #[cfg(feature = "tashkeel")]
 use libtashkeel_core::{

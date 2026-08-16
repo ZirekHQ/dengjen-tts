@@ -1,7 +1,7 @@
+use dengjen_tts::{AudioOutputConfig, DengjenSpeechSynthesizer, SYNTHESIS_THREAD_POOL};
 use dengjen_tts_core::{
     AudioSamples, CancellationToken, DengjenError, DengjenModel, DengjenResult, SynthesisConfig,
 };
-use dengjen_tts::{AudioOutputConfig, DengjenSpeechSynthesizer, SYNTHESIS_THREAD_POOL};
 use ffi_support::{call_with_result, define_string_destructor, ErrorCode, ExternError, FfiStr};
 use std::ops::Deref;
 use std::panic::AssertUnwindSafe;

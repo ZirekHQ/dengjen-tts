@@ -1,11 +1,11 @@
 #![forbid(unsafe_code)]
 
 use clap::Parser;
-use dengjen_tts_piper::PiperSynthesisConfig;
 use dengjen_tts::{
     AudioOutputConfig, AudioSamples, CancellationToken, DengjenModel, DengjenResult,
     DengjenSpeechSynthesizer, SynthesisConfig,
 };
+use dengjen_tts_piper::PiperSynthesisConfig;
 use serde::Deserialize;
 use std::fs::File;
 use std::io::{self, prelude::*};
