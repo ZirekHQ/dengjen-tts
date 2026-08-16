@@ -40,7 +40,11 @@ fn minimal_phoneme_id_map() -> &'static str {
 
 fn write_batch_config(dir: &std::path::Path) -> PathBuf {
     let model_path = fixtures_dir().join("synthetic_piper_batch.onnx");
-    assert!(model_path.exists(), "missing fixture at {}", model_path.display());
+    assert!(
+        model_path.exists(),
+        "missing fixture at {}",
+        model_path.display()
+    );
     let config_path = dir.join("synthetic_piper_batch.onnx.json");
     std::fs::write(
         &config_path,
@@ -72,8 +76,16 @@ fn write_batch_config(dir: &std::path::Path) -> PathBuf {
 fn write_streaming_config(dir: &std::path::Path) -> PathBuf {
     let encoder_path = fixtures_dir().join("synthetic_piper_encoder.onnx");
     let decoder_path = fixtures_dir().join("synthetic_piper_decoder.onnx");
-    assert!(encoder_path.exists(), "missing fixture at {}", encoder_path.display());
-    assert!(decoder_path.exists(), "missing fixture at {}", decoder_path.display());
+    assert!(
+        encoder_path.exists(),
+        "missing fixture at {}",
+        encoder_path.display()
+    );
+    assert!(
+        decoder_path.exists(),
+        "missing fixture at {}",
+        decoder_path.display()
+    );
     std::fs::copy(&encoder_path, dir.join("encoder.onnx")).unwrap();
     std::fs::copy(&decoder_path, dir.join("decoder.onnx")).unwrap();
     let config_path = dir.join("synthetic_piper_streaming.onnx.json");
@@ -118,12 +130,23 @@ fn run_cli(
     cmd.output().expect("failed to spawn the dengjen binary")
 }
 
-fn run_streaming(config_path: &std::path::Path, input_path: &std::path::Path, chunk_size: &str) -> Output {
+fn run_streaming(
+    config_path: &std::path::Path,
+    input_path: &std::path::Path,
+    chunk_size: &str,
+) -> Output {
     run_cli(
         config_path,
         input_path,
         None,
-        &["--mode", "realtime", "--chunk-size", chunk_size, "--chunk-padding", "3"],
+        &[
+            "--mode",
+            "realtime",
+            "--chunk-size",
+            chunk_size,
+            "--chunk-padding",
+            "3",
+        ],
     )
 }
 

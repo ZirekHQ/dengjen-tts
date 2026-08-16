@@ -25,10 +25,8 @@ fn write_synthetic_voice_file(dir: &std::path::Path, voice_name: &str) {
 fn write_minimal_vocab(dir: &std::path::Path) -> PathBuf {
     let path = dir.join("tokenizer.json");
     let mut f = std::fs::File::create(&path).unwrap();
-    f.write_all(
-        r#"{"model": {"vocab": {"$": 0, "t": 1, "ɛ": 2, "s": 3}}}"#.as_bytes(),
-    )
-    .unwrap();
+    f.write_all(r#"{"model": {"vocab": {"$": 0, "t": 1, "ɛ": 2, "s": 3}}}"#.as_bytes())
+        .unwrap();
     path
 }
 

@@ -84,7 +84,10 @@ mod tests {
         assert_eq!(config.voices_dir, dir.join("voices"));
         assert_eq!(config.vocab_path, dir.join("tokenizer.json"));
         assert_eq!(config.sample_rate, 24000);
-        assert_eq!(config.voices, vec!["af_heart".to_string(), "am_adam".to_string()]);
+        assert_eq!(
+            config.voices,
+            vec!["af_heart".to_string(), "am_adam".to_string()]
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 

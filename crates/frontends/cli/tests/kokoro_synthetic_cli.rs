@@ -38,7 +38,11 @@ fn cli_loads_a_kokoro_voice_without_panicking() {
     )
     .unwrap();
     let model_path = kokoro_fixture_model();
-    assert!(model_path.exists(), "missing fixture at {}", model_path.display());
+    assert!(
+        model_path.exists(),
+        "missing fixture at {}",
+        model_path.display()
+    );
     std::fs::write(
         dir.join("config.json"),
         format!(

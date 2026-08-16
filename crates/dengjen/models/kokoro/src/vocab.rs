@@ -53,7 +53,11 @@ impl Vocab {
             ))
         })?;
         let max_token_chars = map.keys().map(|k| k.chars().count()).max().unwrap_or(1);
-        Ok(Self { map, bos_id, max_token_chars })
+        Ok(Self {
+            map,
+            bos_id,
+            max_token_chars,
+        })
     }
 
     pub fn bos_id(&self) -> i64 {

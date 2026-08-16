@@ -25,13 +25,7 @@ fn test_parallel_stream() -> DengjenResult<()> {
 fn test_realtime_stream() -> DengjenResult<()> {
     let (synthesizer, text, config) = dev_utils::gen_params("rt");
     let token = dengjen_core::CancellationToken::new();
-    let synthesis_stream = synthesizer.synthesize_streamed(
-        text,
-        config,
-        72,
-        3,
-        token,
-    )?;
+    let synthesis_stream = synthesizer.synthesize_streamed(text, config, 72, 3, token)?;
     dev_utils::iterate_stream(synthesis_stream)
 }
 
@@ -75,8 +69,8 @@ fn load_synthetic_kokoro_model() -> dengjen_kokoro::KokoroModel {
         sample_rate: 24000,
         voices: vec!["test_voice".to_string()],
     };
-    let model =
-        dengjen_kokoro::KokoroModel::from_config(config).expect("failed to load synthetic Kokoro model");
+    let model = dengjen_kokoro::KokoroModel::from_config(config)
+        .expect("failed to load synthetic Kokoro model");
     std::fs::remove_dir_all(&dir).ok();
     model
 }
@@ -118,6 +112,10 @@ fn kokoro_realtime_stream_uses_realistic_chunk_duration_for_capi_default_chunk_s
         .map(|r| r.expect("chunk synthesis failed").into_vec())
         .collect();
 
-    assert_eq!(chunks.len(), 1, "expected the whole sentence to land in a single chunk");
+    assert_eq!(
+        chunks.len(),
+        1,
+        "expected the whole sentence to land in a single chunk"
+    );
     assert_eq!(chunks[0].len(), 16000);
 }

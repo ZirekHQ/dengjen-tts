@@ -50,7 +50,10 @@ mod tests {
         let token = CancellationToken::new();
         let clone = token.clone();
         clone.cancel();
-        assert!(token.is_cancelled(), "cancelling a clone must be visible on the original");
+        assert!(
+            token.is_cancelled(),
+            "cancelling a clone must be visible on the original"
+        );
     }
 
     #[test]
