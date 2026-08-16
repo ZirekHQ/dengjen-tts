@@ -415,36 +415,47 @@ impl DengjenGrpc for DengjenGrpcService {
     }
 }
 
+/// Initializes the global logger, defaulting to `info` level unless overridden
+/// via the `DENGJEN_GRPC` environment variable.
 fn setup_logging() {
-    env_logger::Builder::from_env(env_logger::Env::default().filter_or("DENGJEN_GRPC", "info"))
-        .init();
+    let log_filter = env_logger::Env::default().filter_or("DENGJEN_GRPC", "info");
+    env_logger::init_from_env(log_filter);
 }
 
+/// Commits a CPU-backed ONNX Runtime environment named `"dengjen"` as the
+/// process-wide default. Returns `false` (without panicking) if commit fails.
 fn init_ort_environment() -> bool {
+    let cpu_provider = ort::execution_providers::CPU::default().build();
     ort::init()
         .with_name("dengjen")
-        .with_execution_providers([ort::execution_providers::CPU::default().build()])
+        .with_execution_providers([cpu_provider])
         .commit()
+}
+
+/// Resolves the TCP port to listen on from `DENGJEN_GRPC_SERVER_PORT`,
+/// falling back to [`DEFAULT_DENGJEN_GRPC_SERVER_PORT`] when the variable is
+/// unset or does not parse as a `u16`.
+fn resolve_listen_port() -> u16 {
+    std::env::var("DENGJEN_GRPC_SERVER_PORT")
+        .ok()
+        .and_then(|raw_port| raw_port.parse().ok())
+        .unwrap_or(DEFAULT_DENGJEN_GRPC_SERVER_PORT)
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     setup_logging();
 
+    // A failed ORT init is logged but not fatal: voice loading will surface
+    // its own error later if the runtime is genuinely unusable.
     if !init_ort_environment() {
         log::error!("Could not initialize onnxruntime environment");
     }
 
-    let port = std::env::var("DENGJEN_GRPC_SERVER_PORT")
-        .map(|val| val.parse().unwrap_or(DEFAULT_DENGJEN_GRPC_SERVER_PORT))
-        .unwrap_or(DEFAULT_DENGJEN_GRPC_SERVER_PORT);
-    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
-
-    let service = DengjenGrpcService::new();
-    let server = DengjenGrpcServer::new(service);
-
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), resolve_listen_port());
     log::info!("Starting Dengjen GRPC server at address: {}", addr);
 
+    let server = DengjenGrpcServer::new(DengjenGrpcService::new());
     Server::builder().add_service(server).serve(addr).await?;
 
     Ok(())
