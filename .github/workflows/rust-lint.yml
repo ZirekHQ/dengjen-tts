@@ -14,6 +14,9 @@ permissions:
 jobs:
   clippy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - name: git-submodule-fix
         run: git config --global protocol.file.allow always
@@ -26,10 +29,25 @@ jobs:
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           components: clippy
+      - run: cargo install clippy-sarif sarif-fmt --locked
       - name: cargo clippy
         # benches/tests are excluded since crates/audio/ops's bench has a
         # pre-existing broken import. Scoped to what actually ships.
-        run: cargo clippy --workspace --lib --bins -- -D warnings
+        #
+        # SonarCloud has no Rust analyzer (see sonar-project.properties), so the
+        # ruleset's code_scanning rule has nothing to source Rust findings from
+        # unless something uploads SARIF for these crates. Piping clippy's own
+        # JSON output through clippy-sarif does that instead of standing up
+        # CodeQL, whose Rust support is still much thinner than clippy's.
+        run: |
+          set -o pipefail
+          cargo clippy --workspace --lib --bins --message-format=json -- -D warnings \
+            | clippy-sarif | tee clippy-results.sarif | sarif-fmt
+      - name: upload clippy SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
+        with:
+          sarif_file: clippy-results.sarif
 
   audit:
     runs-on: ubuntu-latest
@@ -134,3 +152,55 @@ jobs:
       - name: cargo fuzz build (map_phonemes_to_ids)
         working-directory: crates/dengjen/models/piper
         run: cargo +nightly fuzz build
+
+  # Mirrors CI.yml's `test` job's per-crate invocations exactly, but under
+  # cargo-llvm-cov instrumentation, so the merged Cobertura report reflects the
+  # same set of crates/features that job actually exercises. SonarCloud never
+  # scanned any of this (see sonar-project.properties) so it had no coverage
+  # data to feed the ruleset's code_coverage rule; this reports straight to
+  # GitHub's own code coverage feature instead.
+  coverage:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      code-quality: write
+    steps:
+      - name: git-submodule-fix
+        run: git config --global protocol.file.allow always
+      - name: install libclang, espeak-ng, and protoc
+        run: sudo apt-get update && sudo apt-get install -y llvm llvm-dev llvm-runtime libclang-dev espeak-ng protobuf-compiler
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@b6b84cf49ebfe0176417bdce007c624f0db37f20 # v2.86.2
+        with:
+          tool: cargo-llvm-cov
+      - name: cargo llvm-cov (workspace, excluding espeak-phonemizer, dengjen-tts, and dengjen-tts-kokoro)
+        run: cargo llvm-cov --no-report --workspace --exclude espeak-phonemizer --exclude dengjen-tts --exclude dengjen-tts-kokoro --no-fail-fast
+      - name: locate espeak-ng-data directory
+        run: |
+          data_dir="$(dirname "$(find /usr -maxdepth 5 -type d -name espeak-ng-data -not -path '/usr/share/doc/*' | head -n1)")"
+          if [ -z "$data_dir" ] || [ "$data_dir" = "." ]; then
+            echo "Could not locate an espeak-ng-data directory" >&2
+            exit 1
+          fi
+          echo "DENGJEN_ESPEAKNG_DATA_DIRECTORY=$data_dir" >> "$GITHUB_ENV"
+      - name: cargo llvm-cov (espeak-phonemizer, single-threaded)
+        run: cargo llvm-cov --no-report -p espeak-phonemizer -- --test-threads=1
+      - name: cargo llvm-cov (dengjen-tts-piper, espeak feature disabled)
+        run: cargo llvm-cov --no-report -p dengjen-tts-piper --no-default-features --features tashkeel
+      - name: cargo llvm-cov (dengjen-tts-kokoro)
+        run: cargo llvm-cov --no-report -p dengjen-tts-kokoro
+      - name: cargo llvm-cov (dengjen-tts-kokoro, espeak feature disabled)
+        run: cargo llvm-cov --no-report -p dengjen-tts-kokoro --no-default-features
+      - name: merge coverage into a Cobertura report
+        run: cargo llvm-cov report --cobertura --output-path cobertura.xml
+      - name: upload coverage report
+        uses: actions/upload-code-coverage@1c15be36fc3733ba839b1dd643bd9556e4426dc1 # v1
+        with:
+          file: cobertura.xml
+          language: Rust
