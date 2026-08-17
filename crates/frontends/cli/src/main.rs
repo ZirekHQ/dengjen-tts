@@ -13,27 +13,32 @@ use std::path::PathBuf;
 
 static INIT_ORT_ENVIRONMENT: std::sync::Once = std::sync::Once::new();
 
+/// Determines how the synthesizer streams audio output.
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]
 enum SynthesisMode {
+    /// Buffer and return the complete audio stream (default).
     #[default]
     Lazy,
+    /// Stream audio in parallel with synthesis.
     Parallel,
+    /// Stream audio as it becomes available, with minimal latency.
     Realtime,
 }
 
 impl std::str::FromStr for SynthesisMode {
     type Err = String;
 
-    fn from_str(other: &str) -> Result<Self, Self::Err> {
-        match other.to_lowercase().as_str() {
-            "lazy" => Ok(Self::Lazy),
-            "parallel" => Ok(Self::Parallel),
-            "realtime" => Ok(Self::Realtime),
-            _ => Err(format!("Unknown synthesis mode: `{}`", other)),
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        match input.to_lowercase().as_str() {
+            "lazy" => Ok(SynthesisMode::Lazy),
+            "parallel" => Ok(SynthesisMode::Parallel),
+            "realtime" => Ok(SynthesisMode::Realtime),
+            _ => Err(format!("Unknown synthesis mode: `{}`", input)),
         }
     }
 }
 
+/// Command-line interface arguments for the speech synthesizer.
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
@@ -80,23 +85,37 @@ struct Cli {
     chunk_padding: Option<usize>,
 }
 
+/// A single synthesis request, typically parsed from JSON.
 #[derive(Deserialize, Default)]
 struct SynthesisRequest {
+    /// Text to synthesize.
     text: String,
+    /// How to stream the audio output (optional; defaults to Lazy if not specified).
     mode: Option<SynthesisMode>,
+    /// Speaker ID for multi-speaker models (optional).
     speaker_id: Option<u32>,
+    /// Piper length scale override (optional; uses model default if not specified).
     length_scale: Option<f32>,
+    /// Piper noise scale override (optional; uses model default if not specified).
     noise_scale: Option<f32>,
+    /// Piper noise width override (optional; uses model default if not specified).
     noise_w: Option<f32>,
+    /// Speaking rate [0 - 100] (optional; uses model default if not specified).
     rate: Option<u8>,
+    /// Speech pitch [0 - 100] (optional; uses model default if not specified).
     pitch: Option<u8>,
+    /// Speech volume [0 - 100] (optional; uses model default if not specified).
     volume: Option<u8>,
+    /// Silence to append at the end, in milliseconds (optional).
     appended_silence_ms: Option<u32>,
+    /// Chunk size for streaming (optional).
     chunk_size: Option<usize>,
+    /// Chunk padding in mel frames (optional).
     chunk_padding: Option<usize>,
 }
 
 impl SynthesisRequest {
+    /// Builds a Piper synthesis configuration, applying request overrides to the defaults.
     fn as_piper_synth_config(&self, default_config: &PiperSynthesisConfig) -> PiperSynthesisConfig {
         PiperSynthesisConfig {
             speaker: self.speaker_id.map(i64::from),
@@ -105,6 +124,8 @@ impl SynthesisRequest {
             noise_w: self.noise_w.unwrap_or(default_config.noise_w),
         }
     }
+
+    /// Builds an audio output configuration from this request's audio parameters.
     fn as_audio_output_config(&self) -> AudioOutputConfig {
         AudioOutputConfig {
             rate: self.rate,
