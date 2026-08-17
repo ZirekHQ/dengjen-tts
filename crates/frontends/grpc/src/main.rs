@@ -1,7 +1,9 @@
 #![forbid(unsafe_code)]
 
-use dengjen_core::{CancellationToken, DengjenError, DengjenModel, DengjenResult, SynthesisConfig};
-use dengjen_synth::{AudioOutputConfig, DengjenSpeechStreamLazy, DengjenSpeechSynthesizer};
+use dengjen_tts::{AudioOutputConfig, DengjenSpeechStreamLazy, DengjenSpeechSynthesizer};
+use dengjen_tts_core::{
+    CancellationToken, DengjenError, DengjenModel, DengjenResult, SynthesisConfig,
+};
 use grpc::dengjen_grpc_server::{DengjenGrpc, DengjenGrpcServer};
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -110,7 +112,7 @@ impl DengjenGrpcService {
             return self.build_voice_info(voice_id, voice.model_ref());
         }
 
-        let model = dengjen_piper::from_config_path(&config_path)?;
+        let model = dengjen_tts_piper::from_config_path(&config_path)?;
         log::info!(
             "Loaded Vits voice from: `{}`. Voice ID: {}",
             config_path.display(),
@@ -167,7 +169,7 @@ impl DengjenGrpcService {
     /// `on_unset_speaker` (the two config sources disagree on the unset fallback).
     fn synth_options_from_piper_config(
         model: &(impl DengjenModel + ?Sized),
-        config: dengjen_core::PiperSynthesisConfig,
+        config: dengjen_tts_core::PiperSynthesisConfig,
         on_unset_speaker: impl FnOnce() -> DengjenGrpcResult<Option<String>>,
     ) -> DengjenGrpcResult<grpc::SynthesisOptions> {
         let speaker = match config.speaker {
@@ -541,7 +543,7 @@ mod error_mapping_tests {
 #[cfg(test)]
 mod voice_loading_tests {
     use super::*;
-    use dengjen_core::{Audio, AudioInfo as CoreAudioInfo, DengjenAudioResult, Phonemes};
+    use dengjen_tts_core::{Audio, AudioInfo as CoreAudioInfo, DengjenAudioResult, Phonemes};
     use std::collections::HashMap as StdHashMap;
 
     struct FakeModel {
@@ -667,7 +669,7 @@ mod voice_loading_tests {
 #[cfg(test)]
 mod synth_options_tests {
     use super::*;
-    use dengjen_core::{
+    use dengjen_tts_core::{
         Audio, AudioInfo as CoreAudioInfo, DengjenAudioResult, Phonemes, PiperSynthesisConfig,
     };
     use std::collections::HashMap as StdHashMap;

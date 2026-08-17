@@ -1,6 +1,6 @@
 mod dev_utils;
 
-use dengjen_synth::DengjenResult;
+use dengjen_tts::DengjenResult;
 use std::{io::Write, path::PathBuf, sync::Arc};
 
 #[test]
@@ -24,7 +24,7 @@ fn test_parallel_stream() -> DengjenResult<()> {
 #[test]
 fn test_realtime_stream() -> DengjenResult<()> {
     let (synthesizer, text, config) = dev_utils::gen_params("rt");
-    let token = dengjen_core::CancellationToken::new();
+    let token = dengjen_tts_core::CancellationToken::new();
     let synthesis_stream = synthesizer.synthesize_streamed(text, config, 72, 3, token)?;
     dev_utils::iterate_stream(synthesis_stream)
 }
@@ -51,7 +51,7 @@ fn write_minimal_kokoro_vocab(dir: &std::path::Path) -> PathBuf {
     path
 }
 
-fn load_synthetic_kokoro_model() -> dengjen_kokoro::KokoroModel {
+fn load_synthetic_kokoro_model() -> dengjen_tts_kokoro::KokoroModel {
     let dir = std::env::temp_dir().join("dengjen_synth_kokoro_realtime_stream_test");
     std::fs::create_dir_all(&dir).unwrap();
     let voices_dir = dir.join("voices");
@@ -62,14 +62,14 @@ fn load_synthetic_kokoro_model() -> dengjen_kokoro::KokoroModel {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let model_path = manifest_dir.join("../models/kokoro/tests/fixtures/synthetic_kokoro.onnx");
 
-    let config = dengjen_kokoro::KokoroVoiceConfig {
+    let config = dengjen_tts_kokoro::KokoroVoiceConfig {
         model_path,
         voices_dir,
         vocab_path,
         sample_rate: 24000,
         voices: vec!["test_voice".to_string()],
     };
-    let model = dengjen_kokoro::KokoroModel::from_config(config)
+    let model = dengjen_tts_kokoro::KokoroModel::from_config(config)
         .expect("failed to load synthetic Kokoro model");
     std::fs::remove_dir_all(&dir).ok();
     model
@@ -84,19 +84,19 @@ fn load_synthetic_kokoro_model() -> dengjen_kokoro::KokoroModel {
 #[test]
 fn kokoro_realtime_stream_uses_realistic_chunk_duration_for_capi_default_chunk_size() {
     let model = load_synthetic_kokoro_model();
-    let model: Arc<dyn dengjen_core::DengjenModel + Send + Sync> = Arc::new(model);
-    let synth = dengjen_synth::DengjenSpeechSynthesizer::new(model).unwrap();
+    let model: Arc<dyn dengjen_tts_core::DengjenModel + Send + Sync> = Arc::new(model);
+    let synth = dengjen_tts::DengjenSpeechSynthesizer::new(model).unwrap();
 
     let stream = synth.synthesize_streamed(
         "t\u{025b}st".to_string(),
         None,
         72,
         3,
-        dengjen_core::CancellationToken::new(),
+        dengjen_tts_core::CancellationToken::new(),
     );
     let stream = match stream {
         Ok(stream) => stream,
-        Err(dengjen_core::DengjenError::PhonemizationError(msg))
+        Err(dengjen_tts_core::DengjenError::PhonemizationError(msg))
             if msg.contains("Failed to initialize eSpeak-ng") =>
         {
             eprintln!(

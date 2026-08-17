@@ -12,8 +12,8 @@ fn synthesizes_real_audio_from_a_real_voice() {
         );
         return;
     };
-    let model =
-        dengjen_kokoro::from_config_path(&config_path).expect("failed to load real Kokoro voice");
+    let model = dengjen_tts_kokoro::from_config_path(&config_path)
+        .expect("failed to load real Kokoro voice");
     let phonemes = model
         .phonemize_text("Hello, world!")
         .expect("phonemization failed");

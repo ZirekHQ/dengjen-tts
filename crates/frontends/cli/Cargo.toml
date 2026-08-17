@@ -1,5 +1,5 @@
 [package]
-name = "dengjen-cli"
+name = "dengjen-tts-cli"
 version = "0.2.0"
 edition = "2021"
 license.workspace = true
@@ -13,14 +13,14 @@ path = "src/main.rs"
 
 [features]
 default = ["espeak"]
-espeak = ["dengjen-piper/espeak", "dengjen-kokoro/espeak"]
+espeak = ["dengjen-tts-piper/espeak", "dengjen-tts-kokoro/espeak"]
 cuda = ["ort/cuda"]
 ort-dylib = ["ort/load-dynamic"]
 
 [dependencies]
-dengjen-synth = { version = "0.2.0", path = "../../dengjen/synth" }
-dengjen-piper = { version = "0.2.0", path = "../../dengjen/models/piper" }
-dengjen-kokoro = { version = "0.1.0", path = "../../dengjen/models/kokoro", default-features = false }
+dengjen-tts = { version = "0.2.0", path = "../../dengjen/synth" }
+dengjen-tts-piper = { version = "0.2.0", path = "../../dengjen/models/piper" }
+dengjen-tts-kokoro = { version = "0.1.0", path = "../../dengjen/models/kokoro", default-features = false }
 anyhow = "1.0.79"
 env_logger = "0.10.0"
 log = "0.4.18"

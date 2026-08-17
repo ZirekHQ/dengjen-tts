@@ -4,7 +4,7 @@
 #
 # Builds minimal ONNX graphs shaped like Piper's VITS batch and streaming
 # (encoder/decoder) models, with placeholder (non-speech) output — mirrors
-# dengjen-kokoro's synthetic_kokoro.onnx approach: a hand-built graph, not an
+# dengjen-tts-kokoro's synthetic_kokoro.onnx approach: a hand-built graph, not an
 # exported real model, sized only to exercise the inference/streaming
 # plumbing end-to-end.
 import numpy as np

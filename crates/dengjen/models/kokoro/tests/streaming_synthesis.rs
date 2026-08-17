@@ -1,5 +1,5 @@
-use dengjen_core::{CancellationToken, DengjenModel};
-use dengjen_kokoro::{KokoroModel, KokoroVoiceConfig};
+use dengjen_tts_core::{CancellationToken, DengjenModel};
+use dengjen_tts_kokoro::{KokoroModel, KokoroVoiceConfig};
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -63,7 +63,7 @@ fn chunk_size_zero_returns_unsupported_operation() {
     let result = model.stream_synthesis(TEST_PHONEMES.to_string(), 0, 3, CancellationToken::new());
     assert!(matches!(
         result,
-        Err(dengjen_core::DengjenError::UnsupportedOperation(_))
+        Err(dengjen_tts_core::DengjenError::UnsupportedOperation(_))
     ));
 }
 

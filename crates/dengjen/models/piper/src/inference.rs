@@ -1,7 +1,7 @@
 use crate::config::{load_model_config, ModelConfig};
 use crate::phonemize::{create_tashkeel_engine, TashkeelEngine};
 use crate::VitsModelCommons;
-use dengjen_core::{
+use dengjen_tts_core::{
     Audio, AudioInfo, DengjenAudioResult, DengjenError, DengjenModel, DengjenResult, Phonemes,
     PiperSynthesisConfig, SynthesisConfig,
 };

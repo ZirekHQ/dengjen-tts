@@ -5,12 +5,12 @@
 #![allow(non_local_definitions)]
 #![forbid(unsafe_code)]
 
-use dengjen_core::{
-    Audio, AudioInfo, CancellationToken, DengjenError, DengjenModel, SynthesisConfig,
-};
-use dengjen_synth::{
+use dengjen_tts::{
     AudioOutputConfig, DengjenSpeechStreamLazy, DengjenSpeechStreamParallel,
     DengjenSpeechSynthesizer, RealtimeSpeechStream,
+};
+use dengjen_tts_core::{
+    Audio, AudioInfo, CancellationToken, DengjenError, DengjenModel, SynthesisConfig,
 };
 #[cfg(feature = "tashkeel")]
 use libtashkeel_core::{
@@ -285,7 +285,7 @@ impl PiperScales {
 #[cfg(test)]
 mod value_type_tests {
     use super::*;
-    use dengjen_core::AudioSamples;
+    use dengjen_tts_core::AudioSamples;
     use std::io::Read;
 
     #[test]
@@ -384,7 +384,7 @@ struct PiperModel(Arc<dyn DengjenModel + Send + Sync>);
 impl PiperModel {
     #[new]
     fn new(config_path: &str) -> PyDengjenResult<Self> {
-        let model = dengjen_piper::from_config_path(&PathBuf::from(config_path))?;
+        let model = dengjen_tts_piper::from_config_path(&PathBuf::from(config_path))?;
         Ok(Self(model))
     }
 
@@ -438,7 +438,7 @@ impl PiperModel {
         }
     }
 
-    fn piper_config_or_err(&self) -> PyDengjenResult<dengjen_core::PiperSynthesisConfig> {
+    fn piper_config_or_err(&self) -> PyDengjenResult<dengjen_tts_core::PiperSynthesisConfig> {
         match self.0.get_fallback_synthesis_config()? {
             SynthesisConfig::Piper(config) => Ok(config),
             SynthesisConfig::None => Err(PyDengjenError::from(DengjenError::InvalidConfiguration(
@@ -674,7 +674,7 @@ fn pydengjen(m: &Bound<'_, PyModule>) -> PyResult<()> {
 #[cfg(test)]
 mod model_and_synthesizer_tests {
     use super::*;
-    use dengjen_core::{
+    use dengjen_tts_core::{
         AudioSamples, DengjenAudioResult, DengjenResult, Phonemes, PiperSynthesisConfig,
     };
     use std::collections::HashMap as StdHashMap;
