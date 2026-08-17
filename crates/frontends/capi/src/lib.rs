@@ -8,15 +8,20 @@ use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, Once};
 
+/// The C function-pointer signature every streaming synthesis callback must match.
 pub type SpeechSynthesisCallback = extern "C" fn(SynthesisEvent) -> u8;
+
 define_string_destructor!(_internal_libdengjenFreeString);
 ffi_support::implement_into_ffi_by_pointer!(DengjenVoice);
 ffi_support::define_box_destructor!(DengjenVoice, _internal_libdengjenUnloadDengjenVoice);
 ffi_support::implement_into_ffi_by_pointer!(PiperSynthConfig);
 ffi_support::define_box_destructor!(PiperSynthConfig, _internal_libdengjenFreePiperSynthConfig);
 
+/// Guards the one-time onnxruntime environment setup so repeated voice loads don't re-init it.
 static INIT_ORT_ENVIRONMENT: Once = Once::new();
 
+/// FFI error codes. These are part of the C ABI (`libdengjen.h`) — callers branch on the
+/// numeric value, so names and values must never change once shipped.
 pub mod error_codes {
     pub const INVALID_SYNTHESIS_MODE: i32 = 16;
     pub const FAILED_TO_LOAD_RESOURCE: i32 = 17;
@@ -30,27 +35,37 @@ pub mod error_codes {
     pub const UNSUPPORTED_OPERATION: i32 = 25;
 }
 
+/// `SynthesisEvent::event_type` values delivered to a `SpeechSynthesisCallback`. Part of the C
+/// ABI — see `error_codes` for the same stability requirement.
 pub mod synth_event {
     pub const SYNTH_EVENT_SPEECH: i32 = 0;
     pub const SYNTH_EVENT_FINISHED: i32 = 1;
     pub const SYNTH_EVENT_ERROR: i32 = 2;
 }
 
+/// `SynthesisParams::mode` values a caller may request. Part of the C ABI — see `error_codes`
+/// for the same stability requirement.
 pub mod synth_mode {
     pub const SYNTH_MODE_LAZY: i32 = 0;
     pub const SYNTH_MODE_PARALLEL: i32 = 1;
     pub const SYNTH_MODE_REALTIME: i32 = 2;
 }
 
+/// An opaque, loaded voice handed back to C callers as a raw pointer.
+///
+/// Wraps the loaded synthesizer plus a slot tracking the token of whichever realtime synthesis
+/// is currently in flight (if any), so a separate `cancel` call can reach in and cancel it.
 pub struct DengjenVoice {
+    /// `AssertUnwindSafe` because this crosses an `unsafe extern "C"` boundary: a panic must be
+    /// caught there and must not unwind through code holding this reference.
     synth: AssertUnwindSafe<Arc<DengjenSpeechSynthesizer>>,
     active_cancel_token: Arc<Mutex<Option<CancellationToken>>>,
 }
 
 impl From<DengjenSpeechSynthesizer> for DengjenVoice {
-    fn from(other: DengjenSpeechSynthesizer) -> Self {
+    fn from(synthesizer: DengjenSpeechSynthesizer) -> Self {
         Self {
-            synth: AssertUnwindSafe(Arc::new(other)),
+            synth: AssertUnwindSafe(Arc::new(synthesizer)),
             active_cancel_token: Arc::new(Mutex::new(None)),
         }
     }
@@ -64,6 +79,8 @@ impl Deref for DengjenVoice {
     }
 }
 
+// Lets callers use a `DengjenVoice` anywhere a reference to something the wrapped synthesizer
+// itself converts to (via its own `AsRef` impls) is expected.
 impl<T> AsRef<T> for DengjenVoice
 where
     T: ?Sized,
@@ -74,51 +91,66 @@ where
     }
 }
 
+/// This crate's internal error type: an `error_codes` value paired with a human-readable
+/// message, convertible into the `ExternError` exported functions write to `out_error`.
 #[derive(Debug)]
 pub struct DengjenFFIError(i32, String);
 
 impl DengjenFFIError {
+    /// A string argument from C was not valid UTF-8.
     fn invalid_utf8() -> Self {
         Self(
             error_codes::INVALID_UTF8_SEQUENCE,
-            "Invalid utf-8 input.".to_string(),
+            "input string is not valid UTF-8".to_string(),
         )
     }
+
+    /// A `SynthesisParams::mode` value didn't match any `synth_mode` constant.
     fn invalid_synthesis_mode() -> Self {
         Self(
             error_codes::INVALID_SYNTHESIS_MODE,
-            "Invalid synthesis mode".to_string(),
+            "synthesis mode is not a recognized value".to_string(),
         )
     }
+
+    /// A required pointer argument was null. `param_name` identifies which one, for the caller.
     fn null_pointer(param_name: &str) -> Self {
         Self(
             error_codes::NULL_POINTER,
-            format!("`{}` must not be null", param_name),
+            format!("parameter `{param_name}` must not be null"),
         )
     }
 }
 
 impl From<DengjenError> for DengjenFFIError {
-    fn from(other: DengjenError) -> Self {
-        let (code, message) = match other {
-            DengjenError::FailedToLoadResource(msg) => (error_codes::FAILED_TO_LOAD_RESOURCE, msg),
-            DengjenError::PhonemizationError(msg) => (error_codes::PHONEMIZATION_ERROR, msg),
-            DengjenError::InferenceError(msg) => (error_codes::INFERENCE_ERROR, msg),
-            DengjenError::InvalidConfiguration(msg) => (error_codes::INVALID_CONFIGURATION, msg),
-            DengjenError::UnsupportedOperation(msg) => (error_codes::UNSUPPORTED_OPERATION, msg),
-            DengjenError::OperationError(msg) => (error_codes::OPERATION_ERROR, msg),
+    fn from(error: DengjenError) -> Self {
+        let (code, message) = match error {
+            DengjenError::FailedToLoadResource(message) => {
+                (error_codes::FAILED_TO_LOAD_RESOURCE, message)
+            }
+            DengjenError::PhonemizationError(message) => {
+                (error_codes::PHONEMIZATION_ERROR, message)
+            }
+            DengjenError::InferenceError(message) => (error_codes::INFERENCE_ERROR, message),
+            DengjenError::InvalidConfiguration(message) => {
+                (error_codes::INVALID_CONFIGURATION, message)
+            }
+            DengjenError::UnsupportedOperation(message) => {
+                (error_codes::UNSUPPORTED_OPERATION, message)
+            }
+            DengjenError::OperationError(message) => (error_codes::OPERATION_ERROR, message),
         };
         Self(code, message)
     }
 }
 
 impl From<DengjenFFIError> for ExternError {
-    fn from(other: DengjenFFIError) -> Self {
-        let err_code = ErrorCode::new(other.0);
-        ExternError::new_error(err_code, other.1)
+    fn from(error: DengjenFFIError) -> Self {
+        ExternError::new_error(ErrorCode::new(error.0), error.1)
     }
 }
 
+/// This crate's internal result alias, used throughout the private synthesis helpers.
 pub type DengjenFFIResult<T> = Result<T, DengjenFFIError>;
 
 #[repr(C)]
