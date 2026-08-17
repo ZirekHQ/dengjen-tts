@@ -547,46 +547,57 @@ pub unsafe extern "C" fn libdengjenSpeakToFile(
     })
 }
 
+/// Builds and commits the onnxruntime environment. Runs at most once per process
+/// (`INIT_ORT_ENVIRONMENT`); a later call after a successful commit is a no-op.
 fn init_ort_environment() {
     INIT_ORT_ENVIRONMENT.call_once(|| {
-        let execution_providers = [
-            #[cfg(target_os = "android")]
+        // CPU always goes last: it's the universal fallback once every platform-specific
+        // provider ahead of it has had a chance to claim the workload.
+        #[cfg(target_os = "android")]
+        let execution_providers = vec![
             ort::execution_providers::NNAPI::default().build(),
-            #[cfg(target_os = "ios")]
+            ort::execution_providers::CPU::default().build(),
+        ];
+        #[cfg(target_os = "ios")]
+        let execution_providers = vec![
             ort::execution_providers::CoreML::default().build(),
             ort::execution_providers::CPU::default().build(),
         ];
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        let execution_providers = vec![ort::execution_providers::CPU::default().build()];
+
         let committed = ort::init()
             .with_name("dengjen")
             .with_execution_providers(execution_providers)
             .commit();
+        // Startup can't recover from this: without a committed environment no model can load.
         assert!(committed, "Failed to initialize onnxruntime");
     });
 }
 
 fn _load_piper_voice(config_path_ptr: FfiStr) -> DengjenFFIResult<DengjenVoice> {
     init_ort_environment();
-    let config_path = config_path_ptr
-        .into_opt_string()
-        .ok_or_else(DengjenFFIError::invalid_utf8)?;
-    let config_path = PathBuf::from(config_path);
-    let piper_model = dengjen_tts_piper::from_config_path(&config_path)?;
+    let Some(config_path) = config_path_ptr.into_opt_string() else {
+        return Err(DengjenFFIError::invalid_utf8());
+    };
+    let piper_model = dengjen_tts_piper::from_config_path(&PathBuf::from(config_path))?;
     let synth = DengjenSpeechSynthesizer::new(piper_model)?;
     Ok(synth.into())
 }
 
 fn _cancel(cancel_slot: &Arc<Mutex<Option<CancellationToken>>>) -> DengjenFFIResult<()> {
-    if let Some(token) = cancel_slot.lock().unwrap().as_ref() {
-        token.cancel();
+    let held_token = cancel_slot.lock().unwrap();
+    if let Some(active_token) = held_token.as_ref() {
+        active_token.cancel();
     }
     Ok(())
 }
 
-/// Clears `slot` back to `None` on drop, but only if it still holds the token this guard
-/// was created for — protects against two concurrent realtime speaks on the same voice
-/// (nonblocking mode) where a finishing call must not clobber a still-in-flight sibling's
-/// token. Clearing on `Drop` (rather than after `iterate_stream` returns) also covers the
-/// early-return-on-error path through `?`.
+/// RAII: on drop, resets `slot` to `None` — but only when it still holds the exact token this
+/// guard was built with. Two nonblocking realtime speaks on the same voice can overlap, and a
+/// finishing guard whose token has already been superseded by a still-running sibling must
+/// leave that sibling's slot alone. Running on every `Drop` (not just the happy path) also
+/// covers the early return through `?` on a synthesis error.
 struct CancelSlotGuard {
     slot: Arc<Mutex<Option<CancellationToken>>>,
     token: CancellationToken,
@@ -594,11 +605,12 @@ struct CancelSlotGuard {
 
 impl Drop for CancelSlotGuard {
     fn drop(&mut self) {
-        let mut slot = self.slot.lock().unwrap();
-        if let Some(current) = slot.as_ref() {
-            if current.points_to_same_flag(&self.token) {
-                *slot = None;
-            }
+        let mut held_token = self.slot.lock().unwrap();
+        let still_owns_slot = held_token
+            .as_ref()
+            .is_some_and(|current| current.points_to_same_flag(&self.token));
+        if still_owns_slot {
+            *held_token = None;
         }
     }
 }
@@ -609,20 +621,20 @@ fn _synthesize(
     text_ptr: FfiStr,
     params: SynthesisParams,
 ) -> DengjenFFIResult<()> {
-    let text = text_ptr
-        .into_opt_string()
-        .ok_or_else(DengjenFFIError::invalid_utf8)?;
-    if params.nonblocking != 0 {
-        SYNTHESIS_THREAD_POOL.spawn(move || {
-            let callback = params.callback;
-            if let Err(e) = _do_synthesize(synth, cancel_slot, text, params) {
-                let event = SynthesisEvent::with_error(e);
-                callback(event);
-            }
-        });
-    } else {
-        _do_synthesize(synth, cancel_slot, text, params)?;
+    let Some(text) = text_ptr.into_opt_string() else {
+        return Err(DengjenFFIError::invalid_utf8());
+    };
+    if params.nonblocking == 0 {
+        return _do_synthesize(synth, cancel_slot, text, params);
     }
+    // Control has already returned to the caller by the time this runs on the pool thread, so
+    // a synthesis error has nowhere to go but through the callback the caller is still holding.
+    let report_to_caller = params.callback;
+    SYNTHESIS_THREAD_POOL.spawn(move || {
+        if let Err(error) = _do_synthesize(synth, cancel_slot, text, params) {
+            report_to_caller(SynthesisEvent::with_error(error));
+        }
+    });
     Ok(())
 }
 
@@ -632,30 +644,40 @@ fn _do_synthesize(
     text: String,
     params: SynthesisParams,
 ) -> DengjenFFIResult<()> {
-    let audio_output_config = Some(params.as_synth_output_config());
+    // Tuned defaults for realtime chunking, not placeholders — do not change.
+    const REALTIME_CHUNK_SIZE: usize = 72;
+    const REALTIME_CHUNK_PADDING: usize = 3;
+
+    let output_config = Some(params.as_synth_output_config());
+    let callback = params.callback;
     match params.mode {
         synth_mode::SYNTH_MODE_LAZY => {
             let stream = synth
-                .synthesize_lazy(text, audio_output_config)?
-                .map(|wr| wr.map(|aud| aud.samples));
-            iterate_stream(stream, params.callback)
+                .synthesize_lazy(text, output_config)?
+                .map(|item| item.map(|audio| audio.samples));
+            iterate_stream(stream, callback)
         }
         synth_mode::SYNTH_MODE_PARALLEL => {
             let stream = synth
-                .synthesize_parallel(text, audio_output_config)?
-                .map(|wr| wr.map(|aud| aud.samples));
-            iterate_stream(stream, params.callback)
+                .synthesize_parallel(text, output_config)?
+                .map(|item| item.map(|audio| audio.samples));
+            iterate_stream(stream, callback)
         }
         synth_mode::SYNTH_MODE_REALTIME => {
             let cancel_token = CancellationToken::new();
             *cancel_slot.lock().unwrap() = Some(cancel_token.clone());
-            let _clear_on_drop = CancelSlotGuard {
-                slot: Arc::clone(&cancel_slot),
+            let _release_slot_on_drop = CancelSlotGuard {
+                slot: cancel_slot,
                 token: cancel_token.clone(),
             };
-            let stream =
-                synth.synthesize_streamed(text, audio_output_config, 72, 3, cancel_token)?;
-            iterate_stream(stream, params.callback)
+            let stream = synth.synthesize_streamed(
+                text,
+                output_config,
+                REALTIME_CHUNK_SIZE,
+                REALTIME_CHUNK_PADDING,
+                cancel_token,
+            )?;
+            iterate_stream(stream, callback)
         }
         _ => Err(DengjenFFIError::invalid_synthesis_mode()),
     }
@@ -666,21 +688,18 @@ fn iterate_stream(
     stream: impl Iterator<Item = DengjenResult<AudioSamples>> + Send + Sync + 'static,
     callback: SpeechSynthesisCallback,
 ) -> DengjenFFIResult<()> {
-    for result in stream {
-        match result {
-            Ok(audio) => {
-                let wav_bytes = audio.as_wave_bytes();
-                let event = SynthesisEvent::with_speech(wav_bytes);
-                if callback(event) != 0 {
-                    return Ok(());
-                }
-            }
-            Err(e) => {
-                let event = SynthesisEvent::with_error(DengjenFFIError::from(e));
-                callback(event);
+    for item in stream {
+        let audio = match item {
+            Ok(audio) => audio,
+            Err(error) => {
+                callback(SynthesisEvent::with_error(DengjenFFIError::from(error)));
                 return Ok(());
             }
         };
+        let caller_wants_more = callback(SynthesisEvent::with_speech(audio.as_wave_bytes())) == 0;
+        if !caller_wants_more {
+            return Ok(());
+        }
     }
     callback(SynthesisEvent::with_finished());
     Ok(())
@@ -692,15 +711,19 @@ fn _synthesize_to_file(
     params: SynthesisParams,
     out_filename_ptr: FfiStr,
 ) -> DengjenFFIResult<()> {
-    let text = text_ptr
-        .into_opt_string()
-        .ok_or_else(DengjenFFIError::invalid_utf8)?;
-    let out_filename = out_filename_ptr
-        .into_opt_string()
-        .ok_or_else(DengjenFFIError::invalid_utf8)
-        .map(PathBuf::from)?;
-    synth.synthesize_to_file(&out_filename, text, Some(params.as_synth_output_config()))?;
-    Ok(())
+    let (Some(text), Some(out_filename)) = (
+        text_ptr.into_opt_string(),
+        out_filename_ptr.into_opt_string(),
+    ) else {
+        return Err(DengjenFFIError::invalid_utf8());
+    };
+    synth
+        .synthesize_to_file(
+            &PathBuf::from(out_filename),
+            text,
+            Some(params.as_synth_output_config()),
+        )
+        .map_err(DengjenFFIError::from)
 }
 
 #[cfg(test)]
