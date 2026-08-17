@@ -132,8 +132,8 @@ impl SynthesisRequest {
 }
 
 fn enable_logging() {
-    env_logger::Builder::from_env(env_logger::Env::default().filter_or("DENGJEN_LOG", "info"))
-        .init();
+    let env = env_logger::Env::default().filter_or("DENGJEN_LOG", "info");
+    env_logger::Builder::from_env(env).init();
 }
 
 fn get_synthesis_request_from_stdin() -> anyhow::Result<SynthesisRequest> {
@@ -206,37 +206,40 @@ fn consume_stream(stream: impl Iterator<Item = DengjenResult<AudioSamples>>) -> 
 }
 
 fn init_ort_environment() {
-    INIT_ORT_ENVIRONMENT.call_once(|| {
-        let execution_providers = [
-            #[cfg(feature = "cuda")]
-            ort::execution_providers::CUDA::default().build(),
-            ort::execution_providers::CPU::default().build(),
-        ];
-        let committed = ort::init()
-            .with_name("dengjen")
-            .with_execution_providers(execution_providers)
-            .commit();
-        assert!(committed, "Failed to initialize onnxruntime");
-    });
+    INIT_ORT_ENVIRONMENT.call_once(commit_onnxruntime);
+}
+
+fn commit_onnxruntime() {
+    let providers = [
+        #[cfg(feature = "cuda")]
+        ort::execution_providers::CUDA::default().build(),
+        ort::execution_providers::CPU::default().build(),
+    ];
+    let ok = ort::init()
+        .with_name("dengjen")
+        .with_execution_providers(providers)
+        .commit();
+    assert!(ok, "Failed to initialize onnxruntime");
 }
 
 fn detect_model_type(config_path: &std::path::Path) -> anyhow::Result<String> {
-    let contents = std::fs::read_to_string(config_path)?;
-    let value: serde_json::Value = serde_json::from_str(&contents)?;
-    Ok(value
+    let raw = std::fs::read_to_string(config_path)?;
+    let parsed: serde_json::Value = serde_json::from_str(&raw)?;
+    let model_type = parsed
         .get("model_type")
-        .and_then(|v| v.as_str())
-        .unwrap_or("piper")
-        .to_string())
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("piper");
+    Ok(model_type.to_owned())
 }
 
 fn load_voice(
     config_path: &std::path::Path,
 ) -> anyhow::Result<std::sync::Arc<dyn dengjen_tts::DengjenModel + Send + Sync>> {
-    match detect_model_type(config_path)?.as_str() {
-        "kokoro" => Ok(dengjen_tts_kokoro::from_config_path(config_path)?),
-        _ => Ok(dengjen_tts_piper::from_config_path(config_path)?),
+    let model_type = detect_model_type(config_path)?;
+    if model_type == "kokoro" {
+        return Ok(dengjen_tts_kokoro::from_config_path(config_path)?);
     }
+    Ok(dengjen_tts_piper::from_config_path(config_path)?)
 }
 
 #[cfg(test)]
