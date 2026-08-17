@@ -50,11 +50,9 @@ pub mod synth_mode {
 
 /// An opaque, loaded voice handed back to C callers as a raw pointer.
 pub struct DengjenVoice {
-    /// `AssertUnwindSafe`: this reference crosses an `unsafe extern "C"` boundary where a panic
-    /// must be caught, not unwound through.
+    /// Wrapped in AssertUnwindSafe because panics must be caught at unsafe extern "C" boundaries, not unwound.
     synth: AssertUnwindSafe<Arc<DengjenSpeechSynthesizer>>,
-    /// The cancellation token of whichever realtime synthesis is currently in flight, if any —
-    /// lets a separate `cancel` call reach in and stop it.
+    /// Cancellation token for the current realtime synthesis, if any; lets cancel() stop it.
     active_cancel_token: Arc<Mutex<Option<CancellationToken>>>,
 }
 
