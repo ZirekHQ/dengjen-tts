@@ -24,12 +24,13 @@ enum SynthesisMode {
 impl std::str::FromStr for SynthesisMode {
     type Err = String;
 
-    fn from_str(other: &str) -> Result<Self, Self::Err> {
-        match other.to_lowercase().as_str() {
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let normalized = s.to_lowercase();
+        match normalized.as_str() {
             "lazy" => Ok(Self::Lazy),
             "parallel" => Ok(Self::Parallel),
             "realtime" => Ok(Self::Realtime),
-            _ => Err(format!("Unknown synthesis mode: `{}`", other)),
+            _ => Err(format!("Unknown synthesis mode: `{}`", s)),
         }
     }
 }
@@ -105,6 +106,7 @@ impl SynthesisRequest {
             noise_w: self.noise_w.unwrap_or(default_config.noise_w),
         }
     }
+
     fn as_audio_output_config(&self) -> AudioOutputConfig {
         AudioOutputConfig {
             rate: self.rate,
@@ -116,111 +118,394 @@ impl SynthesisRequest {
 }
 
 fn enable_logging() {
-    env_logger::Builder::from_env(env_logger::Env::default().filter_or("DENGJEN_LOG", "info"))
-        .init();
+    let env = env_logger::Env::default().filter_or("DENGJEN_LOG", "info");
+    env_logger::Builder::from_env(env).init();
 }
 
 fn get_synthesis_request_from_stdin() -> anyhow::Result<SynthesisRequest> {
-    let mut input_buffer = String::new();
-    let stdin = io::stdin();
-    stdin.read_line(&mut input_buffer)?;
-    let req: SynthesisRequest = serde_json::from_str(&input_buffer)?;
-    Ok(req)
+    let mut line = String::new();
+    io::stdin().read_line(&mut line)?;
+    Ok(serde_json::from_str(&line)?)
 }
 
-fn process_synthesis_request(
+fn process_synthesis_request<W: Write>(
     args: &Cli,
     synth: &DengjenSpeechSynthesizer,
     default_synth_config: &PiperSynthesisConfig,
     req: SynthesisRequest,
+    writer: &mut W,
 ) -> anyhow::Result<()> {
-    synth.set_fallback_synthesis_config(&SynthesisConfig::Piper(
-        req.as_piper_synth_config(default_synth_config),
-    ))?;
+    let piper_config = req.as_piper_synth_config(default_synth_config);
+    synth.set_fallback_synthesis_config(&SynthesisConfig::Piper(piper_config))?;
     let output_config = Some(req.as_audio_output_config());
-    if let Some(output_file) = args.output_file.as_ref() {
+
+    if let Some(output_file) = &args.output_file {
         if req.mode.is_some() {
             log::warn!("Synthesis mode has no effect when output-file is set");
         }
-        synth.synthesize_to_file(output_file, req.text, output_config)?;
-        return Ok(());
+        return synth
+            .synthesize_to_file(output_file, req.text, output_config)
+            .map_err(anyhow::Error::from);
     }
+
     match req.mode.unwrap_or_default() {
         SynthesisMode::Lazy => {
-            let stream = synth
+            let samples = synth
                 .synthesize_lazy(req.text, output_config)?
                 .map(|res| res.map(|aud| aud.samples));
-            consume_stream(stream)?
+            consume_stream(samples, writer)
         }
         SynthesisMode::Parallel => {
-            let stream = synth
+            let samples = synth
                 .synthesize_parallel(req.text, output_config)?
                 .map(|res| res.map(|aud| aud.samples));
-            consume_stream(stream)?
+            consume_stream(samples, writer)
         }
         SynthesisMode::Realtime => {
-            let stream = synth.synthesize_streamed(
+            let chunk_size = req.chunk_size.unwrap_or(100);
+            let chunk_padding = req.chunk_padding.unwrap_or(3);
+            let samples = synth.synthesize_streamed(
                 req.text,
                 output_config,
-                req.chunk_size.unwrap_or(100),
-                req.chunk_padding.unwrap_or(3),
+                chunk_size,
+                chunk_padding,
                 CancellationToken::new(),
             )?;
-            consume_stream(stream)?
+            consume_stream(samples, writer)
         }
-    };
-    Ok(())
+    }
 }
 
-fn write_to_stdout(data: &[u8]) -> anyhow::Result<()> {
-    let mut stdout = io::stdout().lock();
-    stdout.write_all(data)?;
-    stdout.flush()?;
-    Ok(())
-}
-
-#[inline(always)]
-fn consume_stream(stream: impl Iterator<Item = DengjenResult<AudioSamples>>) -> anyhow::Result<()> {
-    for result in stream {
-        let audio = result?;
-        let wav_bytes = audio.as_wave_bytes();
-        write_to_stdout(&wav_bytes)?;
+fn consume_stream(
+    stream: impl Iterator<Item = DengjenResult<AudioSamples>>,
+    writer: &mut impl Write,
+) -> anyhow::Result<()> {
+    for chunk in stream {
+        let audio = chunk?;
+        writer.write_all(&audio.as_wave_bytes())?;
+        writer.flush()?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod synthesis_processing_tests {
+    use super::*;
+    use dengjen_tts::{
+        Audio, AudioInfo, AudioStreamIterator, DengjenAudioResult, DengjenError, Phonemes,
+    };
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+
+    struct FakeDengjenModel {
+        speakers: HashMap<i64, String>,
+        fallback_config: Mutex<SynthesisConfig>,
+        fail_speak: bool,
+    }
+
+    impl FakeDengjenModel {
+        fn new() -> Self {
+            Self::with_failure(false)
+        }
+
+        fn failing() -> Self {
+            Self::with_failure(true)
+        }
+
+        fn with_failure(fail_speak: bool) -> Self {
+            Self {
+                speakers: HashMap::from([(0, "alice".to_string())]),
+                fallback_config: Mutex::new(SynthesisConfig::Piper(PiperSynthesisConfig {
+                    speaker: Some(0),
+                    noise_scale: 0.667,
+                    length_scale: 1.0,
+                    noise_w: 0.8,
+                })),
+                fail_speak,
+            }
+        }
+    }
+
+    impl DengjenModel for FakeDengjenModel {
+        fn audio_output_info(&self) -> DengjenResult<AudioInfo> {
+            Ok(AudioInfo {
+                sample_rate: 22050,
+                num_channels: 1,
+                sample_width: 2,
+            })
+        }
+        fn phonemize_text(&self, text: &str) -> DengjenResult<Phonemes> {
+            Ok(Phonemes::from(vec![text.to_string()]))
+        }
+        fn speak_batch(&self, phoneme_batches: Vec<String>) -> DengjenResult<Vec<Audio>> {
+            phoneme_batches
+                .into_iter()
+                .map(|p| self.speak_one_sentence(p))
+                .collect()
+        }
+        fn speak_one_sentence(&self, _phonemes: String) -> DengjenAudioResult {
+            if self.fail_speak {
+                return Err(DengjenError::OperationError("synthesis failed".to_string()));
+            }
+            Ok(Audio::new(
+                AudioSamples::new(vec![0.0, 0.25, -0.25, 0.5]),
+                22050,
+                Some(1.0),
+            ))
+        }
+        fn get_default_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
+            Ok(self.fallback_config.lock().unwrap().clone())
+        }
+        fn get_fallback_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
+            Ok(self.fallback_config.lock().unwrap().clone())
+        }
+        fn set_fallback_synthesis_config(
+            &self,
+            synthesis_config: &SynthesisConfig,
+        ) -> DengjenResult<()> {
+            *self.fallback_config.lock().unwrap() = synthesis_config.clone();
+            Ok(())
+        }
+        fn get_speakers(&self) -> DengjenResult<Option<&HashMap<i64, String>>> {
+            Ok(Some(&self.speakers))
+        }
+        fn supports_streaming_output(&self) -> bool {
+            true
+        }
+        fn stream_synthesis(
+            &self,
+            _phonemes: String,
+            _chunk_size: usize,
+            _chunk_padding: usize,
+            _cancel_token: CancellationToken,
+        ) -> DengjenResult<AudioStreamIterator<'_>> {
+            // `DengjenModel::stream_synthesis` defaults to
+            // `Err(UnsupportedOperation(...))` — `RealtimeSpeechStream` calls it
+            // unconditionally, so without this override the Realtime-mode test
+            // below would fail before ever reaching `consume_stream`.
+            if self.fail_speak {
+                return Err(DengjenError::OperationError("synthesis failed".to_string()));
+            }
+            Ok(Box::new(std::iter::once(Ok(AudioSamples::new(vec![
+                0.0, 0.25, -0.25, 0.5,
+            ])))))
+        }
+    }
+
+    fn fake_synth() -> DengjenSpeechSynthesizer {
+        DengjenSpeechSynthesizer::new(std::sync::Arc::new(FakeDengjenModel::new())).unwrap()
+    }
+
+    fn failing_synth() -> DengjenSpeechSynthesizer {
+        DengjenSpeechSynthesizer::new(std::sync::Arc::new(FakeDengjenModel::failing())).unwrap()
+    }
+
+    fn default_config() -> PiperSynthesisConfig {
+        PiperSynthesisConfig::default()
+    }
+
+    fn cli_with_output_file(path: Option<std::path::PathBuf>) -> Cli {
+        Cli {
+            config: std::path::PathBuf::new(),
+            input_file: None,
+            output_file: path,
+            mode: None,
+            speaker_id: None,
+            length_scale: None,
+            noise_scale: None,
+            noise_w: None,
+            rate: None,
+            pitch: None,
+            volume: None,
+            silence: None,
+            chunk_size: None,
+            chunk_padding: None,
+        }
+    }
+
+    #[test]
+    fn process_synthesis_request_lazy_mode_writes_pcm_bytes_to_the_writer() {
+        let synth = fake_synth();
+        let args = cli_with_output_file(None);
+        let req = SynthesisRequest {
+            text: "hello".to_string(),
+            mode: Some(SynthesisMode::Lazy),
+            ..Default::default()
+        };
+        let mut buffer: Vec<u8> = Vec::new();
+
+        process_synthesis_request(&args, &synth, &default_config(), req, &mut buffer).unwrap();
+
+        // Not an exact byte count: `process_synthesis_request` always wraps
+        // output through `AudioOutputConfig::apply` (real Sonic FFI, even with
+        // every field `None`), which this test isn't exercising — that's
+        // `audio-ops`'s own tested responsibility (Phase 3). Non-empty output
+        // is the right assertion here: it proves Lazy mode reached
+        // `consume_stream` at all.
+        assert!(!buffer.is_empty());
+    }
+
+    #[test]
+    fn process_synthesis_request_parallel_mode_writes_pcm_bytes_to_the_writer() {
+        let synth = fake_synth();
+        let args = cli_with_output_file(None);
+        let req = SynthesisRequest {
+            text: "hello".to_string(),
+            mode: Some(SynthesisMode::Parallel),
+            ..Default::default()
+        };
+        let mut buffer: Vec<u8> = Vec::new();
+
+        process_synthesis_request(&args, &synth, &default_config(), req, &mut buffer).unwrap();
+
+        assert!(!buffer.is_empty());
+    }
+
+    #[test]
+    fn process_synthesis_request_realtime_mode_writes_pcm_bytes_to_the_writer() {
+        let synth = fake_synth();
+        let args = cli_with_output_file(None);
+        let req = SynthesisRequest {
+            text: "hello".to_string(),
+            mode: Some(SynthesisMode::Realtime),
+            ..Default::default()
+        };
+        let mut buffer: Vec<u8> = Vec::new();
+
+        process_synthesis_request(&args, &synth, &default_config(), req, &mut buffer).unwrap();
+
+        assert!(!buffer.is_empty());
+    }
+
+    #[test]
+    fn process_synthesis_request_defaults_to_lazy_mode_when_unset() {
+        let synth = fake_synth();
+        let args = cli_with_output_file(None);
+        let req = SynthesisRequest {
+            text: "hello".to_string(),
+            ..Default::default()
+        };
+        let mut buffer: Vec<u8> = Vec::new();
+
+        process_synthesis_request(&args, &synth, &default_config(), req, &mut buffer).unwrap();
+
+        assert!(!buffer.is_empty());
+    }
+
+    #[test]
+    fn process_synthesis_request_propagates_a_synthesis_error() {
+        let synth = failing_synth();
+        let args = cli_with_output_file(None);
+        let req = SynthesisRequest {
+            text: "hello".to_string(),
+            mode: Some(SynthesisMode::Lazy),
+            ..Default::default()
+        };
+        let mut buffer: Vec<u8> = Vec::new();
+
+        let result = process_synthesis_request(&args, &synth, &default_config(), req, &mut buffer);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn process_synthesis_request_writes_to_the_output_file_when_set_instead_of_the_writer() {
+        let synth = fake_synth();
+        let dir = std::env::temp_dir().join(format!("dengjen-tts-cli-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("process_synthesis_request_writes_to_the_output_file.wav");
+        let args = cli_with_output_file(Some(path.clone()));
+        let req = SynthesisRequest {
+            text: "hello".to_string(),
+            ..Default::default()
+        };
+        let mut buffer: Vec<u8> = Vec::new();
+
+        process_synthesis_request(&args, &synth, &default_config(), req, &mut buffer).unwrap();
+
+        assert!(path.exists());
+        assert!(
+            buffer.is_empty(),
+            "output-file mode must not also write to the writer"
+        );
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn process_synthesis_request_warns_but_still_writes_to_file_when_mode_is_also_set() {
+        let synth = fake_synth();
+        let dir = std::env::temp_dir().join(format!("dengjen-tts-cli-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("process_synthesis_request_warns_but_still_writes_to_file.wav");
+        let args = cli_with_output_file(Some(path.clone()));
+        let req = SynthesisRequest {
+            text: "hello".to_string(),
+            mode: Some(SynthesisMode::Lazy), // triggers the log::warn! branch
+            ..Default::default()
+        };
+        let mut buffer: Vec<u8> = Vec::new();
+
+        process_synthesis_request(&args, &synth, &default_config(), req, &mut buffer).unwrap();
+
+        assert!(path.exists());
+        assert!(
+            buffer.is_empty(),
+            "output-file mode must not also write to the writer, even when mode is set"
+        );
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn consume_stream_stops_at_the_first_error_without_writing_further_chunks() {
+        let stream: Vec<DengjenResult<AudioSamples>> = vec![
+            Ok(AudioSamples::new(vec![0.0, 0.5])),
+            Err(DengjenError::OperationError("boom".to_string())),
+            Ok(AudioSamples::new(vec![0.0, 0.5])),
+        ];
+        let mut buffer: Vec<u8> = Vec::new();
+
+        let result = consume_stream(stream.into_iter(), &mut buffer);
+
+        assert!(result.is_err());
+        assert_eq!(buffer.len(), 2 * 2); // only the first chunk's 2 samples were written
+    }
 }
 
 fn init_ort_environment() {
-    INIT_ORT_ENVIRONMENT.call_once(|| {
-        let execution_providers = [
-            #[cfg(feature = "cuda")]
-            ort::execution_providers::CUDA::default().build(),
-            ort::execution_providers::CPU::default().build(),
-        ];
-        let committed = ort::init()
-            .with_name("dengjen")
-            .with_execution_providers(execution_providers)
-            .commit();
-        assert!(committed, "Failed to initialize onnxruntime");
-    });
+    INIT_ORT_ENVIRONMENT.call_once(commit_onnxruntime);
+}
+
+fn commit_onnxruntime() {
+    let providers = [
+        #[cfg(feature = "cuda")]
+        ort::execution_providers::CUDA::default().build(),
+        ort::execution_providers::CPU::default().build(),
+    ];
+    let ok = ort::init()
+        .with_name("dengjen")
+        .with_execution_providers(providers)
+        .commit();
+    assert!(ok, "Failed to initialize onnxruntime");
 }
 
 fn detect_model_type(config_path: &std::path::Path) -> anyhow::Result<String> {
-    let contents = std::fs::read_to_string(config_path)?;
-    let value: serde_json::Value = serde_json::from_str(&contents)?;
-    Ok(value
+    let raw = std::fs::read_to_string(config_path)?;
+    let parsed: serde_json::Value = serde_json::from_str(&raw)?;
+    let model_type = parsed
         .get("model_type")
-        .and_then(|v| v.as_str())
-        .unwrap_or("piper")
-        .to_string())
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("piper");
+    Ok(model_type.to_owned())
 }
 
 fn load_voice(
     config_path: &std::path::Path,
 ) -> anyhow::Result<std::sync::Arc<dyn dengjen_tts::DengjenModel + Send + Sync>> {
-    match detect_model_type(config_path)?.as_str() {
-        "kokoro" => Ok(dengjen_tts_kokoro::from_config_path(config_path)?),
-        _ => Ok(dengjen_tts_piper::from_config_path(config_path)?),
+    let model_type = detect_model_type(config_path)?;
+    if model_type == "kokoro" {
+        return Ok(dengjen_tts_kokoro::from_config_path(config_path)?);
     }
+    Ok(dengjen_tts_piper::from_config_path(config_path)?)
 }
 
 #[cfg(test)]
@@ -268,66 +553,113 @@ fn main() -> anyhow::Result<()> {
     enable_logging();
     init_ort_environment();
 
-    let mut args = Cli::parse();
+    let mut cli = Cli::parse();
+    let synthesizer = build_synthesizer(&cli.config)?;
+    let default_synth_config = resolve_default_synthesis_config(&synthesizer)?;
 
-    let synth = {
-        let voice = load_voice(&args.config)?;
-        DengjenSpeechSynthesizer::new(voice)?
-    };
-    log::info!("Using model config: `{}`", args.config.display());
+    if let Some(input_path) = cli.input_file.take() {
+        return synthesize_from_file(&cli, &input_path, &synthesizer, &default_synth_config);
+    }
+    synthesize_from_stdin_forever(cli, &synthesizer, &default_synth_config)
+}
+
+fn build_synthesizer(config_path: &std::path::Path) -> anyhow::Result<DengjenSpeechSynthesizer> {
+    let voice = load_voice(config_path)?;
+    let synthesizer = DengjenSpeechSynthesizer::new(voice)?;
+    log::info!("Using model config: `{}`", config_path.display());
+    Ok(synthesizer)
+}
+
+fn resolve_default_synthesis_config(
+    synthesizer: &DengjenSpeechSynthesizer,
+) -> anyhow::Result<PiperSynthesisConfig> {
     // Non-Piper backends (e.g. Kokoro) return SynthesisConfig::None here; their
     // set_fallback_synthesis_config ignores whatever default we pass, so this
     // default is inert for them.
-    let default_synth_config: PiperSynthesisConfig = match synth.get_default_synthesis_config()? {
+    Ok(match synthesizer.get_default_synthesis_config()? {
         SynthesisConfig::Piper(cfg) => cfg,
         SynthesisConfig::None => PiperSynthesisConfig::default(),
-    };
-    if let Some(ref input_filename) = args.input_file {
-        let mut input_buffer = String::new();
-        let mut file = File::open(input_filename)?;
-        file.read_to_string(&mut input_buffer)?;
-        let req = SynthesisRequest {
-            text: input_buffer,
-            mode: args.mode.clone(),
-            speaker_id: args.speaker_id,
-            length_scale: args.length_scale,
-            noise_scale: args.noise_scale,
-            noise_w: args.noise_w,
-            rate: args.rate,
-            volume: args.volume,
-            pitch: args.pitch,
-            appended_silence_ms: args.silence,
-            chunk_size: args.chunk_size,
-            chunk_padding: args.chunk_padding,
-        };
-        process_synthesis_request(&args, &synth, &default_synth_config, req)?;
-    } else {
-        for i in 0.. {
-            args.output_file = args.output_file.map(|file| {
-                let enumerated_filename = format!(
-                    "{}-{}.{}",
-                    file.file_stem()
-                        .expect("Invalid output file name")
-                        .to_string_lossy(),
-                    i + 1,
-                    file.extension()
-                        .expect("Invalid output file name")
-                        .to_string_lossy()
-                );
-                file.with_file_name(enumerated_filename)
-            });
-            match get_synthesis_request_from_stdin() {
-                Ok(req) => {
-                    process_synthesis_request(&args, &synth, &default_synth_config, req)?;
-                    if let Some(ref file) = args.output_file {
-                        log::info!("Wrote output to file: {}", file.display());
-                    }
+    })
+}
+
+fn synthesis_request_from_cli(cli: &Cli, text: String) -> SynthesisRequest {
+    SynthesisRequest {
+        text,
+        mode: cli.mode.clone(),
+        speaker_id: cli.speaker_id,
+        length_scale: cli.length_scale,
+        noise_scale: cli.noise_scale,
+        noise_w: cli.noise_w,
+        rate: cli.rate,
+        pitch: cli.pitch,
+        volume: cli.volume,
+        appended_silence_ms: cli.silence,
+        chunk_size: cli.chunk_size,
+        chunk_padding: cli.chunk_padding,
+    }
+}
+
+fn synthesize_from_file(
+    cli: &Cli,
+    input_path: &std::path::Path,
+    synthesizer: &DengjenSpeechSynthesizer,
+    default_synth_config: &PiperSynthesisConfig,
+) -> anyhow::Result<()> {
+    let mut file = File::open(input_path)?;
+    let mut text = String::new();
+    file.read_to_string(&mut text)?;
+    let request = synthesis_request_from_cli(cli, text);
+    process_synthesis_request(
+        cli,
+        synthesizer,
+        default_synth_config,
+        request,
+        &mut io::stdout().lock(),
+    )
+}
+
+fn synthesize_from_stdin_forever(
+    mut cli: Cli,
+    synthesizer: &DengjenSpeechSynthesizer,
+    default_synth_config: &PiperSynthesisConfig,
+) -> anyhow::Result<()> {
+    let mut request_count: u64 = 0;
+    loop {
+        request_count += 1;
+        cli.output_file = cli
+            .output_file
+            .take()
+            .map(|path| enumerate_output_path(path, request_count));
+
+        match get_synthesis_request_from_stdin() {
+            Ok(request) => {
+                process_synthesis_request(
+                    &cli,
+                    synthesizer,
+                    default_synth_config,
+                    request,
+                    &mut io::stdout().lock(),
+                )?;
+                if let Some(output_path) = &cli.output_file {
+                    log::info!("Wrote output to file: {}", output_path.display());
                 }
-                Err(e) => log::error!("Invalid json input. Error: {}", e),
-            };
+            }
+            Err(err) => log::error!("Invalid json input. Error: {}", err),
         }
     }
-    Ok(())
+}
+
+fn enumerate_output_path(path: PathBuf, suffix: u64) -> PathBuf {
+    let stem = path
+        .file_stem()
+        .expect("Invalid output file name")
+        .to_string_lossy();
+    let extension = path
+        .extension()
+        .expect("Invalid output file name")
+        .to_string_lossy();
+    let enumerated_name = format!("{}-{}.{}", stem, suffix, extension);
+    path.with_file_name(enumerated_name)
 }
 
 #[cfg(test)]
@@ -404,5 +736,26 @@ mod tests {
         assert_eq!(config.pitch, Some(40));
         assert_eq!(config.volume, Some(90));
         assert_eq!(config.appended_silence_ms, Some(200));
+    }
+
+    #[test]
+    fn enumerate_output_path_inserts_the_suffix_before_the_extension() {
+        let result = enumerate_output_path(PathBuf::from("out.wav"), 1);
+        assert_eq!(result, PathBuf::from("out-1.wav"));
+    }
+
+    #[test]
+    fn enumerate_output_path_is_cumulative_across_repeated_calls() {
+        // Matches the pre-existing behavior: each call operates on the previous
+        // call's already-suffixed path, so suffixes accumulate rather than replace.
+        let first = enumerate_output_path(PathBuf::from("out.wav"), 1);
+        let second = enumerate_output_path(first, 2);
+        assert_eq!(second, PathBuf::from("out-1-2.wav"));
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid output file name")]
+    fn enumerate_output_path_panics_on_a_path_with_no_extension() {
+        enumerate_output_path(PathBuf::from("noext"), 1);
     }
 }
