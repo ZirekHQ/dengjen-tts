@@ -30,7 +30,7 @@ impl std::str::FromStr for SynthesisMode {
             "lazy" => Ok(Self::Lazy),
             "parallel" => Ok(Self::Parallel),
             "realtime" => Ok(Self::Realtime),
-            unknown => Err(format!("Unknown synthesis mode: `{}`", unknown)),
+            _ => Err(format!("Unknown synthesis mode: `{}`", s)),
         }
     }
 }
