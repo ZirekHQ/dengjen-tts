@@ -52,7 +52,17 @@ for a real reason, not as a bulk sweep.
 
 ## CI gates (`.github/workflows/rust-lint.yml`)
 
-- `clippy` — `cargo clippy --workspace --lib --bins -- -D warnings`.
+- `clippy` — `cargo clippy --workspace --lib --bins -- -D warnings`. Also pipes the same run's
+  `--message-format=json` output through `clippy-sarif`/`sarif-fmt` and uploads it via
+  `github/codeql-action/upload-sarif`. This is what satisfies the repo ruleset's `code_scanning`
+  rule — SonarCloud has no Rust analyzer (see `sonar-project.properties`) so it never scanned
+  `crates/**`, and CodeQL's own Rust support is thinner than clippy's, so clippy's findings are
+  the SARIF source instead of standing up CodeQL.
+- `coverage` — `cargo-llvm-cov` over the same per-crate/feature invocations as `CI.yml`'s `test`
+  job, merged into a Cobertura report and uploaded via `actions/upload-code-coverage`. This is
+  what satisfies the ruleset's `code_coverage` rule, for the same reason: Sonar had no Rust
+  coverage data to feed it. If you change which crates/features `CI.yml`'s `test` job exercises,
+  mirror the change here too, or the coverage numbers silently stop matching what actually ran.
 - `fmt` — `cargo fmt --all -- --check`.
 - `audit` — `rustsec/audit-check` (known-CVE advisories).
 - `deny` — `cargo deny check licenses bans sources` (`deny.toml`: license allowlist covers the
