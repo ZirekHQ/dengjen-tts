@@ -20,8 +20,7 @@ ffi_support::define_box_destructor!(PiperSynthConfig, _internal_libdengjenFreePi
 /// Guards the one-time onnxruntime environment setup so repeated voice loads don't re-init it.
 static INIT_ORT_ENVIRONMENT: Once = Once::new();
 
-/// FFI error codes. These are part of the C ABI (`libdengjen.h`) — callers branch on the
-/// numeric value, so names and values must never change once shipped.
+/// FFI error codes — part of the C ABI (`libdengjen.h`); names and values are frozen.
 pub mod error_codes {
     pub const INVALID_SYNTHESIS_MODE: i32 = 16;
     pub const FAILED_TO_LOAD_RESOURCE: i32 = 17;
@@ -35,16 +34,14 @@ pub mod error_codes {
     pub const UNSUPPORTED_OPERATION: i32 = 25;
 }
 
-/// `SynthesisEvent::event_type` values delivered to a `SpeechSynthesisCallback`. Part of the C
-/// ABI — see `error_codes` for the same stability requirement.
+/// `SynthesisEvent::event_type` values — part of the C ABI, same stability requirement as `error_codes`.
 pub mod synth_event {
     pub const SYNTH_EVENT_SPEECH: i32 = 0;
     pub const SYNTH_EVENT_FINISHED: i32 = 1;
     pub const SYNTH_EVENT_ERROR: i32 = 2;
 }
 
-/// `SynthesisParams::mode` values a caller may request. Part of the C ABI — see `error_codes`
-/// for the same stability requirement.
+/// `SynthesisParams::mode` values — part of the C ABI, same stability requirement as `error_codes`.
 pub mod synth_mode {
     pub const SYNTH_MODE_LAZY: i32 = 0;
     pub const SYNTH_MODE_PARALLEL: i32 = 1;
@@ -52,22 +49,28 @@ pub mod synth_mode {
 }
 
 /// An opaque, loaded voice handed back to C callers as a raw pointer.
-///
-/// Wraps the loaded synthesizer plus a slot tracking the token of whichever realtime synthesis
-/// is currently in flight (if any), so a separate `cancel` call can reach in and cancel it.
 pub struct DengjenVoice {
-    /// `AssertUnwindSafe` because this crosses an `unsafe extern "C"` boundary: a panic must be
-    /// caught there and must not unwind through code holding this reference.
+    /// `AssertUnwindSafe`: this reference crosses an `unsafe extern "C"` boundary where a panic
+    /// must be caught, not unwound through.
     synth: AssertUnwindSafe<Arc<DengjenSpeechSynthesizer>>,
+    /// The cancellation token of whichever realtime synthesis is currently in flight, if any —
+    /// lets a separate `cancel` call reach in and stop it.
     active_cancel_token: Arc<Mutex<Option<CancellationToken>>>,
+}
+
+impl DengjenVoice {
+    /// Pairs an already-shared synthesizer handle with a fresh, empty cancellation slot.
+    fn wrapping(synth: Arc<DengjenSpeechSynthesizer>) -> Self {
+        Self {
+            active_cancel_token: Arc::new(Mutex::new(None)),
+            synth: AssertUnwindSafe(synth),
+        }
+    }
 }
 
 impl From<DengjenSpeechSynthesizer> for DengjenVoice {
     fn from(synthesizer: DengjenSpeechSynthesizer) -> Self {
-        Self {
-            synth: AssertUnwindSafe(Arc::new(synthesizer)),
-            active_cancel_token: Arc::new(Mutex::new(None)),
-        }
+        Self::wrapping(Arc::new(synthesizer))
     }
 }
 
@@ -79,43 +82,47 @@ impl Deref for DengjenVoice {
     }
 }
 
-// Lets callers use a `DengjenVoice` anywhere a reference to something the wrapped synthesizer
-// itself converts to (via its own `AsRef` impls) is expected.
+// A `DengjenVoice` stands in for `&DengjenSpeechSynthesizer` (or anything that in turn converts
+// to) anywhere a caller only needs `T`, without exposing the wrapper's own fields.
 impl<T> AsRef<T> for DengjenVoice
 where
     T: ?Sized,
     <DengjenVoice as Deref>::Target: AsRef<T>,
 {
     fn as_ref(&self) -> &T {
-        self.deref().as_ref()
+        (**self.synth).as_ref()
     }
 }
 
-/// This crate's internal error type: an `error_codes` value paired with a human-readable
-/// message, convertible into the `ExternError` exported functions write to `out_error`.
+/// This crate's internal error type: an `error_codes` value paired with a human-readable message.
 #[derive(Debug)]
 pub struct DengjenFFIError(i32, String);
 
 impl DengjenFFIError {
+    /// Shared constructor the three FFI-boundary-specific errors below route through.
+    fn with_code(code: i32, message: impl Into<String>) -> Self {
+        Self(code, message.into())
+    }
+
     /// A string argument from C was not valid UTF-8.
     fn invalid_utf8() -> Self {
-        Self(
+        Self::with_code(
             error_codes::INVALID_UTF8_SEQUENCE,
-            "input string is not valid UTF-8".to_string(),
+            "input string is not valid UTF-8",
         )
     }
 
     /// A `SynthesisParams::mode` value didn't match any `synth_mode` constant.
     fn invalid_synthesis_mode() -> Self {
-        Self(
+        Self::with_code(
             error_codes::INVALID_SYNTHESIS_MODE,
-            "synthesis mode is not a recognized value".to_string(),
+            "synthesis mode is not a recognized value",
         )
     }
 
     /// A required pointer argument was null. `param_name` identifies which one, for the caller.
     fn null_pointer(param_name: &str) -> Self {
-        Self(
+        Self::with_code(
             error_codes::NULL_POINTER,
             format!("parameter `{param_name}` must not be null"),
         )
@@ -124,23 +131,23 @@ impl DengjenFFIError {
 
 impl From<DengjenError> for DengjenFFIError {
     fn from(error: DengjenError) -> Self {
-        let (code, message) = match error {
-            DengjenError::FailedToLoadResource(message) => {
-                (error_codes::FAILED_TO_LOAD_RESOURCE, message)
-            }
-            DengjenError::PhonemizationError(message) => {
-                (error_codes::PHONEMIZATION_ERROR, message)
-            }
-            DengjenError::InferenceError(message) => (error_codes::INFERENCE_ERROR, message),
-            DengjenError::InvalidConfiguration(message) => {
-                (error_codes::INVALID_CONFIGURATION, message)
-            }
-            DengjenError::UnsupportedOperation(message) => {
-                (error_codes::UNSUPPORTED_OPERATION, message)
-            }
-            DengjenError::OperationError(message) => (error_codes::OPERATION_ERROR, message),
+        // Which `error_codes` constant applies depends only on the variant, not its payload.
+        let code = match &error {
+            DengjenError::FailedToLoadResource(_) => error_codes::FAILED_TO_LOAD_RESOURCE,
+            DengjenError::PhonemizationError(_) => error_codes::PHONEMIZATION_ERROR,
+            DengjenError::InferenceError(_) => error_codes::INFERENCE_ERROR,
+            DengjenError::InvalidConfiguration(_) => error_codes::INVALID_CONFIGURATION,
+            DengjenError::UnsupportedOperation(_) => error_codes::UNSUPPORTED_OPERATION,
+            DengjenError::OperationError(_) => error_codes::OPERATION_ERROR,
         };
-        Self(code, message)
+        // Every variant carries exactly one message string; take it unchanged.
+        let (DengjenError::FailedToLoadResource(message)
+        | DengjenError::PhonemizationError(message)
+        | DengjenError::InferenceError(message)
+        | DengjenError::InvalidConfiguration(message)
+        | DengjenError::UnsupportedOperation(message)
+        | DengjenError::OperationError(message)) = error;
+        Self::with_code(code, message)
     }
 }
 
