@@ -167,29 +167,43 @@ pub struct SynthesisEvent {
 }
 
 impl SynthesisEvent {
+    /// Leaks `bytes`' backing allocation into a raw `(len, pointer)` pair for a C caller to
+    /// read; `libdengjenFreeSynthesisEvent` reclaims it later via the same length.
+    fn leak_bytes(bytes: Vec<u8>) -> (i64, *mut u8) {
+        let boxed: Box<[u8]> = bytes.into_boxed_slice();
+        let len = boxed.len() as i64;
+        let ptr = Box::into_raw(boxed) as *mut u8;
+        (len, ptr)
+    }
+
     fn with_speech(speech: Vec<u8>) -> Self {
-        let mut buf = speech.into_boxed_slice();
-        let data = buf.as_mut_ptr();
-        let len = buf.len();
-        std::mem::forget(buf);
+        let (len, data) = Self::leak_bytes(speech);
         Self {
             event_type: synth_event::SYNTH_EVENT_SPEECH,
             error_ptr: std::ptr::null_mut(),
-            len: len as i64,
+            len,
             data,
         }
     }
+
     fn with_error(error: impl Into<ExternError>) -> Self {
-        let mut event = Self::with_speech(Vec::with_capacity(0));
-        event.event_type = synth_event::SYNTH_EVENT_ERROR;
-        event.error_ptr = Box::into_raw(Box::new(error.into()));
-        event
+        let (len, data) = Self::leak_bytes(Vec::new());
+        Self {
+            event_type: synth_event::SYNTH_EVENT_ERROR,
+            error_ptr: Box::into_raw(Box::new(error.into())),
+            len,
+            data,
+        }
     }
+
     fn with_finished() -> Self {
-        let mut event = Self::with_speech(Vec::with_capacity(0));
-        event.event_type = synth_event::SYNTH_EVENT_FINISHED;
-        event.error_ptr = std::ptr::null_mut();
-        event
+        let (len, data) = Self::leak_bytes(Vec::new());
+        Self {
+            event_type: synth_event::SYNTH_EVENT_FINISHED,
+            error_ptr: std::ptr::null_mut(),
+            len,
+            data,
+        }
     }
 }
 
@@ -214,11 +228,18 @@ pub struct SynthesisParams {
 
 impl SynthesisParams {
     fn as_synth_output_config(&self) -> AudioOutputConfig {
+        let &Self {
+            rate,
+            volume,
+            pitch,
+            appended_silence_ms,
+            ..
+        } = self;
         AudioOutputConfig {
-            rate: Some(self.rate),
-            volume: Some(self.volume),
-            pitch: Some(self.pitch),
-            appended_silence_ms: Some(self.appended_silence_ms),
+            appended_silence_ms: Some(appended_silence_ms),
+            pitch: Some(pitch),
+            rate: Some(rate),
+            volume: Some(volume),
         }
     }
 }
@@ -233,11 +254,17 @@ pub struct PiperSynthConfig {
 
 impl PiperSynthConfig {
     fn as_piper_synth_config(&self) -> dengjen_tts_piper::PiperSynthesisConfig {
+        let &Self {
+            speaker,
+            length_scale,
+            noise_scale,
+            noise_w,
+        } = self;
         dengjen_tts_piper::PiperSynthesisConfig {
-            speaker: Some(self.speaker.into()),
-            noise_scale: self.noise_scale,
-            length_scale: self.length_scale,
-            noise_w: self.noise_w,
+            speaker: Some(i64::from(speaker)),
+            length_scale,
+            noise_scale,
+            noise_w,
         }
     }
 }
@@ -828,5 +855,112 @@ mod tests {
             let ffi_err: DengjenFFIError = err.into();
             assert_eq!(ffi_err.0, expected_code);
         }
+    }
+}
+
+#[cfg(test)]
+mod abi_struct_tests {
+    use super::*;
+
+    #[test]
+    fn synthesis_event_with_speech_carries_the_pcm_bytes_and_a_null_error_pointer() {
+        let event = SynthesisEvent::with_speech(vec![1, 2, 3, 4]);
+
+        assert_eq!(event.event_type, synth_event::SYNTH_EVENT_SPEECH);
+        assert!(event.error_ptr.is_null());
+        assert_eq!(event.len, 4);
+        // SAFETY: `event.data`/`event.len` were just produced by `with_speech` from a
+        // 4-byte `Vec`, so the pointer is valid for exactly that many reads.
+        let bytes = unsafe { std::slice::from_raw_parts(event.data, event.len as usize) };
+        assert_eq!(bytes, &[1, 2, 3, 4]);
+
+        // SAFETY: `event` came from `with_speech`, one of the constructors
+        // `libdengjenFreeSynthesisEvent`'s `# Safety` doc covers; `error_ptr` is
+        // null on this path so there's no message to leak.
+        unsafe { libdengjenFreeSynthesisEvent(event) };
+    }
+
+    #[test]
+    fn synthesis_event_with_error_carries_a_non_null_error_pointer_and_empty_data() {
+        let event = SynthesisEvent::with_error(DengjenFFIError::invalid_utf8());
+
+        assert_eq!(event.event_type, synth_event::SYNTH_EVENT_ERROR);
+        assert!(!event.error_ptr.is_null());
+        assert_eq!(event.len, 0);
+
+        // SAFETY: `error_ptr` was produced by `Box::into_raw` inside `with_error`
+        // and hasn't been freed yet; reclaiming ownership here lets us call
+        // `manually_release()` (it consumes `self`) on the message before the box
+        // itself is dropped. `libdengjenFreeSynthesisEvent` does NOT do this — a
+        // pre-existing gap in the shipped function that leaks the message on every
+        // real synthesis-error event, out of scope to fix in this rewrite (see the
+        // plan's Global Constraints) — so calling that function directly here
+        // would leak the message under this crate's ASan CI gate.
+        let boxed_error = unsafe { Box::from_raw(event.error_ptr) };
+        assert_eq!(
+            boxed_error.get_code().code(),
+            error_codes::INVALID_UTF8_SEQUENCE
+        );
+        unsafe { boxed_error.manually_release() };
+
+        // SAFETY: `event.data`/`event.len` were produced by `leak_bytes(Vec::new())` inside
+        // `with_error` via `Box::into_raw` and haven't been freed yet.
+        unsafe {
+            let s = std::slice::from_raw_parts_mut(event.data, event.len as usize);
+            drop(Box::from_raw(s as *mut [u8]));
+        }
+    }
+
+    #[test]
+    fn synthesis_event_with_finished_carries_a_null_error_pointer_and_empty_data() {
+        let event = SynthesisEvent::with_finished();
+
+        assert_eq!(event.event_type, synth_event::SYNTH_EVENT_FINISHED);
+        assert!(event.error_ptr.is_null());
+        assert_eq!(event.len, 0);
+
+        // SAFETY: see `synthesis_event_with_speech_...` above — same shape, no error to leak.
+        unsafe { libdengjenFreeSynthesisEvent(event) };
+    }
+
+    extern "C" fn noop_callback(_event: SynthesisEvent) -> u8 {
+        0
+    }
+
+    #[test]
+    fn as_synth_output_config_carries_over_all_fields() {
+        let params = SynthesisParams {
+            mode: synth_mode::SYNTH_MODE_LAZY,
+            rate: 60,
+            volume: 80,
+            pitch: 40,
+            appended_silence_ms: 250,
+            callback: noop_callback,
+            nonblocking: 0,
+        };
+
+        let config = params.as_synth_output_config();
+
+        assert_eq!(config.rate, Some(60));
+        assert_eq!(config.volume, Some(80));
+        assert_eq!(config.pitch, Some(40));
+        assert_eq!(config.appended_silence_ms, Some(250));
+    }
+
+    #[test]
+    fn as_piper_synth_config_carries_over_speaker_and_synthesis_tuning_fields() {
+        let synth_config = PiperSynthConfig {
+            speaker: 3,
+            length_scale: 1.2,
+            noise_scale: 0.5,
+            noise_w: 0.9,
+        };
+
+        let piper_config = synth_config.as_piper_synth_config();
+
+        assert_eq!(piper_config.speaker, Some(3));
+        assert_eq!(piper_config.length_scale, 1.2);
+        assert_eq!(piper_config.noise_scale, 0.5);
+        assert_eq!(piper_config.noise_w, 0.9);
     }
 }
