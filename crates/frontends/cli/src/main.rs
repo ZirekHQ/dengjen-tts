@@ -99,25 +99,11 @@ struct SynthesisRequest {
 
 impl SynthesisRequest {
     fn as_piper_synth_config(&self, default_config: &PiperSynthesisConfig) -> PiperSynthesisConfig {
-        let speaker = self.speaker_id.map(|id| id as i64);
-        let length_scale = match self.length_scale {
-            Some(v) => v,
-            None => default_config.length_scale,
-        };
-        let noise_scale = match self.noise_scale {
-            Some(v) => v,
-            None => default_config.noise_scale,
-        };
-        let noise_w = match self.noise_w {
-            Some(v) => v,
-            None => default_config.noise_w,
-        };
-
         PiperSynthesisConfig {
-            speaker,
-            length_scale,
-            noise_scale,
-            noise_w,
+            speaker: self.speaker_id.map(i64::from),
+            length_scale: self.length_scale.unwrap_or(default_config.length_scale),
+            noise_scale: self.noise_scale.unwrap_or(default_config.noise_scale),
+            noise_w: self.noise_w.unwrap_or(default_config.noise_w),
         }
     }
 
@@ -446,6 +432,30 @@ mod synthesis_processing_tests {
     }
 
     #[test]
+    fn process_synthesis_request_warns_but_still_writes_to_file_when_mode_is_also_set() {
+        let synth = fake_synth();
+        let dir = std::env::temp_dir().join(format!("dengjen-tts-cli-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("process_synthesis_request_warns_but_still_writes_to_file.wav");
+        let args = cli_with_output_file(Some(path.clone()));
+        let req = SynthesisRequest {
+            text: "hello".to_string(),
+            mode: Some(SynthesisMode::Lazy), // triggers the log::warn! branch
+            ..Default::default()
+        };
+        let mut buffer: Vec<u8> = Vec::new();
+
+        process_synthesis_request(&args, &synth, &default_config(), req, &mut buffer).unwrap();
+
+        assert!(path.exists());
+        assert!(
+            buffer.is_empty(),
+            "output-file mode must not also write to the writer, even when mode is set"
+        );
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
     fn consume_stream_stops_at_the_first_error_without_writing_further_chunks() {
         let stream: Vec<DengjenResult<AudioSamples>> = vec![
             Ok(AudioSamples::new(vec![0.0, 0.5])),
@@ -726,5 +736,26 @@ mod tests {
         assert_eq!(config.pitch, Some(40));
         assert_eq!(config.volume, Some(90));
         assert_eq!(config.appended_silence_ms, Some(200));
+    }
+
+    #[test]
+    fn enumerate_output_path_inserts_the_suffix_before_the_extension() {
+        let result = enumerate_output_path(PathBuf::from("out.wav"), 1);
+        assert_eq!(result, PathBuf::from("out-1.wav"));
+    }
+
+    #[test]
+    fn enumerate_output_path_is_cumulative_across_repeated_calls() {
+        // Matches the pre-existing behavior: each call operates on the previous
+        // call's already-suffixed path, so suffixes accumulate rather than replace.
+        let first = enumerate_output_path(PathBuf::from("out.wav"), 1);
+        let second = enumerate_output_path(first, 2);
+        assert_eq!(second, PathBuf::from("out-1-2.wav"));
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid output file name")]
+    fn enumerate_output_path_panics_on_a_path_with_no_extension() {
+        enumerate_output_path(PathBuf::from("noext"), 1);
     }
 }
