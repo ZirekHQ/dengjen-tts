@@ -543,66 +543,113 @@ fn main() -> anyhow::Result<()> {
     enable_logging();
     init_ort_environment();
 
-    let mut args = Cli::parse();
+    let mut cli = Cli::parse();
+    let synthesizer = build_synthesizer(&cli.config)?;
+    let default_synth_config = resolve_default_synthesis_config(&synthesizer)?;
 
-    let synth = {
-        let voice = load_voice(&args.config)?;
-        DengjenSpeechSynthesizer::new(voice)?
-    };
-    log::info!("Using model config: `{}`", args.config.display());
+    if let Some(input_path) = cli.input_file.take() {
+        return synthesize_from_file(&cli, &input_path, &synthesizer, &default_synth_config);
+    }
+    synthesize_from_stdin_forever(cli, &synthesizer, &default_synth_config)
+}
+
+fn build_synthesizer(config_path: &std::path::Path) -> anyhow::Result<DengjenSpeechSynthesizer> {
+    let voice = load_voice(config_path)?;
+    let synthesizer = DengjenSpeechSynthesizer::new(voice)?;
+    log::info!("Using model config: `{}`", config_path.display());
+    Ok(synthesizer)
+}
+
+fn resolve_default_synthesis_config(
+    synthesizer: &DengjenSpeechSynthesizer,
+) -> anyhow::Result<PiperSynthesisConfig> {
     // Non-Piper backends (e.g. Kokoro) return SynthesisConfig::None here; their
     // set_fallback_synthesis_config ignores whatever default we pass, so this
     // default is inert for them.
-    let default_synth_config: PiperSynthesisConfig = match synth.get_default_synthesis_config()? {
+    Ok(match synthesizer.get_default_synthesis_config()? {
         SynthesisConfig::Piper(cfg) => cfg,
         SynthesisConfig::None => PiperSynthesisConfig::default(),
-    };
-    if let Some(ref input_filename) = args.input_file {
-        let mut input_buffer = String::new();
-        let mut file = File::open(input_filename)?;
-        file.read_to_string(&mut input_buffer)?;
-        let req = SynthesisRequest {
-            text: input_buffer,
-            mode: args.mode.clone(),
-            speaker_id: args.speaker_id,
-            length_scale: args.length_scale,
-            noise_scale: args.noise_scale,
-            noise_w: args.noise_w,
-            rate: args.rate,
-            volume: args.volume,
-            pitch: args.pitch,
-            appended_silence_ms: args.silence,
-            chunk_size: args.chunk_size,
-            chunk_padding: args.chunk_padding,
-        };
-        process_synthesis_request(&args, &synth, &default_synth_config, req)?;
-    } else {
-        for i in 0.. {
-            args.output_file = args.output_file.map(|file| {
-                let enumerated_filename = format!(
-                    "{}-{}.{}",
-                    file.file_stem()
-                        .expect("Invalid output file name")
-                        .to_string_lossy(),
-                    i + 1,
-                    file.extension()
-                        .expect("Invalid output file name")
-                        .to_string_lossy()
-                );
-                file.with_file_name(enumerated_filename)
-            });
-            match get_synthesis_request_from_stdin() {
-                Ok(req) => {
-                    process_synthesis_request(&args, &synth, &default_synth_config, req)?;
-                    if let Some(ref file) = args.output_file {
-                        log::info!("Wrote output to file: {}", file.display());
-                    }
+    })
+}
+
+fn synthesis_request_from_cli(cli: &Cli, text: String) -> SynthesisRequest {
+    SynthesisRequest {
+        text,
+        mode: cli.mode.clone(),
+        speaker_id: cli.speaker_id,
+        length_scale: cli.length_scale,
+        noise_scale: cli.noise_scale,
+        noise_w: cli.noise_w,
+        rate: cli.rate,
+        pitch: cli.pitch,
+        volume: cli.volume,
+        appended_silence_ms: cli.silence,
+        chunk_size: cli.chunk_size,
+        chunk_padding: cli.chunk_padding,
+    }
+}
+
+fn synthesize_from_file(
+    cli: &Cli,
+    input_path: &std::path::Path,
+    synthesizer: &DengjenSpeechSynthesizer,
+    default_synth_config: &PiperSynthesisConfig,
+) -> anyhow::Result<()> {
+    let mut file = File::open(input_path)?;
+    let mut text = String::new();
+    file.read_to_string(&mut text)?;
+    let request = synthesis_request_from_cli(cli, text);
+    process_synthesis_request(
+        cli,
+        synthesizer,
+        default_synth_config,
+        request,
+        &mut io::stdout().lock(),
+    )
+}
+
+fn synthesize_from_stdin_forever(
+    mut cli: Cli,
+    synthesizer: &DengjenSpeechSynthesizer,
+    default_synth_config: &PiperSynthesisConfig,
+) -> anyhow::Result<()> {
+    let mut request_count: u64 = 0;
+    loop {
+        request_count += 1;
+        cli.output_file = cli
+            .output_file
+            .take()
+            .map(|path| enumerate_output_path(path, request_count));
+
+        match get_synthesis_request_from_stdin() {
+            Ok(request) => {
+                process_synthesis_request(
+                    &cli,
+                    synthesizer,
+                    default_synth_config,
+                    request,
+                    &mut io::stdout().lock(),
+                )?;
+                if let Some(output_path) = &cli.output_file {
+                    log::info!("Wrote output to file: {}", output_path.display());
                 }
-                Err(e) => log::error!("Invalid json input. Error: {}", e),
-            };
+            }
+            Err(err) => log::error!("Invalid json input. Error: {}", err),
         }
     }
-    Ok(())
+}
+
+fn enumerate_output_path(path: PathBuf, suffix: u64) -> PathBuf {
+    let stem = path
+        .file_stem()
+        .expect("Invalid output file name")
+        .to_string_lossy();
+    let extension = path
+        .extension()
+        .expect("Invalid output file name")
+        .to_string_lossy();
+    let enumerated_name = format!("{}-{}.{}", stem, suffix, extension);
+    path.with_file_name(enumerated_name)
 }
 
 #[cfg(test)]
