@@ -260,27 +260,6 @@ impl PyRealtimeSpeechStream {
     }
 }
 
-#[cfg(test)]
-mod stream_wrapper_tests {
-    use super::*;
-
-    #[test]
-    fn lazy_speech_stream_wraps_and_exposes_the_inner_iterator() {
-        // DengjenSpeechStreamLazy has no public constructor reachable without a
-        // real DengjenModel (Task 4 exercises construction via Dengjen::synthesize_lazy
-        // against a FakeModel and drains `.0` directly the same way this test does).
-        // This test only proves the wrapper struct is a transparent, zero-logic
-        // newtype: the `From` impl must not alter identity-comparable state.
-        // (Left intentionally thin — see Task 4's
-        // `dengjen_synthesize_lazy_produces_a_stream_whose_inner_iterator_yields_the_fake_models_audio`
-        // for the real behavioral coverage of this wrapper.)
-        assert!(
-            std::mem::size_of::<LazySpeechStream>()
-                == std::mem::size_of::<DengjenSpeechStreamLazy>()
-        );
-    }
-}
-
 #[pyclass(weakref, module = "pydengjen")]
 struct PiperScales {
     #[allow(dead_code)]
@@ -582,10 +561,10 @@ fn diacritize_text(_text: &str) -> PyResult<std::borrow::Cow<'_, str>> {
 }
 
 /// Converts `text` into a phoneme sequence for `language`, diacritizing first
-/// when the language/flag combination calls for it. This is the function
-/// `Dengjen::synthesize*` drives internally via the model's phonemization
-/// step, and it's also exposed directly to Python callers who just want the
-/// phoneme breakdown without running full synthesis.
+/// when the language/flag combination calls for it. Exposed directly to
+/// Python callers who want the phoneme breakdown without running full
+/// synthesis; `Dengjen::synthesize*` does not call this function — it drives
+/// its own, separate phonemization path inside the loaded model.
 #[cfg(feature = "espeak")]
 #[pyfunction]
 pub fn phonemize_text(
@@ -674,22 +653,18 @@ mod error_plumbing_tests {
 /// A fast, local neural text-to-speech engine
 #[pymodule]
 fn pydengjen(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    // Core synthesis types: top-level API and model interaction
     m.add_class::<Dengjen>()?;
     m.add_class::<PiperModel>()?;
     m.add_class::<PiperScales>()?;
     m.add_class::<PyAudioOutputConfig>()?;
     m.add_class::<WaveSamples>()?;
 
-    // Stream types: different synthesis strategies exposed via Python iterator protocol
     m.add_class::<LazySpeechStream>()?;
     m.add_class::<ParallelSpeechStream>()?;
     m.add_class::<PyRealtimeSpeechStream>()?;
 
-    // Error handling: the exception type for all Dengjen failures
     m.add("DengjenException", m.py().get_type::<DengjenException>())?;
 
-    // Optional text phonemization (requires espeak feature)
     #[cfg(feature = "espeak")]
     m.add_function(wrap_pyfunction!(phonemize_text, m)?)?;
 
@@ -843,6 +818,12 @@ mod model_and_synthesizer_tests {
     #[test]
     fn piper_model_get_speaker_returns_none_for_a_piper_config_with_no_speaker_set() {
         let model = PiperModel(Arc::new(FakeModel::with_speaker_unset()));
+        assert_eq!(model.get_speaker().unwrap(), None);
+    }
+
+    #[test]
+    fn piper_model_get_speaker_returns_none_when_there_is_no_synthesis_config() {
+        let model = PiperModel(Arc::new(FakeModel::with_no_config()));
         assert_eq!(model.get_speaker().unwrap(), None);
     }
 

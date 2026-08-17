@@ -1,5 +1,5 @@
 import os
-from dengjen import Dengjen, PiperModel, AudioOutputConfig
+from pydengjen import Dengjen, PiperModel, AudioOutputConfig
 
 
 MODEL_PATH = "../dengjen/synth/models/rt/config.json"
@@ -32,6 +32,16 @@ def main():
     )
     for audio in stream:
         print(f"Chunk len in bytes: {len(audio)}")
+
+    lazy_stream = synth.synthesize_lazy("\n".join(SENTENCES))
+    for wave_samples in lazy_stream:
+        wave_bytes = wave_samples.get_wave_bytes()
+        print(f"Lazy chunk len in bytes: {len(wave_bytes)}")
+
+    parallel_stream = synth.synthesize_parallel("\n".join(SENTENCES))
+    for wave_samples in parallel_stream:
+        wave_bytes = wave_samples.get_wave_bytes()
+        print(f"Parallel chunk len in bytes: {len(wave_bytes)}")
 
 
 if __name__ == "__main__":
