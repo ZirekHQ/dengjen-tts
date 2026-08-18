@@ -122,10 +122,13 @@ fn enable_logging() {
     env_logger::Builder::from_env(env).init();
 }
 
-fn get_synthesis_request_from_stdin() -> anyhow::Result<SynthesisRequest> {
+fn get_synthesis_request_from_stdin() -> anyhow::Result<Option<SynthesisRequest>> {
     let mut line = String::new();
-    io::stdin().read_line(&mut line)?;
-    Ok(serde_json::from_str(&line)?)
+    let bytes_read = io::stdin().read_line(&mut line)?;
+    if bytes_read == 0 {
+        return Ok(None);
+    }
+    Ok(Some(serde_json::from_str(&line)?))
 }
 
 fn process_synthesis_request<W: Write>(
@@ -632,7 +635,7 @@ fn synthesize_from_stdin_forever(
             .map(|path| enumerate_output_path(path, request_count));
 
         match get_synthesis_request_from_stdin() {
-            Ok(request) => {
+            Ok(Some(request)) => {
                 process_synthesis_request(
                     &cli,
                     synthesizer,
@@ -643,6 +646,10 @@ fn synthesize_from_stdin_forever(
                 if let Some(output_path) = &cli.output_file {
                     log::info!("Wrote output to file: {}", output_path.display());
                 }
+            }
+            Ok(None) => {
+                log::info!("stdin closed, exiting");
+                return Ok(());
             }
             Err(err) => log::error!("Invalid json input. Error: {}", err),
         }

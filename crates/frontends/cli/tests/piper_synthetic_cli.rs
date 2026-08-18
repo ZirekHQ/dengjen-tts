@@ -1,5 +1,6 @@
+use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 
 // Safety net for the Piper clean-room rewrite (Task 11 of the model-backends
 // rewrite plan): drives the real `dengjen` binary against synthetic
@@ -236,6 +237,84 @@ fn cli_streams_realtime_synthesis_from_a_synthetic_piper_voice() {
         chunked_output.stdout, one_shot_output.stdout,
         "chunked (--chunk-size 20) and one-shot (--chunk-size 100) streaming runs produced \
          byte-identical output; the decoder fixture should make these paths distinguishable"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn cli_synthesizes_from_a_stdin_json_request_and_exits_cleanly_on_eof() {
+    // The only path with no CLI-level coverage before this test: when `-f` is
+    // omitted, `main` calls `synthesize_from_stdin_forever`, which reads one
+    // newline-delimited JSON `SynthesisRequest` per loop iteration straight
+    // from stdin, not from `-f`/CLI flags. `mode`/`chunk_size`/`chunk_padding`
+    // therefore have to come from the JSON body itself, unlike the `-f` path
+    // where they come from CLI args via `synthesis_request_from_cli`.
+    //
+    // This is also a regression test for a busy-spin bug (see issue #58):
+    // closing stdin after the one request used to make
+    // `get_synthesis_request_from_stdin` treat EOF the same as a JSON parse
+    // error and retry immediately without blocking, pegging a CPU core
+    // forever instead of exiting.
+    let dir = std::env::temp_dir().join("dengjen_cli_piper_synthetic_stdin_test");
+    std::fs::remove_dir_all(&dir).ok();
+    std::fs::create_dir_all(&dir).unwrap();
+    let config_path = write_streaming_config(&dir);
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_dengjen"))
+        .arg(&config_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn the dengjen binary");
+
+    let mut child_stdin = child.stdin.take().expect("child stdin was not piped");
+    // chunk_size=100 falls into the one-shot branch (see run_streaming's
+    // comment above), matching EXPECTED_STREAM_PCM_BYTES exactly.
+    writeln!(
+        child_stdin,
+        r#"{{"text": "test", "mode": "Realtime", "chunk_size": 100, "chunk_padding": 3}}"#
+    )
+    .expect("failed to write the JSON request to the CLI's stdin");
+
+    let mut stdout = child.stdout.take().expect("child stdout was not piped");
+    let mut pcm = vec![0u8; EXPECTED_STREAM_PCM_BYTES];
+    stdout
+        .read_exact(&mut pcm)
+        .expect("expected the CLI to write the synthesized PCM bytes to stdout");
+
+    drop(child_stdin);
+
+    // Poll with `try_wait` (bounded, non-blocking) instead of
+    // `wait_with_output` (unbounded): if the busy-spin bug ever comes back,
+    // this fails fast with a clear message instead of hanging the test suite.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let status = loop {
+        if let Some(status) = child.try_wait().expect("failed to poll the CLI") {
+            break status;
+        }
+        if std::time::Instant::now() >= deadline {
+            child.kill().ok();
+            child.wait().ok();
+            panic!(
+                "CLI did not exit within 10s of stdin EOF \
+                 (busy-spin regression? see issue #58)"
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
+
+    let mut stderr = String::new();
+    child
+        .stderr
+        .take()
+        .expect("child stderr was not piped")
+        .read_to_string(&mut stderr)
+        .ok();
+    assert!(
+        status.success(),
+        "CLI exited with failure on stdin EOF: stderr={stderr}"
     );
 
     std::fs::remove_dir_all(&dir).ok();
