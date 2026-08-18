@@ -13,15 +13,21 @@ use std::sync::Mutex;
 
 pub type ESpeakResult<T> = Result<T, ESpeakError>;
 
+// Bitmasks eSpeak-ng writes into the `terminator` out-parameter of
+// `espeak_TextToPhonemesWithTerminator`. The low nibble, isolated by masking with
+// `0x0000F000`, identifies which punctuation ended the current clause; `CLAUSE_TYPE_SENTENCE`
+// is a separate bit flagging whether that clause also completed a full sentence.
 const CLAUSE_INTONATION_FULL_STOP: i32 = 0x00000000;
 const CLAUSE_INTONATION_COMMA: i32 = 0x00001000;
 const CLAUSE_INTONATION_QUESTION: i32 = 0x00002000;
 const CLAUSE_INTONATION_EXCLAMATION: i32 = 0x00003000;
 const CLAUSE_TYPE_SENTENCE: i32 = 0x00080000;
-/// Name of the environment variable that points to the directory that contains `espeak-ng-data` directory
-/// only needed if `espeak-ng-data` directory is not in the expected location (i.e. eSpeak-ng is not installed system wide)
+
+/// Environment variable naming the directory that holds `espeak-ng-data`. Set this only when
+/// eSpeak-ng's data files aren't in the default system-wide install location.
 const DENGJEN_ESPEAKNG_DATA_DIRECTORY: &str = "DENGJEN_ESPEAKNG_DATA_DIRECTORY";
 
+/// A plain-text error message surfaced from a failing eSpeak-ng call.
 #[derive(Debug, Clone)]
 pub struct ESpeakError(pub String);
 
@@ -33,14 +39,20 @@ impl fmt::Display for ESpeakError {
     }
 }
 
+// Matches the parenthesized language-switch annotations eSpeak-ng inserts into phoneme output
+// when it detects a mid-utterance language change, e.g. `(en)`.
 static LANG_SWITCH_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r"\([^)]*\)").unwrap());
+// Matches eSpeak-ng's two IPA stress markers: `ˈ` (primary) and `ˌ` (secondary).
 static STRESS_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r"[ˈˌ]").unwrap());
+// Runs eSpeak-ng's one-time global setup on first access and caches whatever it returns.
 static ESPEAKNG_INIT: Lazy<ESpeakResult<()>> = Lazy::new(init_espeakng);
+// eSpeak-ng's C API is not reentrant; every call into it must be made while holding this lock.
 static ESPEAK_LOCK: Mutex<()> = Mutex::new(());
-// eSpeak-ng keeps referencing the data-path string for as long as it's initialized (the whole
-// process lifetime), so the CString must outlive `init_espeakng`. Owning it here — rather than
-// leaking a bare pointer via `into_raw` with nothing left to hold it — keeps it reachable from a
-// GC root, so LeakSanitizer doesn't (correctly) flag it as an unreachable leak.
+// Owns the resolved data-directory `CString` for as long as eSpeak-ng stays initialized, i.e.
+// for the rest of the process's life: eSpeak-ng retains a raw pointer into this string past
+// the return of `init_espeakng`, so the `CString` backing it must outlive that call. Keeping it
+// alive in a `static`, rather than leaking a bare pointer via `into_raw` with nothing left to
+// reference it, keeps the allocation reachable so LeakSanitizer doesn't flag it as leaked.
 static ESPEAKNG_DATA_PATH: Mutex<Option<CString>> = Mutex::new(None);
 
 fn init_espeakng() -> ESpeakResult<()> {
@@ -330,5 +342,11 @@ mod tests {
         for handle in handles {
             handle.join().expect("worker thread panicked");
         }
+    }
+
+    #[test]
+    fn espeak_error_display_includes_the_message() {
+        let err = ESpeakError("boom".to_string());
+        assert_eq!(err.to_string(), "eSpeak-ng Error :boom");
     }
 }
