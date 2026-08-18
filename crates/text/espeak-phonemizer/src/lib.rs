@@ -13,15 +13,21 @@ use std::sync::Mutex;
 
 pub type ESpeakResult<T> = Result<T, ESpeakError>;
 
+// Bitmasks eSpeak-ng writes into the `terminator` out-parameter of
+// `espeak_TextToPhonemesWithTerminator`. The low nibble, isolated by masking with
+// `0x0000F000`, identifies which punctuation ended the current clause; `CLAUSE_TYPE_SENTENCE`
+// is a separate bit flagging whether that clause also completed a full sentence.
 const CLAUSE_INTONATION_FULL_STOP: i32 = 0x00000000;
 const CLAUSE_INTONATION_COMMA: i32 = 0x00001000;
 const CLAUSE_INTONATION_QUESTION: i32 = 0x00002000;
 const CLAUSE_INTONATION_EXCLAMATION: i32 = 0x00003000;
 const CLAUSE_TYPE_SENTENCE: i32 = 0x00080000;
-/// Name of the environment variable that points to the directory that contains `espeak-ng-data` directory
-/// only needed if `espeak-ng-data` directory is not in the expected location (i.e. eSpeak-ng is not installed system wide)
+
+/// Environment variable naming the directory that holds `espeak-ng-data`. Set this only when
+/// eSpeak-ng's data files aren't in the default system-wide install location.
 const DENGJEN_ESPEAKNG_DATA_DIRECTORY: &str = "DENGJEN_ESPEAKNG_DATA_DIRECTORY";
 
+/// A plain-text error message surfaced from a failing eSpeak-ng call.
 #[derive(Debug, Clone)]
 pub struct ESpeakError(pub String);
 
@@ -33,55 +39,80 @@ impl fmt::Display for ESpeakError {
     }
 }
 
+// Matches the parenthesized language-switch annotations eSpeak-ng inserts into phoneme output
+// when it detects a mid-utterance language change, e.g. `(en)`.
 static LANG_SWITCH_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r"\([^)]*\)").unwrap());
+// Matches eSpeak-ng's two IPA stress markers: `ˈ` (primary) and `ˌ` (secondary).
 static STRESS_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r"[ˈˌ]").unwrap());
+// Runs eSpeak-ng's one-time global setup on first access and caches whatever it returns.
 static ESPEAKNG_INIT: Lazy<ESpeakResult<()>> = Lazy::new(init_espeakng);
+// eSpeak-ng's C API is not reentrant; every call into it must be made while holding this lock.
 static ESPEAK_LOCK: Mutex<()> = Mutex::new(());
-// eSpeak-ng keeps referencing the data-path string for as long as it's initialized (the whole
-// process lifetime), so the CString must outlive `init_espeakng`. Owning it here — rather than
-// leaking a bare pointer via `into_raw` with nothing left to hold it — keeps it reachable from a
-// GC root, so LeakSanitizer doesn't (correctly) flag it as an unreachable leak.
+// Owns the resolved data-directory `CString` for as long as eSpeak-ng stays initialized, i.e.
+// for the rest of the process's life: eSpeak-ng retains a raw pointer into this string past
+// the return of `init_espeakng`, so the `CString` backing it must outlive that call. Keeping it
+// alive in a `static`, rather than leaking a bare pointer via `into_raw` with nothing left to
+// reference it, keeps the allocation reachable so LeakSanitizer doesn't flag it as leaked.
 static ESPEAKNG_DATA_PATH: Mutex<Option<CString>> = Mutex::new(None);
 
-fn init_espeakng() -> ESpeakResult<()> {
-    let data_dir = match env::var(DENGJEN_ESPEAKNG_DATA_DIRECTORY) {
-        Ok(directory) => PathBuf::from(directory),
+/// Evidence that its holder has acquired [`ESPEAK_LOCK`]. Every helper that calls into
+/// eSpeak-ng takes one, because those calls are only sound while the lock is held.
+type ESpeakLock<'a> = std::sync::MutexGuard<'a, ()>;
+
+/// The directory to hand eSpeak-ng as its data root, or `None` to leave it on its own
+/// compiled-in search path.
+fn resolve_data_directory() -> Option<CString> {
+    let base = match env::var(DENGJEN_ESPEAKNG_DATA_DIRECTORY) {
+        Ok(configured) => PathBuf::from(configured),
         Err(_) => env::current_exe().unwrap().parent().unwrap().to_path_buf(),
     };
-    let es_data_path_ptr = if data_dir.join("espeak-ng-data").exists() {
-        let path = CString::new(data_dir.display().to_string())
-            .expect("Error: Rust string contained an interior null byte.");
-        let ptr = path.as_ptr();
-        *ESPEAKNG_DATA_PATH.lock().unwrap_or_else(|e| e.into_inner()) = Some(path);
-        ptr
-    } else {
-        std::ptr::null()
-    };
-    // SAFETY: `es_data_path_ptr` is either null or a valid, NUL-terminated pointer into the
-    // `CString` now owned by `ESPEAKNG_DATA_PATH`, which outlives this call. This runs inside
-    // the `ESPEAKNG_INIT` `Lazy`, so eSpeak-ng's global state cannot be touched by another call
-    // concurrently with this one.
-    let es_sample_rate = unsafe {
+    if !base.join("espeak-ng-data").exists() {
+        return None;
+    }
+    Some(
+        CString::new(base.display().to_string())
+            .expect("Error: the resolved data directory path holds an interior NUL byte."),
+    )
+}
+
+fn init_espeakng() -> ESpeakResult<()> {
+    let mut data_path = ESPEAKNG_DATA_PATH
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *data_path = resolve_data_directory();
+    let data_path_ptr = data_path
+        .as_ref()
+        .map_or(std::ptr::null(), |path| path.as_ptr());
+
+    // SAFETY: `data_path_ptr` is either null or the NUL-terminated buffer of the `CString` that
+    // `ESPEAKNG_DATA_PATH` now owns. eSpeak-ng keeps reading through that pointer after this
+    // call returns, and this function runs exactly once — the `ESPEAKNG_INIT` `Lazy` is its
+    // only caller — so that `CString` is never replaced or dropped and its buffer stays valid
+    // for the rest of the process. Being the `Lazy`'s initializer also means no other thread is
+    // inside eSpeak-ng's global setup at the same time.
+    let sample_rate = unsafe {
         espeakng::espeak_Initialize(
             espeakng::espeak_AUDIO_OUTPUT_AUDIO_OUTPUT_RETRIEVAL,
             0,
-            es_data_path_ptr,
-            espeakng::espeakINITIALIZE_DONT_EXIT as i32,
+            data_path_ptr,
+            espeakng::espeakINITIALIZE_DONT_EXIT as ffi::c_int,
         )
     };
-    if es_sample_rate <= 0 {
-        Err(ESpeakError(format!(
-            "Failed to initialize eSpeak-ng. Try setting `{}` environment variable to the directory that contains the `espeak-ng-data` directory. Error code: `{}`",
-            DENGJEN_ESPEAKNG_DATA_DIRECTORY,
-            es_sample_rate
-        )))
-    } else {
-        Ok(())
+
+    if sample_rate > 0 {
+        return Ok(());
     }
+    // Crates downstream match on the literal `Failed to initialize eSpeak-ng` to tell a missing
+    // `espeak-ng-data` install apart from a real fault; keep that substring intact.
+    Err(ESpeakError(format!(
+        "Failed to initialize eSpeak-ng, error code `{sample_rate}`. If its data files are \
+         installed somewhere non-standard, point `{DENGJEN_ESPEAKNG_DATA_DIRECTORY}` at the \
+         directory that holds `espeak-ng-data`."
+    )))
 }
 
 fn clause_break_suffix(terminator: ffi::c_int) -> &'static str {
-    match terminator & 0x0000F000 {
+    match terminator & 0x0000_F000 {
         CLAUSE_INTONATION_FULL_STOP => ".",
         CLAUSE_INTONATION_COMMA => ",",
         CLAUSE_INTONATION_QUESTION => "?",
@@ -97,17 +128,19 @@ pub fn text_to_phonemes(
     remove_lang_switch_flags: bool,
     remove_stress: bool,
 ) -> ESpeakResult<Vec<String>> {
-    let mut phonemes = Vec::new();
-    for line in text.lines() {
-        phonemes.append(&mut phonemize_line(
-            line,
-            language,
-            phoneme_separator,
-            remove_lang_switch_flags,
-            remove_stress,
-        )?)
-    }
-    Ok(phonemes)
+    let per_line: Vec<Vec<String>> = text
+        .lines()
+        .map(|line| {
+            phonemize_line(
+                line,
+                language,
+                phoneme_separator,
+                remove_lang_switch_flags,
+                remove_stress,
+            )
+        })
+        .collect::<ESpeakResult<_>>()?;
+    Ok(per_line.concat())
 }
 
 fn phonemize_line(
@@ -117,74 +150,88 @@ fn phonemize_line(
     remove_lang_switch_flags: bool,
     remove_stress: bool,
 ) -> ESpeakResult<Vec<String>> {
-    let _guard = ESPEAK_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    if let Err(ref e) = Lazy::force(&ESPEAKNG_INIT) {
-        return Err(e.clone());
-    }
-    let language_c = CString::new(language)
-        .map_err(|_| ESpeakError(format!("Failed to set eSpeak-ng voice to: `{}` ", language)))?;
-    // SAFETY: `language_c` is a valid, NUL-terminated CString kept alive across this call.
-    // eSpeak-ng is not thread-safe; the `_guard` held above serializes every call into it.
-    let set_voice_res = unsafe { espeakng::espeak_SetVoiceByName(language_c.as_ptr()) };
-    if set_voice_res != espeakng::espeak_ERROR_EE_OK {
-        return Err(ESpeakError(format!(
-            "Failed to set eSpeak-ng voice to: `{}` ",
-            language
-        )));
-    }
-    let calculated_phoneme_mode = match phoneme_separator {
-        Some(c) => ((c as u32) << 8u32) | espeakng::espeakINITIALIZE_PHONEME_IPA,
-        None => espeakng::espeakINITIALIZE_PHONEME_IPA,
-    };
-    let phoneme_mode: i32 = calculated_phoneme_mode.try_into().unwrap();
-    let mut sentence_phonemes = Vec::new();
-    let mut phonemes = String::new();
-    let text_c = CString::new(text).map_err(|_| {
-        ESpeakError(
-            "Text passed to eSpeak-ng contains a NUL byte and cannot be processed".to_string(),
-        )
+    let espeak = ESPEAK_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    Lazy::force(&ESPEAKNG_INIT).clone()?;
+    select_voice(&espeak, language)?;
+    let line = CString::new(text).map_err(|_| {
+        ESpeakError("Input holds a NUL byte, which eSpeak-ng cannot read".to_string())
     })?;
-    let mut text_c_char = text_c.as_ptr();
-    let text_c_char_ptr = std::ptr::addr_of_mut!(text_c_char);
+    let sentences = read_clauses(&espeak, &line, phoneme_mode(phoneme_separator));
+    let sentences = strip_matches(remove_lang_switch_flags, sentences, &LANG_SWITCH_PATTERN);
+    Ok(strip_matches(remove_stress, sentences, &STRESS_PATTERN))
+}
+
+fn select_voice(_espeak: &ESpeakLock<'_>, language: &str) -> ESpeakResult<()> {
+    let rejected = || ESpeakError(format!("eSpeak-ng has no voice named `{language}`"));
+    let voice = CString::new(language).map_err(|_| rejected())?;
+    // SAFETY: the pointer addresses `voice`'s NUL-terminated buffer, and `voice` is still alive
+    // when the call returns; eSpeak-ng copies the name it keeps rather than retaining this
+    // pointer. `_espeak` witnesses that the caller holds `ESPEAK_LOCK`, and that caller forced
+    // `ESPEAKNG_INIT` first, so eSpeak-ng is initialized and no other thread is inside it.
+    let status = unsafe { espeakng::espeak_SetVoiceByName(voice.as_ptr()) };
+    if status == espeakng::espeak_ERROR_EE_OK {
+        Ok(())
+    } else {
+        Err(rejected())
+    }
+}
+
+/// IPA output, with the requested separator character carried in bits 8-23 when there is one.
+fn phoneme_mode(phoneme_separator: Option<char>) -> ffi::c_int {
+    let separator_bits = phoneme_separator.map_or(0, |separator| (separator as u32) << 8);
+    (espeakng::espeakINITIALIZE_PHONEME_IPA | separator_bits) as ffi::c_int
+}
+
+/// Walks `line` clause by clause, returning one string per sentence eSpeak-ng reports.
+fn read_clauses(
+    _espeak: &ESpeakLock<'_>,
+    line: &ffi::CStr,
+    phoneme_mode: ffi::c_int,
+) -> Vec<String> {
+    let mut cursor: *const ffi::c_char = line.as_ptr();
     let mut terminator: ffi::c_int = 0;
-    let terminator_ptr: *mut ffi::c_int = &mut terminator;
-    while !text_c_char.is_null() {
-        // SAFETY: `text_c_char_ptr` points at a valid, NUL-terminated C string owned by
-        // `text_c`/`text_c_char`, which outlives this call; `terminator_ptr` is a valid `&mut
-        // c_int` reinterpreted as a raw pointer. The `_guard` held for the whole function
-        // serializes access to eSpeak-ng, so `res` — a pointer into eSpeak-ng's own internal
-        // buffer — stays valid for `FfiStr::from_raw` until the next call under the same lock.
-        let ph_str = unsafe {
-            let res = espeakng::espeak_TextToPhonemesWithTerminator(
-                text_c_char_ptr,
-                espeakng::espeakCHARS_UTF8.try_into().unwrap(),
+    let mut sentences = Vec::new();
+    let mut pending = String::new();
+    while !cursor.is_null() {
+        // SAFETY: `cursor` starts at `line`'s NUL-terminated buffer, which is borrowed for the
+        // whole of this function and so outlives every iteration; eSpeak-ng writes back either
+        // a position inside that same buffer or null once it has consumed all of it, and null
+        // is what ends this loop, so every iteration reads within `line`. `&mut terminator`
+        // borrows a live local. The returned pointer is eSpeak-ng's own phoneme buffer, valid
+        // until the next call into it: `_espeak` witnesses that the caller holds `ESPEAK_LOCK`
+        // (so no other thread can make that call) and that it forced `ESPEAKNG_INIT` first,
+        // and this thread copies the bytes out before its own next iteration.
+        let clause = unsafe {
+            let phonemes = espeakng::espeak_TextToPhonemesWithTerminator(
+                &mut cursor,
+                espeakng::espeakCHARS_UTF8 as ffi::c_int,
                 phoneme_mode,
-                terminator_ptr,
+                &mut terminator,
             );
-            FfiStr::from_raw(res)
+            FfiStr::from_raw(phonemes)
         };
-        phonemes.push_str(&ph_str.into_string());
-        phonemes.push_str(clause_break_suffix(terminator));
-        if (terminator & CLAUSE_TYPE_SENTENCE) == CLAUSE_TYPE_SENTENCE {
-            sentence_phonemes.push(std::mem::take(&mut phonemes));
+        pending.push_str(&clause.into_string());
+        pending.push_str(clause_break_suffix(terminator));
+        if terminator & CLAUSE_TYPE_SENTENCE == CLAUSE_TYPE_SENTENCE {
+            sentences.push(std::mem::take(&mut pending));
         }
     }
-    if !phonemes.is_empty() {
-        sentence_phonemes.push(std::mem::take(&mut phonemes));
+    if !pending.is_empty() {
+        sentences.push(pending);
     }
-    if remove_lang_switch_flags {
-        sentence_phonemes = sentence_phonemes
-            .into_iter()
-            .map(|sent| LANG_SWITCH_PATTERN.replace_all(&sent, "").into_owned())
-            .collect();
+    sentences
+}
+
+fn strip_matches(enabled: bool, sentences: Vec<String>, pattern: &Regex) -> Vec<String> {
+    if !enabled {
+        return sentences;
     }
-    if remove_stress {
-        sentence_phonemes = sentence_phonemes
-            .into_iter()
-            .map(|sent| STRESS_PATTERN.replace_all(&sent, "").into_owned())
-            .collect();
-    }
-    Ok(sentence_phonemes)
+    sentences
+        .into_iter()
+        .map(|sentence| pattern.replace_all(&sentence, "").into_owned())
+        .collect()
 }
 
 // ==============================
@@ -197,7 +244,7 @@ mod tests {
         "Who are you? said the Caterpillar. Replied Alice , rather shyly, I hardly know, sir!";
 
     #[test]
-    fn test_basic_en() -> ESpeakResult<()> {
+    fn basic_english_text_produces_expected_phonemes() -> ESpeakResult<()> {
         let text = "test";
         let expected = "tˈɛst.";
         let phonemes = text_to_phonemes(text, "en-US", None, false, false)?.join("");
@@ -206,14 +253,14 @@ mod tests {
     }
 
     #[test]
-    fn test_it_splits_sentences() -> ESpeakResult<()> {
+    fn splits_multiple_sentences_into_separate_phoneme_entries() -> ESpeakResult<()> {
         let phonemes = text_to_phonemes(TEXT_ALICE, "en-US", None, false, false)?;
         assert_eq!(phonemes.len(), 3);
         Ok(())
     }
 
     #[test]
-    fn test_it_adds_phoneme_separator() -> ESpeakResult<()> {
+    fn phoneme_separator_is_inserted_between_phonemes() -> ESpeakResult<()> {
         let text = "test";
         let expected = "t_ˈɛ_s_t.";
         let phonemes = text_to_phonemes(text, "en-US", Some('_'), false, false)
@@ -224,22 +271,17 @@ mod tests {
     }
 
     #[test]
-    fn test_it_preserves_clause_breakers() -> ESpeakResult<()> {
+    fn clause_breaker_punctuation_is_preserved_in_output() -> ESpeakResult<()> {
         let phonemes = text_to_phonemes(TEXT_ALICE, "en-US", None, false, false)?.join("");
         let clause_breakers = ['.', ',', '?', '!'];
         for c in clause_breakers {
-            assert_eq!(
-                phonemes.contains(c),
-                true,
-                "Clause breaker `{}` not preserved",
-                c
-            );
+            assert!(phonemes.contains(c), "Clause breaker `{}` not preserved", c);
         }
         Ok(())
     }
 
     #[test]
-    fn test_arabic() -> ESpeakResult<()> {
+    fn arabic_text_produces_expected_phonemes() -> ESpeakResult<()> {
         let text = "مَرْحَبَاً بِكَ أَيُّهَا الْرَّجُلْ";
         let expected = "mˈarħabˌaː bikˌa ʔaˈiːuhˌaː alrrˈadʒul.";
         let phonemes = text_to_phonemes(text, "ar", None, false, false)?.join("");
@@ -248,34 +290,34 @@ mod tests {
     }
 
     #[test]
-    fn test_lang_switch_flags() -> ESpeakResult<()> {
+    fn remove_lang_switch_flags_strips_language_switch_markers() -> ESpeakResult<()> {
         let text = "Hello معناها مرحباً";
 
         let with_lang_switch = text_to_phonemes(text, "ar", None, false, false)?.join("");
-        assert_eq!(with_lang_switch.contains("(en)"), true);
-        assert_eq!(with_lang_switch.contains("(ar)"), true);
+        assert!(with_lang_switch.contains("(en)"));
+        assert!(with_lang_switch.contains("(ar)"));
 
         let without_lang_switch = text_to_phonemes(text, "ar", None, true, false)?.join("");
-        assert_eq!(without_lang_switch.contains("(en)"), false);
-        assert_eq!(without_lang_switch.contains("(ar)"), false);
+        assert!(!without_lang_switch.contains("(en)"));
+        assert!(!without_lang_switch.contains("(ar)"));
 
         Ok(())
     }
 
     #[test]
-    fn test_stress() -> ESpeakResult<()> {
+    fn remove_stress_strips_stress_markers() -> ESpeakResult<()> {
         let stress_markers = ['ˈ', 'ˌ'];
 
         let with_stress = text_to_phonemes(TEXT_ALICE, "en-US", None, false, false)?.join("");
-        assert_eq!(with_stress.contains(stress_markers), true);
+        assert!(with_stress.contains(stress_markers));
 
         let without_stress = text_to_phonemes(TEXT_ALICE, "en-US", None, false, true)?.join("");
-        assert_eq!(without_stress.contains(stress_markers), false);
+        assert!(!without_stress.contains(stress_markers));
 
         Ok(())
     }
     #[test]
-    fn test_line_splitting() -> ESpeakResult<()> {
+    fn each_input_line_produces_a_separate_phoneme_paragraph() -> ESpeakResult<()> {
         let text = "Hello\nThere\nAnd\nWelcome";
         let phoneme_paragraphs = text_to_phonemes(text, "en-US", None, false, false)?;
         assert_eq!(phoneme_paragraphs.len(), 4);
@@ -283,14 +325,14 @@ mod tests {
     }
 
     #[test]
-    fn test_empty_input_returns_no_phonemes() -> ESpeakResult<()> {
+    fn empty_input_returns_no_phonemes() -> ESpeakResult<()> {
         let phonemes = text_to_phonemes("", "en-US", None, false, false)?;
         assert_eq!(phonemes, Vec::<String>::new());
         Ok(())
     }
 
     #[test]
-    fn test_interior_nul_byte_returns_err_instead_of_panicking() {
+    fn interior_nul_byte_returns_err_instead_of_panicking() {
         let result = text_to_phonemes("hello\0world", "en-US", None, false, false);
         assert!(result.is_err());
 
@@ -330,5 +372,11 @@ mod tests {
         for handle in handles {
             handle.join().expect("worker thread panicked");
         }
+    }
+
+    #[test]
+    fn espeak_error_display_includes_the_message() {
+        let err = ESpeakError("boom".to_string());
+        assert_eq!(err.to_string(), "eSpeak-ng Error :boom");
     }
 }
