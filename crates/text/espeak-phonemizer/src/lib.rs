@@ -64,15 +64,15 @@ type ESpeakLock<'a> = std::sync::MutexGuard<'a, ()>;
 fn resolve_data_directory() -> Option<CString> {
     let base = match env::var(DENGJEN_ESPEAKNG_DATA_DIRECTORY) {
         Ok(configured) => PathBuf::from(configured),
-        Err(_) => {
-            let executable = env::current_exe().ok()?;
-            executable.parent()?.to_path_buf()
-        }
+        Err(_) => env::current_exe().unwrap().parent().unwrap().to_path_buf(),
     };
     if !base.join("espeak-ng-data").exists() {
         return None;
     }
-    CString::new(base.to_str()?).ok()
+    Some(
+        CString::new(base.display().to_string())
+            .expect("Error: the resolved data directory path holds an interior NUL byte."),
+    )
 }
 
 fn init_espeakng() -> ESpeakResult<()> {
@@ -102,10 +102,12 @@ fn init_espeakng() -> ESpeakResult<()> {
     if sample_rate > 0 {
         return Ok(());
     }
+    // Crates downstream match on the literal `Failed to initialize eSpeak-ng` to tell a missing
+    // `espeak-ng-data` install apart from a real fault; keep that substring intact.
     Err(ESpeakError(format!(
-        "eSpeak-ng refused to initialize with error code `{sample_rate}`. If its data files \
-         are installed somewhere non-standard, point `{DENGJEN_ESPEAKNG_DATA_DIRECTORY}` at \
-         the directory that holds `espeak-ng-data`."
+        "Failed to initialize eSpeak-ng, error code `{sample_rate}`. If its data files are \
+         installed somewhere non-standard, point `{DENGJEN_ESPEAKNG_DATA_DIRECTORY}` at the \
+         directory that holds `espeak-ng-data`."
     )))
 }
 
