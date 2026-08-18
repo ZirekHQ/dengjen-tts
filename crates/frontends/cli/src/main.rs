@@ -122,13 +122,21 @@ fn enable_logging() {
     env_logger::Builder::from_env(env).init();
 }
 
-fn get_synthesis_request_from_stdin() -> anyhow::Result<Option<SynthesisRequest>> {
+fn read_synthesis_request<R: BufRead>(reader: &mut R) -> anyhow::Result<Option<SynthesisRequest>> {
     let mut line = String::new();
-    let bytes_read = io::stdin().read_line(&mut line)?;
-    if bytes_read == 0 {
-        return Ok(None);
+    match reader.read_line(&mut line) {
+        Ok(0) => return Ok(None),
+        Ok(_) => {}
+        Err(err) => {
+            log::error!("Failed to read from stdin: {}", err);
+            return Ok(None);
+        }
     }
     Ok(Some(serde_json::from_str(&line)?))
+}
+
+fn get_synthesis_request_from_stdin() -> anyhow::Result<Option<SynthesisRequest>> {
+    read_synthesis_request(&mut io::stdin().lock())
 }
 
 fn process_synthesis_request<W: Write>(
@@ -673,6 +681,21 @@ fn enumerate_output_path(path: PathBuf, suffix: u64) -> PathBuf {
 mod tests {
     use super::*;
     use std::str::FromStr;
+
+    struct FailingReader;
+
+    impl Read for FailingReader {
+        fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
+            Err(io::Error::other("simulated I/O failure"))
+        }
+    }
+
+    #[test]
+    fn read_synthesis_request_returns_none_on_io_error_instead_of_looping_forever() {
+        let mut reader = io::BufReader::new(FailingReader);
+        let result = read_synthesis_request(&mut reader);
+        assert!(matches!(result, Ok(None)));
+    }
 
     #[test]
     fn synthesis_mode_from_str_parses_known_values_case_insensitively() {
