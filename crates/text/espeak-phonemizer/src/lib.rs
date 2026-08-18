@@ -244,7 +244,7 @@ mod tests {
         "Who are you? said the Caterpillar. Replied Alice , rather shyly, I hardly know, sir!";
 
     #[test]
-    fn test_basic_en() -> ESpeakResult<()> {
+    fn basic_english_text_produces_expected_phonemes() -> ESpeakResult<()> {
         let text = "test";
         let expected = "tˈɛst.";
         let phonemes = text_to_phonemes(text, "en-US", None, false, false)?.join("");
@@ -253,14 +253,14 @@ mod tests {
     }
 
     #[test]
-    fn test_it_splits_sentences() -> ESpeakResult<()> {
+    fn splits_multiple_sentences_into_separate_phoneme_entries() -> ESpeakResult<()> {
         let phonemes = text_to_phonemes(TEXT_ALICE, "en-US", None, false, false)?;
         assert_eq!(phonemes.len(), 3);
         Ok(())
     }
 
     #[test]
-    fn test_it_adds_phoneme_separator() -> ESpeakResult<()> {
+    fn phoneme_separator_is_inserted_between_phonemes() -> ESpeakResult<()> {
         let text = "test";
         let expected = "t_ˈɛ_s_t.";
         let phonemes = text_to_phonemes(text, "en-US", Some('_'), false, false)
@@ -271,22 +271,17 @@ mod tests {
     }
 
     #[test]
-    fn test_it_preserves_clause_breakers() -> ESpeakResult<()> {
+    fn clause_breaker_punctuation_is_preserved_in_output() -> ESpeakResult<()> {
         let phonemes = text_to_phonemes(TEXT_ALICE, "en-US", None, false, false)?.join("");
         let clause_breakers = ['.', ',', '?', '!'];
         for c in clause_breakers {
-            assert_eq!(
-                phonemes.contains(c),
-                true,
-                "Clause breaker `{}` not preserved",
-                c
-            );
+            assert!(phonemes.contains(c), "Clause breaker `{}` not preserved", c);
         }
         Ok(())
     }
 
     #[test]
-    fn test_arabic() -> ESpeakResult<()> {
+    fn arabic_text_produces_expected_phonemes() -> ESpeakResult<()> {
         let text = "مَرْحَبَاً بِكَ أَيُّهَا الْرَّجُلْ";
         let expected = "mˈarħabˌaː bikˌa ʔaˈiːuhˌaː alrrˈadʒul.";
         let phonemes = text_to_phonemes(text, "ar", None, false, false)?.join("");
@@ -295,34 +290,34 @@ mod tests {
     }
 
     #[test]
-    fn test_lang_switch_flags() -> ESpeakResult<()> {
+    fn remove_lang_switch_flags_strips_language_switch_markers() -> ESpeakResult<()> {
         let text = "Hello معناها مرحباً";
 
         let with_lang_switch = text_to_phonemes(text, "ar", None, false, false)?.join("");
-        assert_eq!(with_lang_switch.contains("(en)"), true);
-        assert_eq!(with_lang_switch.contains("(ar)"), true);
+        assert!(with_lang_switch.contains("(en)"));
+        assert!(with_lang_switch.contains("(ar)"));
 
         let without_lang_switch = text_to_phonemes(text, "ar", None, true, false)?.join("");
-        assert_eq!(without_lang_switch.contains("(en)"), false);
-        assert_eq!(without_lang_switch.contains("(ar)"), false);
+        assert!(!without_lang_switch.contains("(en)"));
+        assert!(!without_lang_switch.contains("(ar)"));
 
         Ok(())
     }
 
     #[test]
-    fn test_stress() -> ESpeakResult<()> {
+    fn remove_stress_strips_stress_markers() -> ESpeakResult<()> {
         let stress_markers = ['ˈ', 'ˌ'];
 
         let with_stress = text_to_phonemes(TEXT_ALICE, "en-US", None, false, false)?.join("");
-        assert_eq!(with_stress.contains(stress_markers), true);
+        assert!(with_stress.contains(stress_markers));
 
         let without_stress = text_to_phonemes(TEXT_ALICE, "en-US", None, false, true)?.join("");
-        assert_eq!(without_stress.contains(stress_markers), false);
+        assert!(!without_stress.contains(stress_markers));
 
         Ok(())
     }
     #[test]
-    fn test_line_splitting() -> ESpeakResult<()> {
+    fn each_input_line_produces_a_separate_phoneme_paragraph() -> ESpeakResult<()> {
         let text = "Hello\nThere\nAnd\nWelcome";
         let phoneme_paragraphs = text_to_phonemes(text, "en-US", None, false, false)?;
         assert_eq!(phoneme_paragraphs.len(), 4);
@@ -330,14 +325,14 @@ mod tests {
     }
 
     #[test]
-    fn test_empty_input_returns_no_phonemes() -> ESpeakResult<()> {
+    fn empty_input_returns_no_phonemes() -> ESpeakResult<()> {
         let phonemes = text_to_phonemes("", "en-US", None, false, false)?;
         assert_eq!(phonemes, Vec::<String>::new());
         Ok(())
     }
 
     #[test]
-    fn test_interior_nul_byte_returns_err_instead_of_panicking() {
+    fn interior_nul_byte_returns_err_instead_of_panicking() {
         let result = text_to_phonemes("hello\0world", "en-US", None, false, false);
         assert!(result.is_err());
 
