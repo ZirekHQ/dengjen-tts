@@ -1,7 +1,10 @@
-//! Builds and statically links the vendored espeak-ng C library
-//! (`deps/espeak-ng`), with its optional features this crate doesn't need
-//! (async playback, MBROLA, libsonic, libpcaudio, Klatt, SpeechPlayer)
-//! disabled to keep the static build minimal.
+//! Compiles the vendored espeak-ng C sources (`deps/espeak-ng`) with CMake
+//! and statically links the result into this crate.
+//!
+//! espeak-ng's own `CMakeLists.txt` exposes optional backends this crate has
+//! no use for — async playback, MBROLA, libsonic, libpcaudio, Klatt and
+//! SpeechPlayer — so each is switched off via `configure_arg` to keep the
+//! static build to what's actually linked.
 fn main() {
     println!("cargo:rerun-if-changed=../../../deps/espeak-ng/src");
     println!("cargo:rustc-link-lib=static=espeak-ng");
