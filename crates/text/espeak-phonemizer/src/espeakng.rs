@@ -21,13 +21,25 @@ pub const espeak_ERROR_EE_OK: espeak_ERROR = 0;
 pub type espeak_AUDIO_OUTPUT = c_int;
 pub const espeak_AUDIO_OUTPUT_AUDIO_OUTPUT_RETRIEVAL: espeak_AUDIO_OUTPUT = 1;
 
+/// `espeak_Initialize` option bit: keep the process alive after init instead
+/// of calling `exit()` on failure.
 pub const espeakINITIALIZE_DONT_EXIT: u32 = 0x8000;
+/// `espeak_Initialize` option bit: report phonemes using IPA names rather
+/// than espeak-ng's own phoneme mnemonics.
 pub const espeakINITIALIZE_PHONEME_IPA: u32 = 0x0002;
+/// `espeak_TextToPhonemesWithTerminator` text-mode flag: the input text is
+/// UTF-8 encoded.
 pub const espeakCHARS_UTF8: u32 = 1;
 
 extern "C" {
+    /// Selects the voice used by later calls, by espeak-ng voice name
+    /// (e.g. `"en"`). Must be called before `espeak_TextToPhonemesWithTerminator`.
     pub fn espeak_SetVoiceByName(name: *const c_char) -> espeak_ERROR;
 
+    /// Starts up the espeak-ng engine. `path` points at the directory
+    /// containing `espeak-ng-data`; `output` selects how synthesized audio
+    /// is returned (this crate always passes the retrieval mode, since it
+    /// never plays audio itself, only extracts phonemes).
     pub fn espeak_Initialize(
         output: espeak_AUDIO_OUTPUT,
         buflength: c_int,
@@ -35,6 +47,11 @@ extern "C" {
         options: c_int,
     ) -> c_int;
 
+    /// Converts the next clause of `*textptr` (up to a sentence-ending or
+    /// clause-breaking punctuation mark) into phonemes, advancing `*textptr`
+    /// past the consumed text and writing the clause's terminator code
+    /// through `terminator`. Returns a pointer to the phoneme string, owned
+    /// by espeak-ng and valid only until the next call.
     pub fn espeak_TextToPhonemesWithTerminator(
         textptr: *mut *const c_char,
         textmode: c_int,
