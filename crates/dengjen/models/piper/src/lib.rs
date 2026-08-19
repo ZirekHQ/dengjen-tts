@@ -24,32 +24,30 @@ use phonemize::should_diacritize;
 use phonemize::{phonemize_dispatch, TashkeelEngine};
 pub use streaming::VitsStreamingModel;
 
+const PAD: &str = "_";
 const BOS: &str = "^";
 const EOS: &str = "$";
-const PAD: &str = "_";
 
 pub fn from_config_path(config_path: &Path) -> DengjenResult<Arc<dyn DengjenModel + Send + Sync>> {
     let (config, synth_config) = load_model_config(config_path)?;
+
     if config.streaming.unwrap_or_default() {
-        Ok(Arc::new(VitsStreamingModel::from_config(
-            config,
-            synth_config,
-            &config_path.with_file_name("encoder.onnx"),
-            &config_path.with_file_name("decoder.onnx"),
-        )?))
-    } else {
-        let Some(onnx_filename) = config_path.file_stem() else {
-            return Err(DengjenError::InvalidConfiguration(format!(
-                "Invalid config filename format `{}`",
-                config_path.display()
-            )));
-        };
-        Ok(Arc::new(VitsModel::from_config(
-            config,
-            synth_config,
-            &config_path.with_file_name(onnx_filename),
-        )?))
+        let encoder_path = config_path.with_file_name("encoder.onnx");
+        let decoder_path = config_path.with_file_name("decoder.onnx");
+        let model =
+            VitsStreamingModel::from_config(config, synth_config, &encoder_path, &decoder_path)?;
+        return Ok(Arc::new(model));
     }
+
+    let Some(stem) = config_path.file_stem() else {
+        return Err(DengjenError::InvalidConfiguration(format!(
+            "Invalid config filename format `{}`",
+            config_path.display()
+        )));
+    };
+    let onnx_path = config_path.with_file_name(stem);
+    let model = VitsModel::from_config(config, synth_config, &onnx_path)?;
+    Ok(Arc::new(model))
 }
 
 pub use dengjen_tts_core::PiperSynthesisConfig;
@@ -60,38 +58,34 @@ trait VitsModelCommons {
     fn get_speaker_map(&self) -> &HashMap<i64, String>;
     #[cfg_attr(not(all(feature = "tashkeel", feature = "espeak")), allow(dead_code))]
     fn get_tashkeel_engine(&self) -> Option<&TashkeelEngine>;
+
     fn get_meta_ids(&self) -> (i64, i64, i64) {
-        let config = self.get_config();
-        let pad_id = *config.phoneme_id_map.get(PAD).unwrap().first().unwrap();
-        let bos_id = *config.phoneme_id_map.get(BOS).unwrap().first().unwrap();
-        let eos_id = *config.phoneme_id_map.get(EOS).unwrap().first().unwrap();
-        (pad_id, bos_id, eos_id)
+        let phoneme_id_map = &self.get_config().phoneme_id_map;
+        let first_id = |token: &str| *phoneme_id_map.get(token).unwrap().first().unwrap();
+        (first_id(PAD), first_id(BOS), first_id(EOS))
     }
+
     fn language(&self) -> Option<String> {
-        self.get_config()
-            .language
-            .as_ref()
-            .map(|lang| lang.code.clone())
-            .or_else(|| Some(self.get_config().espeak.voice.clone()))
+        let config = self.get_config();
+        match &config.language {
+            Some(lang) => Some(lang.code.clone()),
+            None => Some(config.espeak.voice.clone()),
+        }
     }
+
     fn get_properties(&self) -> HashMap<String, String> {
-        HashMap::from([(
-            "quality".to_string(),
-            self.get_config()
-                .audio
-                .quality
-                .clone()
-                .unwrap_or("unknown".to_string()),
-        )])
+        let quality = self
+            .get_config()
+            .audio
+            .quality
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string());
+        HashMap::from([("quality".to_string(), quality)])
     }
+
     fn factory_synthesis_config(&self) -> PiperSynthesisConfig {
         let config = self.get_config();
-
-        let speaker = if config.num_speakers > 0 {
-            Some(resolve_default_speaker_id(config))
-        } else {
-            None
-        };
+        let speaker = (config.num_speakers > 0).then(|| resolve_default_speaker_id(config));
         PiperSynthesisConfig {
             speaker,
             length_scale: config.inference.length_scale,
@@ -99,23 +93,24 @@ trait VitsModelCommons {
             noise_w: config.inference.noise_w,
         }
     }
+
     fn _do_set_default_synth_config(&self, new_config: &PiperSynthesisConfig) -> DengjenResult<()> {
         let mut synth_config = self.get_synth_config().write().unwrap();
         synth_config.length_scale = new_config.length_scale;
         synth_config.noise_scale = new_config.noise_scale;
         synth_config.noise_w = new_config.noise_w;
         if let Some(sid) = new_config.speaker {
-            if self.get_speaker_map().contains_key(&sid) {
-                synth_config.speaker = Some(sid);
-            } else {
+            if !self.get_speaker_map().contains_key(&sid) {
                 return Err(DengjenError::InvalidConfiguration(format!(
                     "No speaker was found with the given id `{}`",
                     sid
                 )));
             }
+            synth_config.speaker = Some(sid);
         }
         Ok(())
     }
+
     fn phonemes_to_input_ids(
         &self,
         phonemes: &str,
@@ -264,6 +259,28 @@ mod tests {
         };
         let result = commons._do_set_default_synth_config(&new_config);
         assert!(matches!(result, Err(DengjenError::InvalidConfiguration(_))));
+    }
+
+    #[test]
+    fn do_set_default_synth_config_applies_scales_even_when_the_speaker_id_is_unknown() {
+        let commons = TestVitsCommons {
+            synth_config: RwLock::new(PiperSynthesisConfig::default()),
+            config: ModelConfig::default(),
+            speaker_map: HashMap::new(),
+        };
+        let new_config = PiperSynthesisConfig {
+            speaker: Some(99),
+            noise_scale: 0.5,
+            length_scale: 1.2,
+            noise_w: 0.9,
+        };
+        let result = commons._do_set_default_synth_config(&new_config);
+        assert!(matches!(result, Err(DengjenError::InvalidConfiguration(_))));
+        let synth_config = commons.synth_config.read().unwrap();
+        assert_eq!(synth_config.length_scale, 1.2);
+        assert_eq!(synth_config.noise_scale, 0.5);
+        assert_eq!(synth_config.noise_w, 0.9);
+        assert_eq!(synth_config.speaker, None);
     }
 
     #[test]
