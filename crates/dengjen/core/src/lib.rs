@@ -106,32 +106,29 @@ pub trait DengjenModel {
     fn speaker_id_to_name(&self, sid: &i64) -> DengjenResult<Option<String>> {
         Ok(self
             .get_speakers()?
-            .and_then(|speakers| speakers.get(sid))
-            .cloned())
+            .and_then(|speakers| speakers.get(sid).cloned()))
     }
     fn speaker_name_to_id(&self, name: &str) -> DengjenResult<Option<i64>> {
         Ok(self.get_speakers()?.and_then(|speakers| {
-            for (sid, sname) in speakers {
-                if sname == name {
-                    return Some(*sid);
-                }
-            }
-            None
+            speakers
+                .iter()
+                .find_map(|(sid, speaker_name)| (speaker_name == name).then_some(*sid))
         }))
     }
     fn properties(&self) -> DengjenResult<HashMap<String, String>> {
-        Ok(HashMap::with_capacity(0))
+        Ok(HashMap::new())
     }
 
     fn supports_streaming_output(&self) -> bool {
         false
     }
+    #[allow(unused_variables)]
     fn stream_synthesis(
         &self,
-        #[allow(unused_variables)] phonemes: String,
-        #[allow(unused_variables)] chunk_size: usize,
-        #[allow(unused_variables)] chunk_padding: usize,
-        #[allow(unused_variables)] cancel_token: CancellationToken,
+        phonemes: String,
+        chunk_size: usize,
+        chunk_padding: usize,
+        cancel_token: CancellationToken,
     ) -> DengjenResult<AudioStreamIterator<'_>> {
         Err(DengjenError::UnsupportedOperation(
             "Streaming synthesis is not supported for this model".to_string(),
