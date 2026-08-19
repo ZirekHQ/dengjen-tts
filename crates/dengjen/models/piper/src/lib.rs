@@ -129,46 +129,47 @@ trait VitsModelCommons {
     #[cfg(feature = "espeak")]
     fn do_phonemize_text(&self, text: &str) -> DengjenResult<Phonemes> {
         let config = self.get_config();
-        if let Some(result) = phonemize_dispatch(config.phoneme_type.unwrap_or_default(), text) {
-            return result;
+        if let Some(handled) = phonemize_dispatch(config.phoneme_type.unwrap_or_default(), text) {
+            return handled;
         }
-        let text = if should_diacritize(&config.espeak.voice) {
-            let diacritized = self.diacritize_text(text)?;
-            Cow::from(diacritized)
+        let voice = &config.espeak.voice;
+        let source: Cow<'_, str> = if should_diacritize(voice) {
+            Cow::Owned(self.diacritize_text(text)?)
         } else {
-            Cow::from(text)
+            Cow::Borrowed(text)
         };
-        let phonemes = match text_to_phonemes(&text, &config.espeak.voice, None, true, false) {
-            Ok(ph) => ph,
-            Err(e) => {
-                return Err(DengjenError::PhonemizationError(format!(
-                    "Failed to phonemize given text using espeak-ng. Error: {}",
-                    e
-                )))
-            }
-        };
-        Ok(phonemes.into())
+        // Downstream crates match the inner error's `Failed to initialize eSpeak-ng` substring,
+        // so it must reach the wrapped message intact.
+        text_to_phonemes(&source, voice, None, true, false)
+            .map(Phonemes::from)
+            .map_err(|e| {
+                DengjenError::PhonemizationError(format!(
+                    "Failed to phonemize given text using espeak-ng. Error: {e}"
+                ))
+            })
     }
     #[cfg(not(feature = "espeak"))]
     fn do_phonemize_text(&self, text: &str) -> DengjenResult<Phonemes> {
         let config = self.get_config();
-        if let Some(result) = phonemize_dispatch(config.phoneme_type.unwrap_or_default(), text) {
-            return result;
-        }
-        Err(DengjenError::PhonemizationError(
-            "This voice requires espeak-based phonemization, but the `espeak` feature (GPL-3.0-or-later, via espeak-ng) is disabled".to_string(),
-        ))
+        phonemize_dispatch(config.phoneme_type.unwrap_or_default(), text).unwrap_or_else(|| {
+            Err(DengjenError::PhonemizationError(
+                "This voice requires espeak-based phonemization, but the `espeak` feature (GPL-3.0-or-later, via espeak-ng) is disabled".to_string(),
+            ))
+        })
     }
     #[cfg(feature = "tashkeel")]
     #[cfg_attr(not(feature = "espeak"), allow(dead_code))]
     fn diacritize_text(&self, text: &str) -> DengjenResult<String> {
-        match do_tashkeel(self.get_tashkeel_engine().unwrap(), text, None, false) {
-            Ok(diacritized_text) => Ok(diacritized_text),
-            Err(msg) => Err(DengjenError::InferenceError(format!(
-                "Failed to diacritize text using  libtashkeel. {}",
-                msg
-            ))),
-        }
+        // Reachable only after should_diacritize() confirmed the voice, which is also what
+        // guarantees the engine was built.
+        let engine = self
+            .get_tashkeel_engine()
+            .expect("tashkeel engine missing for a voice that needs diacritization");
+        do_tashkeel(engine, text, None, false).map_err(|msg| {
+            DengjenError::InferenceError(format!(
+                "Failed to diacritize text using libtashkeel. {msg}"
+            ))
+        })
     }
     // should_diacritize() is always false without this feature, so this is unreachable.
     #[cfg(not(feature = "tashkeel"))]
@@ -179,8 +180,8 @@ trait VitsModelCommons {
     fn get_audio_output_info(&self) -> DengjenResult<AudioInfo> {
         Ok(AudioInfo {
             sample_rate: self.get_config().audio.sample_rate as usize,
-            num_channels: 1usize,
-            sample_width: 2usize,
+            num_channels: 1,
+            sample_width: 2,
         })
     }
 }
@@ -310,5 +311,32 @@ mod tests {
         };
         let result = commons.do_phonemize_text("hello");
         assert!(matches!(result, Err(DengjenError::PhonemizationError(_))));
+    }
+
+    #[cfg(feature = "espeak")]
+    #[test]
+    fn do_phonemize_text_wraps_the_full_espeak_init_error_message() {
+        // No DENGJEN_ESPEAKNG_DATA_DIRECTORY is set for this test process, and this
+        // sandbox has no espeak-ng-data reachable via the executable-relative fallback
+        // either — so espeak-ng initialization deterministically fails here, the same
+        // condition kokoro/phonemize.rs, synth/tests.rs, and
+        // cli/tests/kokoro_synthetic_cli.rs guard against by matching this exact
+        // substring in the wrapped error message. If a future rewrite of
+        // do_phonemize_text drops or truncates the inner error text, this test catches
+        // it — those three downstream guards would otherwise silently stop skipping
+        // and start hard-failing instead.
+        let commons = TestVitsCommons {
+            synth_config: RwLock::new(PiperSynthesisConfig::default()),
+            config: ModelConfig::default(),
+            speaker_map: HashMap::new(),
+        };
+        let result = commons.do_phonemize_text("hello");
+        let Err(DengjenError::PhonemizationError(msg)) = result else {
+            panic!("expected a PhonemizationError, got a different result");
+        };
+        assert!(
+            msg.contains("Failed to initialize eSpeak-ng"),
+            "wrapped message lost the inner espeak-ng error text: {msg:?}"
+        );
     }
 }
