@@ -1,15 +1,15 @@
 #![forbid(unsafe_code)]
 
 use std::collections::HashMap;
-use std::error::Error;
+use std::error::Error as StdError;
 use std::fmt;
 
 pub use audio_ops::{Audio, AudioInfo, AudioSamples, WaveWriterError};
 
 mod cancellation;
-pub use cancellation::CancellationToken;
-
 mod synthesis_config;
+
+pub use cancellation::CancellationToken;
 pub use synthesis_config::{PiperSynthesisConfig, SynthesisConfig};
 
 pub type DengjenResult<T> = Result<T, DengjenError>;
@@ -32,31 +32,30 @@ impl DengjenError {
         Self::OperationError(message.into())
     }
 }
-impl Error for DengjenError {}
+
+impl StdError for DengjenError {}
 
 impl fmt::Display for DengjenError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let err_message = match self {
-            DengjenError::FailedToLoadResource(msg) => {
-                format!("Failed to load resource from. Error `{}`", msg)
+        match self {
+            Self::FailedToLoadResource(msg) => {
+                write!(f, "Failed to load resource from. Error `{msg}`")
             }
-            DengjenError::PhonemizationError(msg) => msg.to_string(),
-            DengjenError::InferenceError(msg) => msg.to_string(),
-            DengjenError::InvalidConfiguration(msg) => msg.to_string(),
-            DengjenError::UnsupportedOperation(msg) => msg.to_string(),
-            DengjenError::OperationError(msg) => msg.to_string(),
-        };
-        write!(f, "{}", err_message)
+            Self::PhonemizationError(msg)
+            | Self::InferenceError(msg)
+            | Self::InvalidConfiguration(msg)
+            | Self::UnsupportedOperation(msg)
+            | Self::OperationError(msg) => write!(f, "{msg}"),
+        }
     }
 }
 
 impl From<WaveWriterError> for DengjenError {
     fn from(error: WaveWriterError) -> Self {
-        DengjenError::OperationError(error.to_string())
+        Self::OperationError(error.to_string())
     }
 }
 
-/// A wrapper type that holds sentence phonemes
 pub struct Phonemes(Vec<String>);
 
 impl Phonemes {
@@ -74,13 +73,13 @@ impl Phonemes {
 }
 
 impl From<Vec<String>> for Phonemes {
-    fn from(other: Vec<String>) -> Self {
-        Self(other)
+    fn from(sentences: Vec<String>) -> Self {
+        Self(sentences)
     }
 }
 
-impl std::fmt::Display for Phonemes {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for Phonemes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0.join(" "))
     }
 }
