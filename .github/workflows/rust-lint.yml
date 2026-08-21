@@ -28,6 +28,7 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
+          toolchain: "1.97.1"
           components: clippy
       - run: cargo install clippy-sarif sarif-fmt --locked
       - name: cargo clippy
@@ -70,6 +71,7 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
+          toolchain: "1.97.1"
           components: rustfmt
       - name: cargo fmt --check
         run: cargo fmt --all -- --check
@@ -175,6 +177,7 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
+          toolchain: "1.97.1"
           components: llvm-tools-preview
       - uses: taiki-e/install-action@b6b84cf49ebfe0176417bdce007c624f0db37f20 # v2.86.2
         with:

@@ -109,7 +109,7 @@ jobs:
     strategy:
       matrix:
         platform:
-          - runner: windows-latest
+          - runner: windows-2022
             target: x64
     steps:
       - name: git-submodule-fix
