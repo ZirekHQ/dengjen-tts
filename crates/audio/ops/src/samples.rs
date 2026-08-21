@@ -64,11 +64,17 @@ impl AudioSamples {
         if self.0.is_empty() {
             return Vec::new();
         }
-        let peak_magnitude = self
+        let highest = self
             .0
             .iter()
-            .fold(0.0_f32, |peak, &sample| peak.max(sample.abs()))
-            .max(f32::EPSILON);
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap();
+        let lowest = self
+            .0
+            .iter()
+            .min_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap();
+        let peak_magnitude = highest.abs().max(lowest.abs()).max(f32::EPSILON);
         let gain = WAV_PEAK_MAGNITUDE / peak_magnitude;
         self.0
             .iter()
@@ -97,8 +103,8 @@ impl AudioSamples {
         let largest_signed_magnitude = self
             .0
             .iter()
-            .copied()
-            .fold(f32::NEG_INFINITY, f32::max)
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap()
             .abs();
         let divisor = largest_signed_magnitude.max(max_value) / max_value.abs();
         self.0.iter_mut().for_each(|sample| *sample /= divisor);
@@ -172,19 +178,15 @@ impl AudioSamples {
     }
 
     pub fn lowpass_filter(&mut self, sample_range: std::ops::Range<usize>, cutoff: f32) {
-        self.0[sample_range].iter_mut().for_each(|sample| {
-            if *sample >= cutoff {
-                *sample = 0.0;
-            }
-        });
+        for i in sample_range {
+            self.0[i] = if self.0[i] < cutoff { self.0[i] } else { 0.0 };
+        }
     }
 
     pub fn highpass_filter(&mut self, sample_range: std::ops::Range<usize>, cutoff: f32) {
-        self.0[sample_range].iter_mut().for_each(|sample| {
-            if *sample <= cutoff {
-                *sample = 0.0;
-            }
-        });
+        for i in sample_range {
+            self.0[i] = if self.0[i] > cutoff { self.0[i] } else { 0.0 };
+        }
     }
 
     pub fn strip_silence(&mut self, sample_range: std::ops::Range<usize>) {
