@@ -309,214 +309,213 @@ mod tests {
 
     #[test]
     fn test_fade_in() {
-        let data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-        let mut s1 = AudioSamples::from(data.clone());
-        s1.fade_in(4);
-        assert_eq!(s1.0[0], 0.0);
+        let mut buffer = AudioSamples::from(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
+        buffer.fade_in(4);
+        assert_eq!(buffer.as_slice()[0], 0.0);
     }
 
     #[test]
     fn test_fade_out() {
-        let data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-        let mut s1 = AudioSamples::from(data.clone());
-        s1.fade_out(4);
-        assert_eq!(s1.0[7], 0.0);
+        let mut buffer = AudioSamples::from(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
+        buffer.fade_out(4);
+        let last = buffer.len() - 1;
+        assert_eq!(buffer.as_slice()[last], 0.0);
     }
 
     #[test]
     fn test_overlap() {
-        let data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-        let mut s1 = AudioSamples::from(data.clone());
-        let mut s2 = AudioSamples::from(data.clone());
-        s1.overlap_with(&mut s2);
-        assert_eq!(s1.len(), data.len() * 2);
-        let rs = s1.as_vec();
-        assert_eq!(rs[7], 0.0);
-        assert_eq!(rs[8], 0.0);
+        let base = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+        let mut head = AudioSamples::from(base.clone());
+        let mut tail = AudioSamples::from(base.clone());
+        head.overlap_with(&mut tail);
+        assert_eq!(head.len(), base.len() * 2);
+        let merged = head.as_vec();
+        assert_eq!(merged[7], 0.0);
+        assert_eq!(merged[8], 0.0);
     }
 
     #[test]
     fn test_lowpass_filter() {
-        let data = vec![0.0, 0.1, 2.2, 0.0, 0.5, 0.0, 0.7, 0.0];
-        let mut s1 = AudioSamples::from(data.clone());
-        s1.lowpass_filter(0..5, 0.5);
-        assert_eq!(s1.into_iter().filter(|f| *f == 0.0).count(), 6);
+        let mut buffer = AudioSamples::from(vec![0.0, 0.1, 2.2, 0.0, 0.5, 0.0, 0.7, 0.0]);
+        buffer.lowpass_filter(0..5, 0.5);
+        let zeroed = buffer.into_iter().filter(|&sample| sample == 0.0).count();
+        assert_eq!(zeroed, 6);
     }
 
     #[test]
     fn test_highpass_filter() {
-        let data = vec![0.0, 0.1, 2.2, 0.0, 0.5, 0.0, 0.7, 0.0];
-        let mut s1 = AudioSamples::from(data.clone());
-        s1.highpass_filter(0..s1.len(), 0.5);
-        assert_eq!(s1.into_iter().filter(|f| *f != 0.0).count(), 2);
+        let mut buffer = AudioSamples::from(vec![0.0, 0.1, 2.2, 0.0, 0.5, 0.0, 0.7, 0.0]);
+        let whole = 0..buffer.len();
+        buffer.highpass_filter(whole, 0.5);
+        let surviving = buffer.into_iter().filter(|&sample| sample != 0.0).count();
+        assert_eq!(surviving, 2);
     }
 
     #[test]
     fn test_normalize() {
-        let data = vec![0.0, 0.1, 2.2, 0.0, 0.5, 0.0, 0.7, 0.0];
-        let mut s1 = AudioSamples::from(data.clone());
-        s1.normalize(1.0);
-        assert_eq!(
-            s1.0.into_iter()
-                .max_by(|x, y| x.partial_cmp(y).unwrap())
-                .unwrap(),
-            1.0
-        );
+        let mut buffer = AudioSamples::from(vec![0.0, 0.1, 2.2, 0.0, 0.5, 0.0, 0.7, 0.0]);
+        buffer.normalize(1.0);
+        let peak = buffer
+            .into_vec()
+            .into_iter()
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap();
+        assert_eq!(peak, 1.0);
     }
 
     #[test]
     fn test_strip_silence() {
-        let data = vec![0.0, 0.1, 2.2, 0.0, 0.5, 0.0, 0.7, 0.0];
-        let mut s1 = AudioSamples::from(data.clone());
-        s1.strip_silence(0..s1.len());
-        assert_eq!(s1.len(), 4);
+        let mut buffer = AudioSamples::from(vec![0.0, 0.1, 2.2, 0.0, 0.5, 0.0, 0.7, 0.0]);
+        let whole = 0..buffer.len();
+        buffer.strip_silence(whole);
+        assert_eq!(buffer.len(), 4);
     }
 
     #[test]
     fn to_i16_vec_returns_empty_for_empty_samples() {
-        let samples = AudioSamples::from(Vec::<f32>::new());
-        assert_eq!(samples.to_i16_vec(), Vec::<i16>::new());
+        let empty = AudioSamples::from(Vec::<f32>::new());
+        assert_eq!(empty.to_i16_vec(), Vec::<i16>::new());
     }
 
     #[test]
     fn to_i16_vec_scales_all_zero_samples_without_dividing_by_zero() {
-        let samples = AudioSamples::from(vec![0.0, 0.0, 0.0]);
-        assert_eq!(samples.to_i16_vec(), vec![0, 0, 0]);
+        let silence = AudioSamples::from(vec![0.0, 0.0, 0.0]);
+        assert_eq!(silence.to_i16_vec(), vec![0, 0, 0]);
     }
 
     #[test]
     fn take_range_clamps_end_to_available_length() {
-        let mut samples = AudioSamples::from(vec![1.0, 2.0, 3.0]);
-        let taken = samples.take_range(1..100);
-        assert_eq!(taken, vec![2.0, 3.0]);
-        assert_eq!(samples.len(), 1);
+        let mut buffer = AudioSamples::from(vec![1.0, 2.0, 3.0]);
+        let removed = buffer.take_range(1..100);
+        assert_eq!(removed, vec![2.0, 3.0]);
+        assert_eq!(buffer.len(), 1);
     }
 
     #[test]
     fn merge_appends_other_samples_in_order() {
-        let mut a = AudioSamples::from(vec![1.0, 2.0]);
-        let b = AudioSamples::from(vec![3.0, 4.0]);
-        a.merge(b);
-        assert_eq!(a.into_vec(), vec![1.0, 2.0, 3.0, 4.0]);
+        let mut first = AudioSamples::from(vec![1.0, 2.0]);
+        let second = AudioSamples::from(vec![3.0, 4.0]);
+        first.merge(second);
+        assert_eq!(first.into_vec(), vec![1.0, 2.0, 3.0, 4.0]);
     }
 
     #[test]
     fn apply_hanning_window_tapers_first_sample_to_zero() {
-        let mut samples = AudioSamples::from(vec![1.0; 10]);
-        samples.apply_hanning_window().unwrap();
-        let v = samples.as_vec();
-        assert_eq!(v[0], 0.0);
-        assert!(v[5] > v[0]);
+        let mut buffer = AudioSamples::from(vec![1.0; 10]);
+        buffer.apply_hanning_window().unwrap();
+        let windowed = buffer.as_vec();
+        assert_eq!(windowed[0], 0.0);
+        assert!(windowed[5] > windowed[0]);
     }
 
     #[test]
     fn crossfade_attenuates_both_edges_symmetrically_and_leaves_the_middle_untouched() {
-        let mut samples = AudioSamples::from(vec![1.0; 10]);
-        samples.crossfade(4);
-        let v = samples.as_vec();
-        assert_eq!(v[0], v[9]);
-        assert_eq!(v[1], v[8]);
-        assert!(v[0] < 1.0);
-        assert_eq!(v[4], 1.0);
-        assert_eq!(v[5], 1.0);
+        let mut buffer = AudioSamples::from(vec![1.0; 10]);
+        buffer.crossfade(4);
+        let faded = buffer.as_vec();
+        assert_eq!(faded[0], faded[9]);
+        assert_eq!(faded[1], faded[8]);
+        assert!(faded[0] < 1.0);
+        assert_eq!(faded[4], 1.0);
+        assert_eq!(faded[5], 1.0);
     }
 
     #[test]
     fn crossfade_clamps_fade_length_to_half_of_total_samples() {
-        let mut samples = AudioSamples::from(vec![1.0; 6]);
-        samples.crossfade(100);
-        let v = samples.as_vec();
-        assert_eq!(v.len(), 6);
-        assert!(v.iter().all(|f| f.is_finite()));
+        let mut buffer = AudioSamples::from(vec![1.0; 6]);
+        buffer.crossfade(100);
+        let faded = buffer.as_vec();
+        assert_eq!(faded.len(), 6);
+        assert!(faded.iter().all(|sample| sample.is_finite()));
     }
 
     #[test]
     fn crossfade_is_a_noop_when_fade_length_resolves_below_two() {
-        let original = vec![1.0, 2.0, 3.0, 4.0];
-        let mut samples = AudioSamples::from(original.clone());
-        samples.crossfade(1);
-        assert_eq!(samples.as_vec(), &original);
+        let unfaded = vec![1.0, 2.0, 3.0, 4.0];
+        let mut buffer = AudioSamples::from(unfaded.clone());
+        buffer.crossfade(1);
+        assert_eq!(buffer.as_vec(), &unfaded);
     }
 
     #[test]
     fn crossfade_is_a_noop_for_zero_fade_samples() {
-        let original = vec![1.0, 2.0, 3.0, 4.0];
-        let mut samples = AudioSamples::from(original.clone());
-        samples.crossfade(0);
-        assert_eq!(samples.as_vec(), &original);
+        let unfaded = vec![1.0, 2.0, 3.0, 4.0];
+        let mut buffer = AudioSamples::from(unfaded.clone());
+        buffer.crossfade(0);
+        assert_eq!(buffer.as_vec(), &unfaded);
     }
 
     #[test]
     fn apply_hanning_window_on_empty_samples_is_a_noop() {
-        let mut samples = AudioSamples::from(Vec::<f32>::new());
-        samples.apply_hanning_window().unwrap();
-        assert!(samples.is_empty());
+        let mut buffer = AudioSamples::from(Vec::<f32>::new());
+        buffer.apply_hanning_window().unwrap();
+        assert!(buffer.is_empty());
     }
 
     #[test]
     fn apply_hanning_window_errors_on_single_sample() {
-        let mut samples = AudioSamples::from(vec![1.0]);
+        let mut buffer = AudioSamples::from(vec![1.0]);
         assert_eq!(
-            samples.apply_hanning_window(),
+            buffer.apply_hanning_window(),
             Err(crate::AudioOpsError::InvalidWindowLength(1))
         );
     }
 
     #[test]
     fn to_decibel_converts_full_scale_amplitude_to_zero_db() {
-        let samples = AudioSamples::from(vec![1.0, 0.5]);
-        let db = samples.to_decibel();
-        assert_eq!(db[0], 0.0);
-        assert!(db[1] < 0.0);
+        let buffer = AudioSamples::from(vec![1.0, 0.5]);
+        let decibels = buffer.to_decibel();
+        assert_eq!(decibels[0], 0.0);
+        assert!(decibels[1] < 0.0);
     }
 
     #[test]
     fn to_decibel_of_zero_amplitude_is_negative_infinity() {
-        let samples = AudioSamples::from(vec![0.0]);
-        assert_eq!(samples.to_decibel()[0], f32::NEG_INFINITY);
+        let silence = AudioSamples::from(vec![0.0]);
+        assert_eq!(silence.to_decibel()[0], f32::NEG_INFINITY);
     }
 
     #[test]
     fn real_time_factor_returns_none_without_inference_time() {
-        let audio = Audio::new(AudioSamples::from(vec![0.0; 100]), 100, None);
-        assert_eq!(audio.real_time_factor(), None);
+        let clip = Audio::new(AudioSamples::from(vec![0.0; 100]), 100, None);
+        assert_eq!(clip.real_time_factor(), None);
     }
 
     #[test]
     fn real_time_factor_returns_zero_for_zero_duration_audio() {
-        let audio = Audio::new(AudioSamples::from(Vec::new()), 100, Some(5.0));
-        assert_eq!(audio.real_time_factor(), Some(0.0));
+        let clip = Audio::new(AudioSamples::from(Vec::new()), 100, Some(5.0));
+        assert_eq!(clip.real_time_factor(), Some(0.0));
     }
 
     #[test]
     fn real_time_factor_divides_inference_ms_by_duration_ms() {
-        // 100 samples @ 100Hz = 1000ms duration; 50ms inference => rtf 0.05
-        let audio = Audio::new(AudioSamples::from(vec![0.0; 100]), 100, Some(50.0));
-        assert_eq!(audio.real_time_factor(), Some(0.05));
+        // 100 samples at 100Hz span 1000ms; a 50ms inference gives rtf 0.05.
+        let clip = Audio::new(AudioSamples::from(vec![0.0; 100]), 100, Some(50.0));
+        assert_eq!(clip.real_time_factor(), Some(0.05));
     }
 
     #[test]
     fn crossfade_golden_values_for_a_known_input() {
-        let mut samples = AudioSamples::from(vec![1.0; 8]);
-        samples.crossfade(2);
+        let mut buffer = AudioSamples::from(vec![1.0; 8]);
+        buffer.crossfade(2);
         assert_eq!(
-            samples.as_vec(),
+            buffer.as_vec(),
             &vec![0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0]
         );
     }
 
     #[test]
     fn overlap_with_golden_values_for_a_known_input() {
-        let mut s1 = AudioSamples::from(vec![1.0, 2.0]);
-        let mut s2 = AudioSamples::from(vec![3.0, 4.0]);
-        s1.overlap_with(&mut s2);
-        let r = (std::f32::consts::PI / 4.0).sin();
-        assert_eq!(s1.as_vec(), &vec![r, 0.0, 0.0, 4.0 * r]);
+        let mut head = AudioSamples::from(vec![1.0, 2.0]);
+        let mut tail = AudioSamples::from(vec![3.0, 4.0]);
+        head.overlap_with(&mut tail);
+        let ramp = (std::f32::consts::PI / 4.0).sin();
+        assert_eq!(head.as_vec(), &vec![ramp, 0.0, 0.0, 4.0 * ramp]);
     }
 
     #[test]
     fn to_i16_vec_golden_values_for_a_known_input() {
-        let samples = AudioSamples::from(vec![-1.0, 0.5, 1.0]);
-        assert_eq!(samples.to_i16_vec(), vec![-32767, 16383, 32767]);
+        let buffer = AudioSamples::from(vec![-1.0, 0.5, 1.0]);
+        assert_eq!(buffer.to_i16_vec(), vec![-32767, 16383, 32767]);
     }
 }
