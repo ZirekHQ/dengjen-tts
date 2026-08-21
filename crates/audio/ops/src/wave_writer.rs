@@ -74,6 +74,7 @@ where
         ))
     })?;
 
+    // write_all (not write) avoids silently truncating on a short write — see #34/#37
     file.write_all(&encoded).map_err(|source| {
         let _ = std::fs::remove_file(path);
         WaveWriterError::new(format!(
@@ -253,12 +254,33 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[cfg(unix)]
+    fn this_process_can_write_into_dev() -> bool {
+        let probe = Path::new("/dev/.wave_writer_root_probe");
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(probe)
+        {
+            Ok(_) => {
+                let _ = std::fs::remove_file(probe);
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    #[cfg(target_os = "linux")]
     #[test]
-    fn to_file_errors_and_discards_the_partial_file_when_the_write_fails() {
-        // /dev/full always accepts open() but fails every write() with ENOSPC,
-        // giving a real filesystem target that reaches the write_all failure
-        // branch without risking data loss on a real file.
+    fn to_file_errors_when_the_write_fails() {
+        // /dev/full always accepts open() but fails every write() with ENOSPC.
+        if this_process_can_write_into_dev() {
+            eprintln!(
+                "skipping: this process can write into /dev (likely root), so the \
+                 production remove_file(\"/dev/full\") cleanup would delete a real device node"
+            );
+            return;
+        }
+
         let path = Path::new("/dev/full");
         let samples = sample_data();
 
