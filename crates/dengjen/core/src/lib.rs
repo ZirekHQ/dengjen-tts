@@ -1,15 +1,15 @@
 #![forbid(unsafe_code)]
 
 use std::collections::HashMap;
-use std::error::Error;
+use std::error::Error as StdError;
 use std::fmt;
 
 pub use audio_ops::{Audio, AudioInfo, AudioSamples, WaveWriterError};
 
 mod cancellation;
-pub use cancellation::CancellationToken;
-
 mod synthesis_config;
+
+pub use cancellation::CancellationToken;
 pub use synthesis_config::{PiperSynthesisConfig, SynthesisConfig};
 
 pub type DengjenResult<T> = Result<T, DengjenError>;
@@ -32,31 +32,30 @@ impl DengjenError {
         Self::OperationError(message.into())
     }
 }
-impl Error for DengjenError {}
+
+impl StdError for DengjenError {}
 
 impl fmt::Display for DengjenError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let err_message = match self {
-            DengjenError::FailedToLoadResource(msg) => {
-                format!("Failed to load resource from. Error `{}`", msg)
+        match self {
+            Self::FailedToLoadResource(msg) => {
+                write!(f, "Failed to load resource from. Error `{msg}`")
             }
-            DengjenError::PhonemizationError(msg) => msg.to_string(),
-            DengjenError::InferenceError(msg) => msg.to_string(),
-            DengjenError::InvalidConfiguration(msg) => msg.to_string(),
-            DengjenError::UnsupportedOperation(msg) => msg.to_string(),
-            DengjenError::OperationError(msg) => msg.to_string(),
-        };
-        write!(f, "{}", err_message)
+            Self::PhonemizationError(msg)
+            | Self::InferenceError(msg)
+            | Self::InvalidConfiguration(msg)
+            | Self::UnsupportedOperation(msg)
+            | Self::OperationError(msg) => write!(f, "{msg}"),
+        }
     }
 }
 
 impl From<WaveWriterError> for DengjenError {
     fn from(error: WaveWriterError) -> Self {
-        DengjenError::OperationError(error.to_string())
+        Self::OperationError(error.to_string())
     }
 }
 
-/// A wrapper type that holds sentence phonemes
 pub struct Phonemes(Vec<String>);
 
 impl Phonemes {
@@ -74,13 +73,13 @@ impl Phonemes {
 }
 
 impl From<Vec<String>> for Phonemes {
-    fn from(other: Vec<String>) -> Self {
-        Self(other)
+    fn from(sentences: Vec<String>) -> Self {
+        Self(sentences)
     }
 }
 
-impl std::fmt::Display for Phonemes {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for Phonemes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0.join(" "))
     }
 }
@@ -107,32 +106,29 @@ pub trait DengjenModel {
     fn speaker_id_to_name(&self, sid: &i64) -> DengjenResult<Option<String>> {
         Ok(self
             .get_speakers()?
-            .and_then(|speakers| speakers.get(sid))
-            .cloned())
+            .and_then(|speakers| speakers.get(sid).cloned()))
     }
     fn speaker_name_to_id(&self, name: &str) -> DengjenResult<Option<i64>> {
         Ok(self.get_speakers()?.and_then(|speakers| {
-            for (sid, sname) in speakers {
-                if sname == name {
-                    return Some(*sid);
-                }
-            }
-            None
+            speakers
+                .iter()
+                .find_map(|(sid, speaker_name)| (speaker_name == name).then_some(*sid))
         }))
     }
     fn properties(&self) -> DengjenResult<HashMap<String, String>> {
-        Ok(HashMap::with_capacity(0))
+        Ok(HashMap::new())
     }
 
     fn supports_streaming_output(&self) -> bool {
         false
     }
+    #[allow(unused_variables)]
     fn stream_synthesis(
         &self,
-        #[allow(unused_variables)] phonemes: String,
-        #[allow(unused_variables)] chunk_size: usize,
-        #[allow(unused_variables)] chunk_padding: usize,
-        #[allow(unused_variables)] cancel_token: CancellationToken,
+        phonemes: String,
+        chunk_size: usize,
+        chunk_padding: usize,
+        cancel_token: CancellationToken,
     ) -> DengjenResult<AudioStreamIterator<'_>> {
         Err(DengjenError::UnsupportedOperation(
             "Streaming synthesis is not supported for this model".to_string(),
