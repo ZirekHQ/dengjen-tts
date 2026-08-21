@@ -316,23 +316,19 @@ mod tests {
     #[cfg(feature = "espeak")]
     #[test]
     fn do_phonemize_text_wraps_the_full_espeak_init_error_message() {
-        // No DENGJEN_ESPEAKNG_DATA_DIRECTORY is set for this test process, and this
-        // sandbox has no espeak-ng-data reachable via the executable-relative fallback
-        // either — so espeak-ng initialization deterministically fails here, the same
-        // condition kokoro/phonemize.rs, synth/tests.rs, and
-        // cli/tests/kokoro_synthetic_cli.rs guard against by matching this exact
-        // substring in the wrapped error message. If a future rewrite of
-        // do_phonemize_text drops or truncates the inner error text, this test catches
-        // it — those three downstream guards would otherwise silently stop skipping
-        // and start hard-failing instead.
+        // No espeak-ng-data is reachable in this sandbox, so init deterministically fails here.
+        // kokoro/phonemize.rs, synth/tests.rs, and cli/tests/kokoro_synthetic_cli.rs all guard
+        // on this exact substring, so truncating the wrapped error would silently break them.
         let commons = TestVitsCommons {
             synth_config: RwLock::new(PiperSynthesisConfig::default()),
             config: ModelConfig::default(),
             speaker_map: HashMap::new(),
         };
         let result = commons.do_phonemize_text("hello");
-        let Err(DengjenError::PhonemizationError(msg)) = result else {
-            panic!("expected a PhonemizationError, got a different result");
+        let msg = match result {
+            Err(DengjenError::PhonemizationError(msg)) => msg,
+            Err(other) => panic!("expected a PhonemizationError, got {other:?}"),
+            Ok(_) => panic!("expected a PhonemizationError, got Ok"),
         };
         assert!(
             msg.contains("Failed to initialize eSpeak-ng"),
