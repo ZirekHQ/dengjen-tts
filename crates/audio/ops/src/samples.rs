@@ -1,12 +1,13 @@
 use crate::hanning_window;
 use std::path::Path;
 
-const PI: f32 = std::f32::consts::PI;
-const I16MIN_F32: f32 = i16::MIN as f32;
-const I16MAX_F32: f32 = i16::MAX as f32;
-const MAX_WAV_VALUE_I16: f32 = 32767.0;
+const HALF_TURN: f32 = std::f32::consts::PI;
+const I16_MIN_AS_F32: f32 = i16::MIN as f32;
+const I16_MAX_AS_F32: f32 = i16::MAX as f32;
+const WAV_PEAK_MAGNITUDE: f32 = 32767.0;
 
-/// Playback-relevant metadata describing a raw PCM sample stream.
+/// Format metadata for a raw PCM sample stream: rate, channel count, and
+/// per-sample byte width.
 #[derive(Debug, Clone)]
 pub struct AudioInfo {
     pub sample_rate: usize,
@@ -14,8 +15,9 @@ pub struct AudioInfo {
     pub sample_width: usize,
 }
 
-/// A buffer of `f32` PCM samples, typically normalized to `[-1.0, 1.0]`, plus the
-/// operations (fades, filters, normalization) used to shape it before encoding to WAV.
+/// A newtype around a `Vec<f32>` PCM buffer (samples normally fall in
+/// `[-1.0, 1.0]`), with the shaping operations (fades, filters, normalization)
+/// applied before the buffer is encoded to WAV.
 #[derive(Clone, Debug, Default)]
 #[must_use]
 pub struct AudioSamples(Vec<f32>);
@@ -46,8 +48,8 @@ impl AudioSamples {
     }
 
     pub fn take_range(&mut self, sample_range: std::ops::Range<usize>) -> Vec<f32> {
-        let end = sample_range.end.min(self.len());
-        self.0.drain(sample_range.start..end).collect()
+        let clamped_end = sample_range.end.min(self.0.len());
+        self.0.drain(sample_range.start..clamped_end).collect()
     }
 
     pub fn len(&self) -> usize {
@@ -57,25 +59,20 @@ impl AudioSamples {
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
+
     pub fn to_i16_vec(&self) -> Vec<i16> {
-        if self.is_empty() {
+        if self.0.is_empty() {
             return Vec::new();
         }
-        let highest = self
+        let peak_magnitude = self
             .0
             .iter()
-            .max_by(|a, b| a.partial_cmp(b).unwrap())
-            .unwrap();
-        let lowest = self
-            .0
-            .iter()
-            .min_by(|a, b| a.partial_cmp(b).unwrap())
-            .unwrap();
-        let peak = highest.abs().max(lowest.abs()).max(f32::EPSILON);
-        let scale = MAX_WAV_VALUE_I16 / peak;
+            .fold(0.0_f32, |peak, &sample| peak.max(sample.abs()))
+            .max(f32::EPSILON);
+        let gain = WAV_PEAK_MAGNITUDE / peak_magnitude;
         self.0
             .iter()
-            .map(|sample| (sample * scale).clamp(I16MIN_F32, I16MAX_F32) as i16)
+            .map(|&sample| (sample * gain).clamp(I16_MIN_AS_F32, I16_MAX_AS_F32) as i16)
             .collect()
     }
 
@@ -89,99 +86,121 @@ impl AudioSamples {
     pub fn merge(&mut self, mut other: Self) {
         self.0.append(&mut other.0);
     }
+
     pub fn normalize(&mut self, max_value: f32) {
-        if self.is_empty() {
+        if self.0.is_empty() {
             return;
         }
-        let largest = self
+        // Matches the largest signed sample's magnitude, not the true peak
+        // amplitude across both polarities — a strongly negative-skewed
+        // buffer can still clip after this call.
+        let largest_signed_magnitude = self
             .0
             .iter()
-            .max_by(|a, b| a.partial_cmp(b).unwrap())
-            .unwrap()
+            .copied()
+            .fold(f32::NEG_INFINITY, f32::max)
             .abs();
-        let factor = largest.max(max_value) / max_value.abs();
-        for sample in self.0.iter_mut() {
-            *sample /= factor;
-        }
+        let divisor = largest_signed_magnitude.max(max_value) / max_value.abs();
+        self.0.iter_mut().for_each(|sample| *sample /= divisor);
     }
+
     pub fn apply_hanning_window(&mut self) -> Result<(), crate::AudioOpsError> {
-        if self.is_empty() {
+        if self.0.is_empty() {
             return Ok(());
         }
         let window = hanning_window::get_hann_window(self.0.len())?;
-        for (sample, ratio) in self.0.iter_mut().zip(window) {
-            *sample *= ratio;
-        }
+        self.0
+            .iter_mut()
+            .zip(window)
+            .for_each(|(sample, gain)| *sample *= gain);
         Ok(())
     }
+
     pub fn overlap_with(&mut self, other: &mut Self) {
-        if !self.is_empty() {
-            let self_len = self.0.len();
-            let overlap = self_len.min(other.0.len());
-            let span = 2.0 * overlap as f32;
-            for t in 0..overlap {
-                let ratio = (t as f32 * PI / span).sin();
-                self.0[self_len - 1 - t] *= ratio;
-                other.0[t] *= ratio;
+        if !self.0.is_empty() {
+            let tail_len = self.0.len();
+            let overlap_len = tail_len.min(other.0.len());
+            let ramp_span = 2.0 * overlap_len as f32;
+            for offset in 0..overlap_len {
+                let gain = (offset as f32 * HALF_TURN / ramp_span).sin();
+                self.0[tail_len - 1 - offset] *= gain;
+                other.0[offset] *= gain;
             }
         }
         self.0.append(&mut other.0);
     }
+
     pub fn fade_in(&mut self, fade_samples: usize) {
-        let span = fade_samples.min(self.len());
+        let span = fade_samples.min(self.0.len());
         let span_f32 = span as f32;
-        for i in 0..span {
-            let ratio = (i as f32 / span_f32 * PI / 2.0).sin();
-            self.0[i] *= ratio;
-        }
+        self.0
+            .iter_mut()
+            .take(span)
+            .enumerate()
+            .for_each(|(i, sample)| {
+                *sample *= (i as f32 / span_f32 * HALF_TURN / 2.0).sin();
+            });
     }
 
     pub fn fade_out(&mut self, fade_samples: usize) {
-        let length = self.len();
-        let span = fade_samples.min(length);
+        let span = fade_samples.min(self.0.len());
         let span_f32 = span as f32;
-        for i in 0..span {
-            let ratio = (i as f32 / span_f32 * PI / 2.0).sin();
-            self.0[length - 1 - i] *= ratio;
-        }
+        self.0
+            .iter_mut()
+            .rev()
+            .take(span)
+            .enumerate()
+            .for_each(|(i, sample)| {
+                *sample *= (i as f32 / span_f32 * HALF_TURN / 2.0).sin();
+            });
     }
+
     pub fn crossfade(&mut self, fade_samples: usize) {
-        let length = self.len();
+        let length = self.0.len();
         let span = fade_samples.min(length / 2);
-        // span - 1 underflows at 0 and divides by zero at 1 — nothing to fade, leave untouched.
+        // A span under 2 samples has nothing to fade and would divide by
+        // zero below (span - 1 would underflow at 0 or hit 0 at 1).
         if span < 2 {
             return;
         }
         let span_f32 = (span - 1) as f32;
         for i in 0..span {
-            let ratio = (i as f32 / span_f32 * PI / 2.0).sin();
-            self.0[i] *= ratio;
-            self.0[length - 1 - i] *= ratio;
+            let gain = (i as f32 / span_f32 * HALF_TURN / 2.0).sin();
+            self.0[i] *= gain;
+            self.0[length - 1 - i] *= gain;
         }
     }
+
     pub fn lowpass_filter(&mut self, sample_range: std::ops::Range<usize>, cutoff: f32) {
-        for i in sample_range {
-            self.0[i] = if self.0[i] < cutoff { self.0[i] } else { 0.0 };
-        }
+        self.0[sample_range].iter_mut().for_each(|sample| {
+            if *sample >= cutoff {
+                *sample = 0.0;
+            }
+        });
     }
 
     pub fn highpass_filter(&mut self, sample_range: std::ops::Range<usize>, cutoff: f32) {
-        for i in sample_range {
-            self.0[i] = if self.0[i] > cutoff { self.0[i] } else { 0.0 };
-        }
+        self.0[sample_range].iter_mut().for_each(|sample| {
+            if *sample <= cutoff {
+                *sample = 0.0;
+            }
+        });
     }
 
     pub fn strip_silence(&mut self, sample_range: std::ops::Range<usize>) {
-        let kept: Vec<f32> = self.0[sample_range.clone()]
+        let retained: Vec<f32> = self.0[sample_range.clone()]
             .iter()
             .copied()
-            .filter(|&f| f > 0.0)
+            .filter(|&sample| sample > 0.0)
             .collect();
-        self.0.splice(sample_range, kept);
+        self.0.splice(sample_range, retained);
     }
 
     pub fn to_decibel(&self) -> Vec<f32> {
-        self.0.iter().map(|x| 20.0 * x.abs().log10()).collect()
+        self.0
+            .iter()
+            .map(|sample| 20.0 * sample.abs().log10())
+            .collect()
     }
 }
 
@@ -206,8 +225,8 @@ impl IntoIterator for AudioSamples {
     }
 }
 
-/// A complete decoded utterance: the sample buffer plus format metadata and
-/// (optionally) how long the model took to produce it.
+/// One decoded utterance: its sample buffer, format metadata, and (if known)
+/// how long the model took to produce it.
 #[derive(Debug, Clone)]
 #[must_use]
 pub struct Audio {
@@ -218,14 +237,13 @@ pub struct Audio {
 
 impl Audio {
     pub fn new(samples: AudioSamples, sample_rate: usize, inference_ms: Option<f32>) -> Self {
-        let info = AudioInfo {
-            sample_rate,
-            num_channels: 1,
-            sample_width: 2,
-        };
         Self {
             samples,
-            info,
+            info: AudioInfo {
+                sample_rate,
+                num_channels: 1,
+                sample_width: 2,
+            },
             inference_ms,
         }
     }
