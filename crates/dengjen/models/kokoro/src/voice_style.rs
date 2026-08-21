@@ -33,10 +33,8 @@ impl VoiceStyles {
                     STYLE_DIM
                 )));
             }
-            let floats: Vec<f32> = bytes
-                .chunks_exact(4)
-                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-                .collect();
+            let (chunks, _) = bytes.as_chunks::<4>();
+            let floats: Vec<f32> = chunks.iter().copied().map(f32::from_le_bytes).collect();
             let table = Array2::from_shape_vec((MAX_TOKEN_LEN, STYLE_DIM), floats)
                 .map_err(|e| DengjenError::with_message(e.to_string()))?;
             per_voice.insert(voice_name.clone(), table);
