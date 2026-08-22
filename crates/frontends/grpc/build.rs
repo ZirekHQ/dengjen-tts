@@ -1,4 +1,7 @@
+const PROTO_FILE: &str = "proto/dengjen_grpc.proto";
+
 fn main() {
-    tonic_build::compile_protos("proto/dengjen_grpc.proto")
-        .unwrap_or_else(|e| panic!("Failed to compile protos {:?}", e));
+    if let Err(err) = tonic_build::compile_protos(PROTO_FILE) {
+        panic!("failed to compile gRPC protobuf definitions in {PROTO_FILE}: {err:?}");
+    }
 }

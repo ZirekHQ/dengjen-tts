@@ -1,24 +1,35 @@
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-fn main() {
-    let crate_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-
-    let root = crate_dir
+/// This crate lives 3 directories below the workspace root
+/// (`crates/frontends/python`), so climbing 3 ancestors from it lands back
+/// at the root.
+fn workspace_root(crate_dir: &Path) -> PathBuf {
+    crate_dir
         .ancestors()
         .nth(3)
-        .expect("unable to find workspace root");
+        .expect("crate directory is not nested 3 levels below the workspace root")
+        .to_path_buf()
+}
 
-    let src = root.join("deps").join("dev").join("espeak-ng-data");
-    let dst = crate_dir
-        .join("python")
-        .join("pydengjen")
+fn main() {
+    let crate_dir =
+        PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not set"));
+
+    let espeak_data_src = workspace_root(&crate_dir)
+        .join("deps")
+        .join("dev")
         .join("espeak-ng-data");
+    let package_dir = crate_dir.join("python").join("pydengjen");
+    let espeak_data_dst = package_dir.join("espeak-ng-data");
 
-    if dst.exists() {
+    if espeak_data_dst.exists() {
+        // Already staged by an earlier build; skip so repeated builds stay
+        // cheap and we never clobber a copy someone has since edited.
         return;
     }
 
-    let copy_config = fs_extra::dir::CopyOptions::new();
-    fs_extra::dir::copy(&src, dst.parent().unwrap(), &copy_config).unwrap();
+    let options = fs_extra::dir::CopyOptions::new();
+    fs_extra::dir::copy(&espeak_data_src, &package_dir, &options)
+        .expect("failed to stage espeak-ng-data into the pydengjen package");
 }
