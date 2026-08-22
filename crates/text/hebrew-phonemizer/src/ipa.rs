@@ -214,6 +214,99 @@ pub(crate) fn map_consonant(base: char, marks: &[char], is_final: bool) -> Strin
     String::new()
 }
 
+const SHEVA: char = '\u{05B0}';
+const HATAF_SEGOL: char = '\u{05B1}';
+const HATAF_PATAH: char = '\u{05B2}';
+const HATAF_QAMATS: char = '\u{05B3}';
+const HIRIQ: char = '\u{05B4}';
+const TSERE: char = '\u{05B5}';
+const SEGOL: char = '\u{05B6}';
+const PATAH: char = '\u{05B7}';
+const QAMATS: char = '\u{05B8}';
+const HOLAM: char = '\u{05B9}';
+const QUBUTZ: char = '\u{05BB}';
+const QAMATS_QATAN: char = '\u{05C7}';
+
+#[allow(dead_code)]
+pub(crate) fn map_basic_vowel(g: &Glyph) -> (String, bool) {
+    if g.has(QAMATS_QATAN) {
+        return ("o".to_string(), true);
+    }
+    if g.has(QUBUTZ) {
+        return ("u".to_string(), true);
+    }
+    if g.has(HIRIQ) {
+        return ("i".to_string(), true);
+    }
+    if g.has(TSERE) || g.has(SEGOL) {
+        return ("e".to_string(), true);
+    }
+    if g.has(PATAH) || g.has(QAMATS) || g.has(HATAF_PATAH) {
+        return ("a".to_string(), true);
+    }
+    if g.has(HATAF_SEGOL) {
+        return ("e".to_string(), true);
+    }
+    if g.has(HATAF_QAMATS) {
+        return ("o".to_string(), true);
+    }
+    if g.has(SHEVA) {
+        return ("\u{0259}".to_string(), false);
+    }
+    (String::new(), false)
+}
+
+#[allow(dead_code)]
+pub(crate) fn is_shuruk(g: &Glyph) -> bool {
+    if g.base != VAV.to_string() || !g.has(DAGESH) {
+        return false;
+    }
+    let other_vowel_marks = [
+        HOLAM,
+        HIRIQ,
+        TSERE,
+        SEGOL,
+        PATAH,
+        QAMATS,
+        QUBUTZ,
+        QAMATS_QATAN,
+        SHEVA,
+        HATAF_SEGOL,
+        HATAF_PATAH,
+        HATAF_QAMATS,
+    ];
+    !g.marks.iter().any(|m| other_vowel_marks.contains(m))
+}
+
+#[allow(dead_code)]
+pub(crate) fn is_holam_male(g: &Glyph) -> bool {
+    g.base == VAV.to_string() && g.has(HOLAM) && !g.has(DAGESH)
+}
+
+fn has_any_vowel_mark(marks: &[char]) -> bool {
+    let vowel_marks = [
+        SHEVA,
+        HATAF_SEGOL,
+        HATAF_PATAH,
+        HATAF_QAMATS,
+        HIRIQ,
+        TSERE,
+        SEGOL,
+        PATAH,
+        QAMATS,
+        HOLAM,
+        QUBUTZ,
+        QAMATS_QATAN,
+    ];
+    marks.iter().any(|m| vowel_marks.contains(m))
+}
+
+#[allow(dead_code)]
+pub(crate) fn is_hiriq_yod(curr: &Glyph, next: Option<&Glyph>) -> bool {
+    let Some(next) = next else { return false };
+    curr.has(HIRIQ) && next.base == YOD.to_string() && !has_any_vowel_mark(&next.marks)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -277,5 +370,104 @@ mod tests {
     fn map_consonant_alef_and_ayin_are_placeholder_glottal() {
         assert_eq!(map_consonant('\u{05D0}', &[], false), "<GLT>");
         assert_eq!(map_consonant('\u{05E2}', &[], false), "<GLT>");
+    }
+
+    #[test]
+    fn map_basic_vowel_reads_each_niqqud_mark() {
+        let cases = [
+            ('\u{05B8}', "a"), // qamats
+            ('\u{05B7}', "a"), // patah
+            ('\u{05B4}', "i"), // hiriq
+            ('\u{05B5}', "e"), // tsere
+            ('\u{05B6}', "e"), // segol
+            ('\u{05B9}', ""),  // holam handled separately (mater cases), not here
+        ];
+        for (mark, expected) in cases {
+            if mark == '\u{05B9}' {
+                continue; // holam-on-consonant alone is not one of the basic cases
+            }
+            let g = Glyph {
+                base: "x".to_string(),
+                marks: vec![mark],
+            };
+            let (ipa, is_vocalic) = map_basic_vowel(&g);
+            assert_eq!(ipa, expected);
+            assert!(is_vocalic);
+        }
+    }
+
+    #[test]
+    fn map_basic_vowel_sheva_is_a_placeholder_schwa() {
+        let g = Glyph {
+            base: "x".to_string(),
+            marks: vec!['\u{05B0}'],
+        };
+        let (ipa, is_vocalic) = map_basic_vowel(&g);
+        assert_eq!(ipa, "\u{0259}");
+        assert!(!is_vocalic);
+    }
+
+    #[test]
+    fn map_basic_vowel_no_marks_is_not_vocalic() {
+        let g = Glyph {
+            base: "x".to_string(),
+            marks: vec![],
+        };
+        let (ipa, is_vocalic) = map_basic_vowel(&g);
+        assert_eq!(ipa, "");
+        assert!(!is_vocalic);
+    }
+
+    #[test]
+    fn is_shuruk_detects_vav_with_only_a_dagesh() {
+        let g = Glyph {
+            base: VAV.to_string(),
+            marks: vec!['\u{05BC}'],
+        };
+        assert!(is_shuruk(&g));
+    }
+
+    #[test]
+    fn is_shuruk_false_when_another_vowel_mark_is_present() {
+        let g = Glyph {
+            base: VAV.to_string(),
+            marks: vec!['\u{05BC}', '\u{05B7}'],
+        };
+        assert!(!is_shuruk(&g));
+    }
+
+    #[test]
+    fn is_holam_male_detects_vav_with_holam_and_no_dagesh() {
+        let g = Glyph {
+            base: VAV.to_string(),
+            marks: vec!['\u{05B9}'],
+        };
+        assert!(is_holam_male(&g));
+    }
+
+    #[test]
+    fn is_hiriq_yod_detects_hiriq_followed_by_bare_yod() {
+        let curr = Glyph {
+            base: "x".to_string(),
+            marks: vec!['\u{05B4}'],
+        };
+        let next = Glyph {
+            base: YOD.to_string(),
+            marks: vec![],
+        };
+        assert!(is_hiriq_yod(&curr, Some(&next)));
+    }
+
+    #[test]
+    fn is_hiriq_yod_false_when_next_yod_has_its_own_vowel() {
+        let curr = Glyph {
+            base: "x".to_string(),
+            marks: vec!['\u{05B4}'],
+        };
+        let next = Glyph {
+            base: YOD.to_string(),
+            marks: vec!['\u{05B7}'],
+        };
+        assert!(!is_hiriq_yod(&curr, Some(&next)));
     }
 }
