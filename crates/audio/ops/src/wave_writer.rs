@@ -254,6 +254,7 @@ mod tests {
         assert!(result.is_err());
     }
 
+    #[cfg(target_os = "linux")]
     fn this_process_can_write_into_dev() -> bool {
         let probe = Path::new("/dev/.wave_writer_root_probe");
         match std::fs::OpenOptions::new()
