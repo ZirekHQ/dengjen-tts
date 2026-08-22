@@ -328,19 +328,15 @@ pub(crate) fn word_to_segments(word: &str) -> Vec<Segment> {
         let next = glyphs.get(i + 1);
         let is_final = i == glyphs.len() - 1;
 
-        // A geresh-digraph placeholder glyph (base like "<IPA:...>") is
-        // always a bare consonant with no niqqud of its own.
-        if g.base.starts_with("<IPA:") {
-            let ipa = g
-                .base
-                .trim_start_matches("<IPA:")
-                .trim_end_matches('>')
-                .to_string();
-            onset.push(ipa);
-            i += 1;
-            continue;
-        }
-        // Every non-placeholder Glyph is built from exactly one base char
+        // Real upstream piper1-gpl's `_word_to_segments` has no special case
+        // for geresh-digraph placeholder glyphs (base like "<IPA:...>"):
+        // they fall through to the ordinary consonant/vowel handling below,
+        // where `map_consonant('<', ...)` matches no branch and returns "",
+        // silently dropping the digraph's sound. This is upstream's actual
+        // (bug-like but intentional-for-fidelity) behavior, so it is not
+        // special-cased here either — see word_to_segments_geresh_digraph_is_silently_dropped_matching_upstream.
+        //
+        // Every Glyph is built from exactly one base char
         // (see Glyph::plain / iter_glyphs), so this is always Some; '\0'
         // is an unreachable, harmless fallback that simply maps to no
         // consonant rather than panicking.
@@ -612,5 +608,26 @@ mod tests {
         assert_eq!(segs.len(), 1);
         assert_eq!(segs[0].nucleus, "\u{0259}");
         assert!(segs[0].dagesh);
+    }
+
+    #[test]
+    fn word_to_segments_geresh_digraph_is_silently_dropped_matching_upstream() {
+        // Verified against real upstream piper1-gpl's `_word_to_segments`:
+        // it has no special case for the geresh-digraph placeholder glyph.
+        // The placeholder falls through to the ordinary consonant path,
+        // where `map_consonant` matches no branch on a multi-char base and
+        // returns "", so the digraph's sound is silently dropped rather
+        // than emitted anywhere in onset/coda.
+        let segs = word_to_segments("\u{05D2}\u{05F3}\u{05D1}\u{05B7}"); // gimel+geresh+bet+patah
+        let digraph_ipa = "d\u{0361}\u{0292}";
+        for seg in &segs {
+            assert!(!seg.onset.iter().any(|s| s == digraph_ipa));
+            assert!(!seg.coda.iter().any(|s| s == digraph_ipa));
+        }
+        // The bet+patah still produces its own "a" segment (onset "v",
+        // bet has no dagesh); the digraph itself contributes nothing.
+        assert_eq!(segs.len(), 1);
+        assert_eq!(segs[0].nucleus, "a");
+        assert_eq!(segs[0].onset, vec!["v".to_string()]);
     }
 }
