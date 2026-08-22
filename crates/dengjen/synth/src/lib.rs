@@ -378,26 +378,35 @@ impl Iterator for DengjenSpeechStreamParallel {
     }
 }
 
-/// Backstop for `next_chunk_size`, in whatever unit the active backend's
-/// `chunk_size` parameter uses (mel frames for Piper, samples for Kokoro).
+/// Upper bound on the value `next_chunk_size` can return, in whatever unit
+/// the active backend's `chunk_size` parameter uses (mel frames for Piper,
+/// samples for Kokoro). A backstop against pathological growth, not a
+/// value any normal stream is expected to reach.
 const MAX_STREAM_CHUNK_SIZE: usize = 1_000_000;
 
+/// Delivers synthesized audio chunks as a background producer thread
+/// generates them, so a caller can start playback before the whole text
+/// finishes synthesizing.
 pub struct RealtimeSpeechStream {
     rx: Receiver<DengjenResult<AudioSamples>>,
     cancel_token: CancellationToken,
 }
 
 impl RealtimeSpeechStream {
-    /// Ramps the chunk size additively as the stream progresses: each sentence
-    /// contributes one more multiple of the *original* base chunk size, up to
-    /// a cap of 4 multiples (5x base), so later sentences synthesize in fewer,
-    /// larger chunks without ever compounding on a previously grown value or
-    /// dropping back toward `base` between sentences (issue #28). Clamped to
-    /// `MAX_STREAM_CHUNK_SIZE` as a backstop.
+    /// Grows the chunk size by one extra multiple of `base_chunk_size` per
+    /// sentence already seen, capped at 4 extra multiples (5x base total),
+    /// then clamped to `MAX_STREAM_CHUNK_SIZE`. The growth is always relative
+    /// to the fixed `base_chunk_size`, never to a value this function
+    /// previously returned, so calling it repeatedly across a stream can
+    /// only ramp up and plateau — never compound past the cap and never
+    /// fall back down between sentences. Issue #28 was a regression where an
+    /// earlier version violated that and let the size oscillate; keep this
+    /// additive, non-resetting shape when touching this function.
     fn next_chunk_size(base_chunk_size: usize, sentences_seen: usize) -> usize {
-        let ramp_multiple = sentences_seen.min(4);
+        let extra_multiples = sentences_seen.min(4);
+        let growth = base_chunk_size.saturating_mul(extra_multiples);
         base_chunk_size
-            .saturating_add(base_chunk_size.saturating_mul(ramp_multiple))
+            .saturating_add(growth)
             .min(MAX_STREAM_CHUNK_SIZE)
     }
 
@@ -412,26 +421,29 @@ impl RealtimeSpeechStream {
         let sentences = provider.get_phonemes()?;
         let (tx, rx) = flume::unbounded();
         let producer_cancel_token = cancel_token.clone();
+
         SYNTHESIS_THREAD_POOL.spawn(move || {
             let cancel_token = producer_cancel_token;
-            for (sentences_seen, phonemes) in sentences.into_iter().enumerate() {
+            for (sentence_index, phonemes) in sentences.into_iter().enumerate() {
                 if cancel_token.is_cancelled() {
                     return;
                 }
-                let sentence_chunk_size = Self::next_chunk_size(chunk_size, sentences_seen);
+
+                let this_chunk_size = Self::next_chunk_size(chunk_size, sentence_index);
                 let stream = match provider.model.stream_synthesis(
                     phonemes,
-                    sentence_chunk_size,
+                    this_chunk_size,
                     chunk_padding,
                     cancel_token.clone(),
                 ) {
                     Ok(stream) => stream,
-                    Err(e) => {
-                        tx.send(Err(e)).ok();
+                    Err(err) => {
+                        let _ = tx.send(Err(err));
                         return;
                     }
                 };
-                let drained = Self::process_rt_stream(
+
+                let stream_result = Self::process_rt_stream(
                     stream,
                     &tx,
                     provider.output_config.as_ref(),
@@ -439,49 +451,54 @@ impl RealtimeSpeechStream {
                     num_channels,
                     &cancel_token,
                 );
-                if drained.is_err() {
+                if stream_result.is_err() {
                     return;
                 }
             }
         });
+
         Ok(Self { rx, cancel_token })
     }
 
-    #[inline(always)]
+    /// Drains one sentence's model stream into `tx`, applying the output
+    /// config to each successful chunk and forwarding both successes and
+    /// errors — a chunk is never silently dropped. Checks `cancel_token`
+    /// before pulling each item so a mid-sentence cancellation stops the
+    /// drain promptly. Appends one silence chunk after the sentence's own
+    /// chunks if the config asks for it and the stream wasn't cancelled.
     fn process_rt_stream(
         stream: AudioStreamIterator,
         tx: &Sender<DengjenResult<AudioSamples>>,
-        audio_output_config: Option<&AudioOutputConfig>,
+        output_config: Option<&AudioOutputConfig>,
         sample_rate: usize,
         num_channels: usize,
         cancel_token: &CancellationToken,
     ) -> Result<(), SendError<DengjenResult<AudioSamples>>> {
-        for result in stream {
+        for chunk in stream {
             if cancel_token.is_cancelled() {
                 return Ok(());
             }
-            let outgoing = match (result, audio_output_config) {
-                (Ok(samples), Some(output_config)) => {
-                    output_config.apply_to_raw_samples(samples, sample_rate, num_channels)
+            let shaped = match (chunk, output_config) {
+                (Ok(samples), Some(config)) => {
+                    config.apply_to_raw_samples(samples, sample_rate, num_channels)
                 }
                 (Ok(samples), None) => Ok(samples),
-                (Err(e), _) => Err(e),
+                (Err(err), _) => Err(err),
             };
-            tx.send(outgoing)?;
+            tx.send(shaped)?;
         }
-        if !cancel_token.is_cancelled() {
-            if let Some(output_config) = audio_output_config {
-                if let Some(silence_ms) = output_config.appended_silence_ms {
-                    let silence_result = output_config.generate_silence(
-                        silence_ms as usize,
-                        sample_rate,
-                        num_channels,
-                    );
-                    tx.send(silence_result)?;
-                }
-            }
+
+        if cancel_token.is_cancelled() {
+            return Ok(());
         }
-        Ok(())
+        let Some(config) = output_config else {
+            return Ok(());
+        };
+        let Some(silence_ms) = config.appended_silence_ms else {
+            return Ok(());
+        };
+        let silence = config.generate_silence(silence_ms as usize, sample_rate, num_channels);
+        tx.send(silence)
     }
 }
 
@@ -490,10 +507,9 @@ impl Iterator for RealtimeSpeechStream {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.cancel_token.is_cancelled() {
-            None
-        } else {
-            self.rx.recv().ok()
+            return None;
         }
+        self.rx.recv().ok()
     }
 }
 
