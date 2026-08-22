@@ -84,11 +84,17 @@ fn inference_error(cause: impl std::fmt::Display) -> DengjenError {
     DengjenError::InferenceError(format!("Nakdimon inference failed: {cause}"))
 }
 
-/// Reads the class-count axis (index 2) out of a `(1, seq_len, num_classes)`
-/// output shape, erroring instead of panicking if the model produced a
-/// tensor of an unexpected rank.
+/// Validates a `(1, seq_len, num_classes)` output shape against the actual
+/// input `seq_len` and returns the class-count axis (index 2), erroring
+/// instead of panicking if the model produced a tensor of an unexpected rank
+/// or a sequence length that disagrees with the input we gave it.
 #[allow(dead_code)]
-fn num_classes(shape: &Shape) -> DengjenResult<usize> {
+fn num_classes(shape: &Shape, seq_len: usize) -> DengjenResult<usize> {
+    if shape.get(1) != Some(&(seq_len as i64)) {
+        return Err(inference_error(format!(
+            "expected output sequence length {seq_len}, model produced shape {shape:?}"
+        )));
+    }
     shape.get(2).map(|&n| n as usize).ok_or_else(|| {
         inference_error(format!(
             "expected a rank-3 output tensor, got shape {shape:?}"
@@ -112,13 +118,27 @@ fn argmax_per_position(data: &[f32], seq_len: usize, num_classes: usize) -> Vec<
         .collect()
 }
 
+/// Strips any pre-existing niqqud/cantillation marks so the model always
+/// sees bare consonants, matching upstream's `remove_niqqud`, which its own
+/// `diacritize` calls first for exactly this reason. Without this, points
+/// already present in the input would fall through `normalize()`'s
+/// unknown-character fallback (`'O'`) instead of being recognized, silently
+/// degrading model input rather than erroring.
+#[allow(dead_code)]
+fn remove_niqqud(text: &str) -> String {
+    text.chars()
+        .filter(|&c| !(0x05B0..=0x05C7).contains(&(c as u32)))
+        .collect()
+}
+
 impl NakdimonEngine {
     /// Restores niqqud (vowel points) in `text` using the loaded Nakdimon model.
     #[allow(dead_code)]
     pub fn diacritize(&self, text: &str) -> DengjenResult<String> {
+        let text = remove_niqqud(text);
         let letters: Vec<char> = text.chars().collect();
         if letters.is_empty() {
-            return Ok(text.to_string());
+            return Ok(text);
         }
         let char_ids = char_to_id_map();
         let input_ids: Vec<f32> = letters
@@ -132,7 +152,7 @@ impl NakdimonEngine {
         let input =
             Array2::<f32>::from_shape_vec((1, seq_len), input_ids).map_err(inference_error)?;
 
-        let mut session = self.0.lock().map_err(|e| inference_error(e.to_string()))?;
+        let mut session = self.0.lock().map_err(inference_error)?;
         let outputs = session
             .run(ort::inputs![
                 Tensor::from_array(input).map_err(inference_error)?
@@ -155,9 +175,9 @@ impl NakdimonEngine {
             .try_extract_tensor::<f32>()
             .map_err(inference_error)?;
 
-        let niqqud_ids = argmax_per_position(n_data, seq_len, num_classes(n_shape)?);
-        let dagesh_ids = argmax_per_position(d_data, seq_len, num_classes(d_shape)?);
-        let sin_ids = argmax_per_position(s_data, seq_len, num_classes(s_shape)?);
+        let niqqud_ids = argmax_per_position(n_data, seq_len, num_classes(n_shape, seq_len)?);
+        let dagesh_ids = argmax_per_position(d_data, seq_len, num_classes(d_shape, seq_len)?);
+        let sin_ids = argmax_per_position(s_data, seq_len, num_classes(s_shape, seq_len)?);
 
         Ok(merge_diacritics(
             &letters,
@@ -207,6 +227,13 @@ mod tests {
     // `dagesh_classes()[2 - 1]` == DAGESH_LETTER.
     fn dagesh_id_for_dagesh_letter() -> Vec<usize> {
         vec![2]
+    }
+
+    #[test]
+    fn remove_niqqud_strips_points_and_leaves_base_letters_untouched() {
+        // shalom fully pointed: shin-yemanit + patah, lamed + holam, vav, mem-sofit + qamats
+        let pointed = "\u{05E9}\u{05C1}\u{05B7}\u{05DC}\u{05B9}\u{05D5}\u{05DD}\u{05B8}";
+        assert_eq!(remove_niqqud(pointed), "\u{05E9}\u{05DC}\u{05D5}\u{05DD}");
     }
 
     #[test]
