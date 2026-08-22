@@ -412,6 +412,133 @@ pub(crate) fn word_to_segments(word: &str) -> Vec<Segment> {
     segs
 }
 
+#[allow(dead_code)]
+fn resolve_sheva_and_qamats(mut segs: Vec<Segment>) -> Vec<Segment> {
+    let mut prev_silenced_shva = false;
+    for i in 0..segs.len() {
+        if segs[i].nucleus != "\u{0259}" {
+            prev_silenced_shva = false;
+            continue;
+        }
+        let dagesh_chazak = segs[i].dagesh && i > 0;
+        let na = i == 0 || dagesh_chazak || prev_silenced_shva;
+
+        if na {
+            segs[i].nucleus = "e".to_string();
+            prev_silenced_shva = false;
+        } else {
+            let onset = std::mem::take(&mut segs[i].onset);
+            if i > 0 {
+                segs[i - 1].coda.extend(onset);
+            }
+            segs[i].nucleus = String::new();
+            prev_silenced_shva = true;
+        }
+    }
+
+    let mut merged: Vec<Segment> = Vec::new();
+    for s in segs {
+        if s.nucleus.is_empty() {
+            if let Some(last) = merged.last_mut() {
+                last.coda.extend(s.onset);
+            } else {
+                merged.push(s);
+            }
+            continue;
+        }
+        merged.push(s);
+    }
+    merged
+}
+
+#[allow(dead_code)]
+fn syllabify_to_ipa(segs: &[Segment]) -> String {
+    // Segholate-style exception: exactly two syllables where the last one
+    // is closed (has a coda) are stressed on the first syllable instead of
+    // the (otherwise default) last one.
+    let stress_index = match segs {
+        [_, second] if !second.coda.is_empty() => 0,
+        _ => segs.len().saturating_sub(1),
+    };
+
+    segs.iter()
+        .enumerate()
+        .map(|(idx, s)| {
+            let onset: String = s.onset.concat();
+            let coda: String = s.coda.concat();
+            if idx == stress_index {
+                format!("{onset}\u{02C8}{}{coda}", s.nucleus)
+            } else {
+                format!("{onset}{}{coda}", s.nucleus)
+            }
+        })
+        .collect()
+}
+
+const GLOTTAL: char = '\u{0294}';
+const STRESS: char = '\u{02C8}';
+
+// Real upstream uses three lookahead regex substitutions to clean up the
+// `<GLT>` glottal-stop placeholder:
+//   ʔ(?=ˈ?[aeiouə])  -> ʔ   (keep before a vowel: a no-op self-replace)
+//   (?<=^)ʔ          -> ʔ   (keep word-initial: also a no-op self-replace)
+//   ʔ(?=[^aeiouəˈ]|$) -> "" (drop before a consonant or at end of string)
+// Only the third substitution has any actual effect; the first two rewrite
+// a match to itself. Rust's `regex` crate has no lookaround support at all
+// (by design, for its linear-time guarantee), so this reproduces the net
+// effect directly: keep a glottal stop only when the character immediately
+// after it (skipping at most one stress mark) is a vowel or schwa; drop it
+// otherwise, including at end of string. `syllabify_to_ipa` only ever
+// places a stress mark directly before a (non-empty) vowel nucleus, so
+// "skip one stress mark, then check for a vowel" and upstream's literal
+// "next char is one of aeiouəˈ" are equivalent for every string this
+// function actually produces.
+#[allow(dead_code)]
+fn strip_unrealized_glottal_stops(ipa: &str) -> String {
+    let chars: Vec<char> = ipa.chars().collect();
+    let mut out = String::with_capacity(ipa.len());
+    for (i, &c) in chars.iter().enumerate() {
+        if c != GLOTTAL {
+            out.push(c);
+            continue;
+        }
+        let after_stress = if chars.get(i + 1) == Some(&STRESS) {
+            i + 2
+        } else {
+            i + 1
+        };
+        let followed_by_vowel = matches!(
+            chars.get(after_stress),
+            Some('a' | 'e' | 'i' | 'o' | 'u' | '\u{0259}')
+        );
+        if followed_by_vowel {
+            out.push(c);
+        }
+    }
+    out
+}
+
+#[allow(dead_code)]
+pub(crate) fn hebrew_word_to_ipa(word: &str) -> String {
+    let segs = resolve_sheva_and_qamats(word_to_segments(word));
+    let ipa = syllabify_to_ipa(&segs);
+    let ipa = strip_unrealized_glottal_stops(&ipa);
+
+    // Drop the affricate tie bar so t͡s/t͡ʃ/d͡ʒ become plain phoneme pairs
+    // that exist in Piper's default IPA id map.
+    ipa.replace('\u{0361}', "")
+}
+
+#[allow(dead_code)]
+pub(crate) fn hebrew_to_ipa(text: &str) -> String {
+    let normalized: String = strip_taamim(text).nfc().collect();
+    normalized
+        .split_whitespace()
+        .map(hebrew_word_to_ipa)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -629,5 +756,100 @@ mod tests {
         assert_eq!(segs.len(), 1);
         assert_eq!(segs[0].nucleus, "a");
         assert_eq!(segs[0].onset, vec!["v".to_string()]);
+    }
+
+    #[test]
+    fn hebrew_word_to_ipa_word_initial_sheva_is_realized_as_e() {
+        // bet+sheva, resh+patah, kaf-final (no dagesh anywhere).
+        // Fixed vs. the task brief: the brief asserted `starts_with('b')`, but
+        // bet has no dagesh here, so real upstream's `_map_consonant` maps it
+        // to "v" (begadkefat spirantization), not "b". Traced through
+        // `_word_to_segments` + `_resolve_sheva_and_qamats` this word yields
+        // "vˈeʁaχ": the word-initial sheva resolves to "e" per the `na`
+        // (i == 0) rule, and the onset consonant is "v".
+        let ipa = hebrew_word_to_ipa("\u{05D1}\u{05B0}\u{05E8}\u{05B7}\u{05DA}");
+        assert!(ipa.starts_with('v'));
+        assert!(
+            !ipa.contains('\u{0259}'),
+            "word-initial sheva must resolve to 'e', not stay a schwa"
+        );
+    }
+
+    #[test]
+    fn hebrew_word_to_ipa_stresses_the_final_syllable_by_default() {
+        // Fixed vs. the task brief: the brief's word "shalom" was
+        // שָלום (missing the cholam mark on vav
+        // entirely), which collapses to a single degenerate syllable and
+        // fails the test's own "stress on the final syllable" assumption.
+        // Even with the cholam mark restored, real "shalom" is exactly two
+        // syllables with a closed (consonant-final) last syllable, which
+        // trips upstream's `_syllabify_to_ipa` segholate-style exception
+        // (len(syls) == 2 and the last syllable has a coda -> stress the
+        // *first* syllable instead). That exception only fires at exactly
+        // two syllables, so this test uses "shamayim" (three open/closed
+        // syllables: sha-ma-yim) to exercise the actual default rule the
+        // test name describes, without tripping the two-syllable exception.
+        let ipa = hebrew_word_to_ipa(
+            "\u{05E9}\u{05B8}\u{05DE}\u{05B7}\u{05D9}\u{05B4}\u{05DD}", // shamayim
+        );
+        assert!(ipa.contains('\u{02C8}'), "expected a stress mark somewhere");
+        let Some(stress_pos) = ipa.find('\u{02C8}') else {
+            panic!("expected a stress mark to be present, checked above");
+        };
+        assert!(
+            stress_pos > ipa.len() / 2,
+            "default stress should land on the final syllable"
+        );
+    }
+
+    #[test]
+    fn hebrew_word_to_ipa_keeps_glottal_stop_immediately_before_a_vowel() {
+        // ayin, vav+holam (o), lamed+qamats (a), mem-final: "olam".
+        let ipa = hebrew_word_to_ipa("\u{05E2}\u{05D5}\u{05B9}\u{05DC}\u{05B8}\u{05DD}");
+        assert!(
+            ipa.starts_with('\u{0294}'),
+            "glottal stop before a vowel must survive, got {ipa:?}"
+        );
+    }
+
+    #[test]
+    fn hebrew_word_to_ipa_drops_glottal_stop_before_a_consonant() {
+        // alef (no vowel of its own), then bet+patah: the alef's glottal
+        // placeholder is carried into the bet's onset ("ʔv"), immediately
+        // followed by a consonant rather than a vowel, so it is dropped.
+        let ipa = hebrew_word_to_ipa("\u{05D0}\u{05D1}\u{05B7}");
+        assert!(
+            !ipa.contains('\u{0294}'),
+            "glottal stop before a consonant must be dropped, got {ipa:?}"
+        );
+        assert_eq!(ipa, "v\u{02C8}a");
+    }
+
+    #[test]
+    fn hebrew_word_to_ipa_drops_affricate_tie_bars() {
+        let ipa = hebrew_word_to_ipa("\u{05E6}\u{05B7}\u{05DC}\u{05DD}"); // tsadi-initial word
+        assert!(
+            !ipa.contains('\u{0361}'),
+            "tie bar must be stripped for Piper's IPA map"
+        );
+    }
+
+    #[test]
+    fn hebrew_to_ipa_joins_multiple_words_with_a_space() {
+        // Fixed vs. the task brief: both source words were missing the
+        // cholam mark on their vav (ֹ), so "shalom" and "olam" are
+        // spelled out fully here to match real Hebrew orthography. The
+        // assertions themselves (space-joining, word count) were already
+        // correct and unaffected either way.
+        let ipa = hebrew_to_ipa(
+            "\u{05E9}\u{05B8}\u{05DC}\u{05D5}\u{05B9}\u{05DD} \u{05E2}\u{05D5}\u{05B9}\u{05DC}\u{05B8}\u{05DD}",
+        );
+        assert!(ipa.contains(' '));
+        assert_eq!(ipa.split(' ').count(), 2);
+    }
+
+    #[test]
+    fn hebrew_to_ipa_empty_input_yields_empty_output() {
+        assert_eq!(hebrew_to_ipa(""), "");
     }
 }
