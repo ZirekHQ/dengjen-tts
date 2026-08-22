@@ -284,9 +284,9 @@ impl DengjenModel for DengjenSpeechSynthesizer {
     }
 }
 
-/// Bundles a model handle, the input text, and an optional output-shaping
-/// config so the various stream constructors don't each need their own
-/// (model, text, output_config) triple.
+/// Groups everything a stream constructor needs to turn input text into
+/// audio — the model to synthesize with, the text itself, and the optional
+/// post-processing config — so callers pass one value instead of three.
 struct SpeechSynthesisTaskProvider {
     model: Arc<dyn DengjenModel + Sync + Send>,
     text: String,
@@ -295,40 +295,44 @@ struct SpeechSynthesisTaskProvider {
 
 impl SpeechSynthesisTaskProvider {
     fn get_phonemes(&self) -> DengjenResult<Vec<String>> {
-        let phonemes = self.model.phonemize_text(&self.text)?;
-        Ok(phonemes.to_vec())
+        Ok(self.model.phonemize_text(&self.text)?.to_vec())
     }
 
-    fn process_one_sentence(&self, phonemes: String) -> DengjenAudioResult {
-        let audio = self.model.speak_one_sentence(phonemes)?;
+    fn shape_output(&self, audio: Audio) -> DengjenAudioResult {
         match &self.output_config {
             Some(config) => config.apply(audio),
             None => Ok(audio),
         }
     }
 
+    fn process_one_sentence(&self, sentence: String) -> DengjenAudioResult {
+        let audio = self.model.speak_one_sentence(sentence)?;
+        self.shape_output(audio)
+    }
+
     #[allow(dead_code)]
-    fn process_batches(&self, phonemes: Vec<String>) -> DengjenResult<Vec<Audio>> {
-        let batch = self.model.speak_batch(phonemes)?;
-        match &self.output_config {
-            Some(config) => batch.into_iter().map(|audio| config.apply(audio)).collect(),
-            None => Ok(batch),
-        }
+    fn process_batches(&self, sentences: Vec<String>) -> DengjenResult<Vec<Audio>> {
+        self.model
+            .speak_batch(sentences)?
+            .into_iter()
+            .map(|audio| self.shape_output(audio))
+            .collect()
     }
 }
 
-/// Synthesizes sentences one at a time as the caller pulls from the iterator.
+/// Pulls one sentence's audio out of the underlying model on each
+/// `Iterator::next` call, rather than synthesizing everything up front.
 pub struct DengjenSpeechStreamLazy {
     provider: SpeechSynthesisTaskProvider,
-    remaining_phonemes: std::vec::IntoIter<String>,
+    pending_sentences: std::vec::IntoIter<String>,
 }
 
 impl DengjenSpeechStreamLazy {
     fn new(provider: SpeechSynthesisTaskProvider) -> DengjenResult<Self> {
-        let remaining_phonemes = provider.get_phonemes()?.into_iter();
+        let pending_sentences = provider.get_phonemes()?.into_iter();
         Ok(Self {
             provider,
-            remaining_phonemes,
+            pending_sentences,
         })
     }
 }
@@ -337,29 +341,31 @@ impl Iterator for DengjenSpeechStreamLazy {
     type Item = DengjenAudioResult;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let phonemes = self.remaining_phonemes.next()?;
-        Some(self.provider.process_one_sentence(phonemes))
+        self.pending_sentences
+            .next()
+            .map(|sentence| self.provider.process_one_sentence(sentence))
     }
 }
 
-/// Synthesizes every sentence up front, in parallel via rayon, then hands out
-/// the precomputed results one at a time. `par_iter().map().collect()` is
-/// order-preserving, so results come out in the same order as the input
-/// sentences despite being computed concurrently.
+/// Synthesizes every sentence up front via rayon's parallel iterator, then
+/// replays the finished results one at a time. `par_iter().map().collect()`
+/// preserves input order in its output `Vec`, so callers see results in the
+/// same order as the source sentences even though synthesis itself ran
+/// concurrently and completed in whatever order the thread pool finished.
 #[must_use]
 pub struct DengjenSpeechStreamParallel {
-    results: std::vec::IntoIter<DengjenAudioResult>,
+    finished: std::vec::IntoIter<DengjenAudioResult>,
 }
 
 impl DengjenSpeechStreamParallel {
     fn new(provider: SpeechSynthesisTaskProvider) -> DengjenResult<Self> {
-        let phonemes = provider.get_phonemes()?;
-        let results: Vec<DengjenAudioResult> = phonemes
+        let sentences = provider.get_phonemes()?;
+        let finished: Vec<DengjenAudioResult> = sentences
             .par_iter()
             .map(|sentence| provider.process_one_sentence(sentence.clone()))
             .collect();
         Ok(Self {
-            results: results.into_iter(),
+            finished: finished.into_iter(),
         })
     }
 }
@@ -368,7 +374,7 @@ impl Iterator for DengjenSpeechStreamParallel {
     type Item = DengjenAudioResult;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.results.next()
+        self.finished.next()
     }
 }
 
