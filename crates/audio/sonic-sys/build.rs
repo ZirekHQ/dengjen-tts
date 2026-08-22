@@ -3,11 +3,12 @@ use std::path::PathBuf;
 
 const SONIC_C_SOURCE: &str = "../../../deps/sonic/sonic.c";
 const SONIC_C_HEADER: &str = "../../../deps/sonic/sonic.h";
+const SONIC_INCLUDE_DIR: &str = "../../../deps/sonic";
 
-fn build_static_lib(source: &str, header: &str) {
+fn build_static_lib(source: &str, include_dir: &str) {
     cc::Build::new()
         .file(source)
-        .include(header)
+        .include(include_dir)
         .compile("libsonic");
 }
 
@@ -29,7 +30,7 @@ fn main() {
     println!("cargo:rerun-if-changed={SONIC_C_SOURCE}");
     println!("cargo:rerun-if-changed={SONIC_C_HEADER}");
 
-    build_static_lib(SONIC_C_SOURCE, SONIC_C_HEADER);
+    build_static_lib(SONIC_C_SOURCE, SONIC_INCLUDE_DIR);
 
     let out_dir = env::var("OUT_DIR").unwrap();
     write_bindings(SONIC_C_HEADER, &out_dir);
