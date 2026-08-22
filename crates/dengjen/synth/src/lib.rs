@@ -1,13 +1,13 @@
-mod utils;
-pub use dengjen_tts_core::*;
-
-use flume::{Receiver, SendError, Sender};
-use once_cell::sync::Lazy;
-use rayon::prelude::*;
-use rayon::{ThreadPool, ThreadPoolBuilder};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
+
+use flume::{Receiver, SendError, Sender};
+use once_cell::sync::Lazy;
+use rayon::{prelude::*, ThreadPool, ThreadPoolBuilder};
+
+mod utils;
+pub use dengjen_tts_core::*;
 
 /// A closed interval that one of Sonic's post-processing knobs (speed,
 /// volume, pitch) is scaled onto from a `0..=100` percentage.

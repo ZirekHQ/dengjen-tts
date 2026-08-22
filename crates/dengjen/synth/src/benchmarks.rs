@@ -1,9 +1,11 @@
-mod dev_utils;
-
 fn main() {
+    // Voice fixtures are lazily built; force that setup to finish before
+    // divan starts scheduling iterations against them.
     dev_utils::init();
-    divan::main();
+    divan::main(); // hand control to divan's own benchmark runner
 }
+
+mod dev_utils;
 
 #[divan::bench_group(sample_count = 20, sample_size = 10)]
 mod speech_streams {
