@@ -9,26 +9,34 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
+/// A closed interval that one of Sonic's post-processing knobs (speed,
+/// volume, pitch) is scaled onto from a `0..=100` percentage.
 struct ParamRange {
     min: f32,
     max: f32,
 }
 
-const RATE_RANGE: ParamRange = ParamRange { min: 0.5, max: 5.5 };
-const VOLUME_RANGE: ParamRange = ParamRange { min: 0.0, max: 1.0 };
-const PITCH_RANGE: ParamRange = ParamRange { min: 0.5, max: 1.5 };
+const SPEED_PARAM_RANGE: ParamRange = ParamRange { min: 0.5, max: 5.5 };
+const VOLUME_PARAM_RANGE: ParamRange = ParamRange { min: 0.0, max: 1.0 };
+const PITCH_PARAM_RANGE: ParamRange = ParamRange { min: 0.5, max: 1.5 };
 
+/// Rayon pool that synthesis work runs on, kept off whatever thread calls
+/// into this crate. Oversized relative to core count since synthesis tasks
+/// spend much of their time blocked on model inference rather than on CPU.
 pub static SYNTHESIS_THREAD_POOL: Lazy<ThreadPool> = Lazy::new(|| {
-    let available = std::thread::available_parallelism()
+    let core_count = std::thread::available_parallelism()
         .map(usize::from)
         .unwrap_or(4);
     ThreadPoolBuilder::new()
-        .num_threads(available * 4)
+        .num_threads(core_count * 4)
         .thread_name(|index| format!("dengjen_synth_{index}"))
         .build()
-        .unwrap()
+        .expect("thread pool construction only fails on invalid config, never at runtime")
 });
 
+/// Optional post-processing to run on synthesized audio before it reaches
+/// the caller: speed/volume/pitch adjustments (each a `0..=100` percentage
+/// of its own fixed range) and/or trailing silence to pad the clip with.
 #[derive(Clone)]
 pub struct AudioOutputConfig {
     pub rate: Option<u8>,
@@ -39,17 +47,17 @@ pub struct AudioOutputConfig {
 
 impl AudioOutputConfig {
     fn apply(&self, mut audio: Audio) -> DengjenAudioResult {
-        let mut raw_samples = audio.samples.take();
+        let mut samples = audio.samples.take();
         if let Some(silence_ms) = self.appended_silence_ms {
             let silence = self.generate_silence(
                 silence_ms as usize,
                 audio.info.sample_rate,
                 audio.info.num_channels,
             )?;
-            raw_samples.extend(silence.into_vec());
+            samples.extend(silence.into_vec());
         }
         let processed = self.apply_to_raw_samples(
-            raw_samples.into(),
+            samples.into(),
             audio.info.sample_rate,
             audio.info.num_channels,
         )?;
@@ -57,6 +65,9 @@ impl AudioOutputConfig {
         Ok(audio)
     }
 
+    /// Runs `samples` through a fresh Sonic stream configured with whichever
+    /// of `rate`/`volume`/`pitch` are set, returning the transformed audio.
+    /// A no-op on empty input (Sonic has nothing meaningful to do with it).
     fn apply_to_raw_samples(
         &self,
         samples: AudioSamples,
@@ -68,21 +79,26 @@ impl AudioOutputConfig {
         }
         let input = samples.into_vec();
 
-        // SAFETY: `stream` is created, fed, flushed, and destroyed within this block on
-        // every path (including the error path), so no libsonic resource escapes it.
+        // SAFETY: every libsonic call below targets the `stream` handle this
+        // block itself creates, and every exit from the block — the early
+        // error return on a zero-sample result included — destroys that
+        // same handle first, so no stream ever outlives this block.
         unsafe {
             let stream = sonic_sys::sonicCreateStream(sample_rate as i32, num_channels as i32);
 
             if let Some(pct) = self.rate {
-                let speed = utils::percent_to_param(pct, RATE_RANGE.min, RATE_RANGE.max);
+                let speed =
+                    utils::percent_to_param(pct, SPEED_PARAM_RANGE.min, SPEED_PARAM_RANGE.max);
                 sonic_sys::sonicSetSpeed(stream, speed);
             }
             if let Some(pct) = self.volume {
-                let volume = utils::percent_to_param(pct, VOLUME_RANGE.min, VOLUME_RANGE.max);
+                let volume =
+                    utils::percent_to_param(pct, VOLUME_PARAM_RANGE.min, VOLUME_PARAM_RANGE.max);
                 sonic_sys::sonicSetVolume(stream, volume);
             }
             if let Some(pct) = self.pitch {
-                let pitch = utils::percent_to_param(pct, PITCH_RANGE.min, PITCH_RANGE.max);
+                let pitch =
+                    utils::percent_to_param(pct, PITCH_PARAM_RANGE.min, PITCH_PARAM_RANGE.max);
                 sonic_sys::sonicSetPitch(stream, pitch);
             }
 
@@ -111,14 +127,17 @@ impl AudioOutputConfig {
         }
     }
 
+    /// Builds `time_ms` worth of silence at the given rate/channel count and
+    /// routes it through [`Self::apply_to_raw_samples`], so appended silence
+    /// picks up the same rate/volume/pitch treatment as the real audio.
     fn generate_silence(
         &self,
         time_ms: usize,
         sample_rate: usize,
         num_channels: usize,
     ) -> DengjenResult<AudioSamples> {
-        let num_samples = (time_ms * sample_rate) / 1000;
-        let silence = vec![0f32; num_samples];
+        let sample_count = (time_ms * sample_rate) / 1000;
+        let silence = vec![0f32; sample_count];
         self.apply_to_raw_samples(silence.into(), sample_rate, num_channels)
     }
 }
