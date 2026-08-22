@@ -848,6 +848,196 @@ mod cancellation_tests {
 }
 
 #[cfg(test)]
+mod realtime_stream_error_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Mutex;
+
+    struct FailingStreamModel {
+        sentences: usize,
+        fail_on_call: usize,
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl DengjenModel for FailingStreamModel {
+        fn audio_output_info(&self) -> DengjenResult<AudioInfo> {
+            Ok(AudioInfo {
+                sample_rate: 16000,
+                num_channels: 1,
+                sample_width: 2,
+            })
+        }
+        fn phonemize_text(&self, _text: &str) -> DengjenResult<Phonemes> {
+            Ok(Phonemes::from(vec!["sentence".to_string(); self.sentences]))
+        }
+        fn speak_batch(&self, _phoneme_batches: Vec<String>) -> DengjenResult<Vec<Audio>> {
+            Ok(Vec::new())
+        }
+        fn speak_one_sentence(&self, _phonemes: String) -> DengjenAudioResult {
+            Err(DengjenError::OperationError(
+                "not used by this test".to_string(),
+            ))
+        }
+        fn get_default_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
+            Ok(SynthesisConfig::None)
+        }
+        fn get_fallback_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
+            Ok(SynthesisConfig::None)
+        }
+        fn set_fallback_synthesis_config(&self, _c: &SynthesisConfig) -> DengjenResult<()> {
+            Ok(())
+        }
+        fn supports_streaming_output(&self) -> bool {
+            true
+        }
+        fn stream_synthesis(
+            &self,
+            _phonemes: String,
+            _chunk_size: usize,
+            _chunk_padding: usize,
+            _cancel_token: CancellationToken,
+        ) -> DengjenResult<AudioStreamIterator<'_>> {
+            let call_index = self.calls.fetch_add(1, Ordering::SeqCst);
+            if call_index == self.fail_on_call {
+                return Err(DengjenError::InferenceError(
+                    "synthetic stream_synthesis failure".to_string(),
+                ));
+            }
+            Ok(Box::new(std::iter::once(Ok(AudioSamples::from(vec![
+                0.0f32; 4
+            ])))))
+        }
+    }
+
+    #[test]
+    fn stream_synthesis_failure_on_a_later_sentence_surfaces_and_stops_further_production() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let model: Arc<dyn DengjenModel + Send + Sync> = Arc::new(FailingStreamModel {
+            sentences: 3,
+            fail_on_call: 1,
+            calls: Arc::clone(&calls),
+        });
+        let synth = DengjenSpeechSynthesizer::new(model).unwrap();
+        let cancel_token = CancellationToken::new();
+        let stream = synth
+            .synthesize_streamed("irrelevant".to_string(), None, 10, 0, cancel_token)
+            .unwrap();
+
+        let items: Vec<DengjenResult<AudioSamples>> = stream.collect();
+
+        assert_eq!(
+            items.len(),
+            2,
+            "expected the first sentence's one chunk plus the second sentence's error, nothing after"
+        );
+        assert!(items[0].is_ok(), "first sentence's chunk should succeed");
+        match &items[1] {
+            Err(DengjenError::InferenceError(msg)) => {
+                assert_eq!(msg, "synthetic stream_synthesis failure");
+            }
+            other => panic!("expected the injected InferenceError, got {other:?}"),
+        }
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            2,
+            "producer must stop after the failing sentence, never reaching the third"
+        );
+    }
+
+    struct MidStreamErrorModel {
+        sentences: usize,
+        chunks: Mutex<Option<Vec<DengjenResult<AudioSamples>>>>,
+    }
+
+    impl DengjenModel for MidStreamErrorModel {
+        fn audio_output_info(&self) -> DengjenResult<AudioInfo> {
+            Ok(AudioInfo {
+                sample_rate: 16000,
+                num_channels: 1,
+                sample_width: 2,
+            })
+        }
+        fn phonemize_text(&self, _text: &str) -> DengjenResult<Phonemes> {
+            Ok(Phonemes::from(vec!["sentence".to_string(); self.sentences]))
+        }
+        fn speak_batch(&self, _phoneme_batches: Vec<String>) -> DengjenResult<Vec<Audio>> {
+            Ok(Vec::new())
+        }
+        fn speak_one_sentence(&self, _phonemes: String) -> DengjenAudioResult {
+            Err(DengjenError::OperationError(
+                "not used by this test".to_string(),
+            ))
+        }
+        fn get_default_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
+            Ok(SynthesisConfig::None)
+        }
+        fn get_fallback_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
+            Ok(SynthesisConfig::None)
+        }
+        fn set_fallback_synthesis_config(&self, _c: &SynthesisConfig) -> DengjenResult<()> {
+            Ok(())
+        }
+        fn supports_streaming_output(&self) -> bool {
+            true
+        }
+        fn stream_synthesis(
+            &self,
+            _phonemes: String,
+            _chunk_size: usize,
+            _chunk_padding: usize,
+            _cancel_token: CancellationToken,
+        ) -> DengjenResult<AudioStreamIterator<'_>> {
+            let chunks = self
+                .chunks
+                .lock()
+                .unwrap()
+                .take()
+                .expect("stream_synthesis called more than once in this test");
+            Ok(Box::new(chunks.into_iter()))
+        }
+    }
+
+    #[test]
+    fn mid_stream_chunk_error_is_forwarded_to_the_consumer_not_dropped() {
+        let chunks = vec![
+            Ok(AudioSamples::from(vec![0.0f32; 4])),
+            Err(DengjenError::InferenceError(
+                "synthetic mid-stream failure".to_string(),
+            )),
+            Ok(AudioSamples::from(vec![0.0f32; 4])),
+        ];
+        let model: Arc<dyn DengjenModel + Send + Sync> = Arc::new(MidStreamErrorModel {
+            sentences: 1,
+            chunks: Mutex::new(Some(chunks)),
+        });
+        let synth = DengjenSpeechSynthesizer::new(model).unwrap();
+        let cancel_token = CancellationToken::new();
+        let stream = synth
+            .synthesize_streamed("irrelevant".to_string(), None, 10, 0, cancel_token)
+            .unwrap();
+
+        let items: Vec<DengjenResult<AudioSamples>> = stream.collect();
+
+        assert_eq!(
+            items.len(),
+            3,
+            "expected all 3 chunks including the mid-stream error, not truncated"
+        );
+        assert!(items[0].is_ok());
+        match &items[1] {
+            Err(DengjenError::InferenceError(msg)) => {
+                assert_eq!(msg, "synthetic mid-stream failure");
+            }
+            other => panic!("expected the injected InferenceError, got {other:?}"),
+        }
+        assert!(
+            items[2].is_ok(),
+            "chunks after a mid-stream error must still be forwarded, not dropped"
+        );
+    }
+}
+
+#[cfg(test)]
 mod audio_output_config_tests {
     use super::*;
 
