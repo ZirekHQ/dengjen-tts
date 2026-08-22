@@ -379,6 +379,69 @@ mod tests {
     }
 
     #[test]
+    fn lowpass_filter_zeroes_a_nan_sample() {
+        let mut buffer = AudioSamples::from(vec![f32::NAN]);
+        buffer.lowpass_filter(0..1, 0.5);
+        assert_eq!(buffer.into_vec(), vec![0.0]);
+    }
+
+    #[test]
+    fn highpass_filter_zeroes_a_nan_sample() {
+        let mut buffer = AudioSamples::from(vec![f32::NAN]);
+        buffer.highpass_filter(0..1, 0.5);
+        assert_eq!(buffer.into_vec(), vec![0.0]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn to_i16_vec_panics_on_nan_input() {
+        let buffer = AudioSamples::from(vec![f32::NAN, 0.5]);
+        buffer.to_i16_vec();
+    }
+
+    #[test]
+    #[should_panic]
+    fn normalize_panics_on_nan_input() {
+        let mut buffer = AudioSamples::from(vec![f32::NAN, 0.5]);
+        buffer.normalize(1.0);
+    }
+
+    #[test]
+    fn lowpass_filter_zeroes_positive_infinity_and_keeps_negative_infinity() {
+        let mut buffer = AudioSamples::from(vec![f32::INFINITY, f32::NEG_INFINITY]);
+        buffer.lowpass_filter(0..2, 0.0);
+        assert_eq!(buffer.into_vec(), vec![0.0, f32::NEG_INFINITY]);
+    }
+
+    #[test]
+    fn highpass_filter_keeps_positive_infinity_and_zeroes_negative_infinity() {
+        let mut buffer = AudioSamples::from(vec![f32::INFINITY, f32::NEG_INFINITY]);
+        buffer.highpass_filter(0..2, 0.0);
+        assert_eq!(buffer.into_vec(), vec![f32::INFINITY, 0.0]);
+    }
+
+    #[test]
+    fn normalize_produces_nan_when_buffer_contains_infinity() {
+        // Documents a hidden edge case, not a fix: an infinite sample drives
+        // `peak_magnitude` (and so `divisor`) to `Infinity`, and dividing that
+        // same infinite sample by an infinite divisor is `NaN`, not a panic.
+        let mut buffer = AudioSamples::from(vec![f32::INFINITY, 0.5]);
+        buffer.normalize(1.0);
+        let samples = buffer.into_vec();
+        assert!(samples[0].is_nan());
+        assert_eq!(samples[1], 0.0);
+    }
+
+    #[test]
+    fn to_i16_vec_saturates_infinity_to_zero_via_nan_gain() {
+        // Same root cause as normalize's Infinity->NaN case above, masked
+        // differently here: `gain` becomes 0.0, so `Infinity * 0.0` is `NaN`,
+        // which `.clamp()` passes through and `as i16` then saturates to 0.
+        let buffer = AudioSamples::from(vec![f32::INFINITY, 0.5]);
+        assert_eq!(buffer.to_i16_vec(), vec![0, 0]);
+    }
+
+    #[test]
     fn test_strip_silence() {
         let mut buffer = AudioSamples::from(vec![0.0, 0.1, 2.2, 0.0, 0.5, 0.0, 0.7, 0.0]);
         let whole = 0..buffer.len();
