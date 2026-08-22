@@ -10,7 +10,6 @@ workspace = true
 [dependencies]
 dengjen-tts-core = { path = "../../dengjen/core" }
 ndarray = "0.17"
-regex = "1.9.3"
 unicode-normalization = "0.1"
 
 [dependencies.ort]
