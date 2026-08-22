@@ -1,25 +1,40 @@
-mod dev_utils;
-
 fn main() {
+    // Voice fixtures are lazily built; force that setup to finish before
+    // divan starts scheduling iterations against them.
     dev_utils::init();
-    divan::main();
+    divan::main(); // hand control to divan's own benchmark runner
 }
+
+mod dev_utils;
 
 #[divan::bench_group(sample_count = 20, sample_size = 10)]
 mod speech_streams {
     use super::*;
+    use dengjen_tts::DengjenResult;
+    use dengjen_tts_core::CancellationToken;
     use divan::{black_box, Bencher};
+
+    fn first_chunk_wave_len<T>(
+        mut stream: impl Iterator<Item = DengjenResult<T>>,
+        wave_len: impl FnOnce(&T) -> usize,
+    ) -> usize {
+        let chunk = stream
+            .next()
+            .expect("stream yields at least one chunk")
+            .expect("first chunk synthesizes without error");
+        wave_len(&chunk)
+    }
 
     #[divan::bench(threads = 4)]
     fn bench_lazy_stream(bencher: Bencher) {
         bencher
             .with_inputs(|| dev_utils::gen_params("std"))
             .bench_local_refs(|(synth, text, output_config)| {
-                let audio_stream = synth
+                let stream = synth
                     .synthesize_lazy(text.clone(), output_config.clone())
                     .unwrap()
-                    .map(|chunk_result| chunk_result.map(|chunk| chunk.samples));
-                dev_utils::iterate_stream(black_box(audio_stream)).unwrap();
+                    .map(|result| result.map(|chunk| chunk.samples));
+                dev_utils::iterate_stream(black_box(stream)).unwrap();
             });
     }
 
@@ -28,11 +43,11 @@ mod speech_streams {
         bencher
             .with_inputs(|| dev_utils::gen_params("std"))
             .bench_local_refs(|(synth, text, output_config)| {
-                let audio_stream = synth
+                let stream = synth
                     .synthesize_parallel(text.clone(), output_config.clone())
                     .unwrap()
-                    .map(|chunk_result| chunk_result.map(|chunk| chunk.samples));
-                dev_utils::iterate_stream(black_box(audio_stream)).unwrap();
+                    .map(|result| result.map(|chunk| chunk.samples));
+                dev_utils::iterate_stream(black_box(stream)).unwrap();
             });
     }
 
@@ -41,16 +56,16 @@ mod speech_streams {
         bencher
             .with_inputs(|| dev_utils::gen_params("rt"))
             .bench_local_refs(|(synth, text, output_config)| {
-                let audio_stream = synth
+                let stream = synth
                     .synthesize_streamed(
                         text.clone(),
                         output_config.clone(),
                         72,
                         3,
-                        dengjen_tts_core::CancellationToken::new(),
+                        CancellationToken::new(),
                     )
                     .unwrap();
-                dev_utils::iterate_stream(black_box(audio_stream)).unwrap();
+                dev_utils::iterate_stream(black_box(stream)).unwrap();
             });
     }
 
@@ -59,13 +74,11 @@ mod speech_streams {
         bencher
             .with_inputs(|| dev_utils::gen_params("std"))
             .bench_local_refs(|(synth, text, output_config)| {
-                let mut chunk_iter = black_box(
-                    synth
-                        .synthesize_lazy(text.clone(), output_config.clone())
-                        .unwrap(),
-                );
-                let first_chunk = chunk_iter.next().unwrap().unwrap();
-                let _ = first_chunk.as_wave_bytes().len();
+                let stream = synth
+                    .synthesize_lazy(text.clone(), output_config.clone())
+                    .unwrap();
+                let _ =
+                    first_chunk_wave_len(black_box(stream), |audio| audio.as_wave_bytes().len());
             });
     }
 
@@ -74,13 +87,11 @@ mod speech_streams {
         bencher
             .with_inputs(|| dev_utils::gen_params("std"))
             .bench_local_refs(|(synth, text, output_config)| {
-                let mut chunk_iter = black_box(
-                    synth
-                        .synthesize_parallel(text.clone(), output_config.clone())
-                        .unwrap(),
-                );
-                let first_chunk = chunk_iter.next().unwrap().unwrap();
-                let _ = first_chunk.as_wave_bytes().len();
+                let stream = synth
+                    .synthesize_parallel(text.clone(), output_config.clone())
+                    .unwrap();
+                let _ =
+                    first_chunk_wave_len(black_box(stream), |audio| audio.as_wave_bytes().len());
             });
     }
 
@@ -89,19 +100,18 @@ mod speech_streams {
         bencher
             .with_inputs(|| dev_utils::gen_params("rt"))
             .bench_local_refs(|(synth, text, output_config)| {
-                let mut chunk_iter = black_box(
-                    synth
-                        .synthesize_streamed(
-                            text.clone(),
-                            output_config.clone(),
-                            72,
-                            3,
-                            dengjen_tts_core::CancellationToken::new(),
-                        )
-                        .unwrap(),
-                );
-                let first_chunk = chunk_iter.next().unwrap().unwrap();
-                let _ = first_chunk.as_wave_bytes().len();
+                let stream = synth
+                    .synthesize_streamed(
+                        text.clone(),
+                        output_config.clone(),
+                        72,
+                        3,
+                        CancellationToken::new(),
+                    )
+                    .unwrap();
+                let _ = first_chunk_wave_len(black_box(stream), |samples| {
+                    samples.as_wave_bytes().len()
+                });
             });
     }
 }

@@ -1,34 +1,42 @@
-mod utils;
-pub use dengjen_tts_core::*;
-
-use flume::{Receiver, SendError, Sender};
-use once_cell::sync::Lazy;
-use rayon::prelude::*;
-use rayon::{ThreadPool, ThreadPoolBuilder};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
+use flume::{Receiver, SendError, Sender};
+use once_cell::sync::Lazy;
+use rayon::{prelude::*, ThreadPool, ThreadPoolBuilder};
+
+mod utils;
+pub use dengjen_tts_core::*;
+
+/// A closed interval that one of Sonic's post-processing knobs (speed,
+/// volume, pitch) is scaled onto from a `0..=100` percentage.
 struct ParamRange {
     min: f32,
     max: f32,
 }
 
-const RATE_RANGE: ParamRange = ParamRange { min: 0.5, max: 5.5 };
-const VOLUME_RANGE: ParamRange = ParamRange { min: 0.0, max: 1.0 };
-const PITCH_RANGE: ParamRange = ParamRange { min: 0.5, max: 1.5 };
+const SPEED_PARAM_RANGE: ParamRange = ParamRange { min: 0.5, max: 5.5 };
+const VOLUME_PARAM_RANGE: ParamRange = ParamRange { min: 0.0, max: 1.0 };
+const PITCH_PARAM_RANGE: ParamRange = ParamRange { min: 0.5, max: 1.5 };
 
+/// Rayon pool that synthesis work runs on, kept off whatever thread calls
+/// into this crate. Sized to a multiple of the core count so more
+/// synthesis requests can run concurrently than there are cores.
 pub static SYNTHESIS_THREAD_POOL: Lazy<ThreadPool> = Lazy::new(|| {
-    let available = std::thread::available_parallelism()
+    let core_count = std::thread::available_parallelism()
         .map(usize::from)
         .unwrap_or(4);
     ThreadPoolBuilder::new()
-        .num_threads(available * 4)
+        .num_threads(core_count * 4)
         .thread_name(|index| format!("dengjen_synth_{index}"))
         .build()
-        .unwrap()
+        .expect("thread pool construction only fails on invalid config, never at runtime")
 });
 
+/// Optional post-processing to run on synthesized audio before it reaches
+/// the caller: speed/volume/pitch adjustments (each a `0..=100` percentage
+/// of its own fixed range) and/or trailing silence to pad the clip with.
 #[derive(Clone)]
 pub struct AudioOutputConfig {
     pub rate: Option<u8>,
@@ -39,17 +47,17 @@ pub struct AudioOutputConfig {
 
 impl AudioOutputConfig {
     fn apply(&self, mut audio: Audio) -> DengjenAudioResult {
-        let mut raw_samples = audio.samples.take();
+        let mut samples = audio.samples.take();
         if let Some(silence_ms) = self.appended_silence_ms {
             let silence = self.generate_silence(
                 silence_ms as usize,
                 audio.info.sample_rate,
                 audio.info.num_channels,
             )?;
-            raw_samples.extend(silence.into_vec());
+            samples.extend(silence.into_vec());
         }
         let processed = self.apply_to_raw_samples(
-            raw_samples.into(),
+            samples.into(),
             audio.info.sample_rate,
             audio.info.num_channels,
         )?;
@@ -57,6 +65,9 @@ impl AudioOutputConfig {
         Ok(audio)
     }
 
+    /// Runs `samples` through a fresh Sonic stream configured with whichever
+    /// of `rate`/`volume`/`pitch` are set, returning the transformed audio.
+    /// A no-op on empty input (Sonic has nothing meaningful to do with it).
     fn apply_to_raw_samples(
         &self,
         samples: AudioSamples,
@@ -68,21 +79,26 @@ impl AudioOutputConfig {
         }
         let input = samples.into_vec();
 
-        // SAFETY: `stream` is created, fed, flushed, and destroyed within this block on
-        // every path (including the error path), so no libsonic resource escapes it.
+        // SAFETY: every libsonic call below targets the `stream` handle this
+        // block itself creates, and every exit from the block — the early
+        // error return on a zero-sample result included — destroys that
+        // same handle first, so no stream ever outlives this block.
         unsafe {
             let stream = sonic_sys::sonicCreateStream(sample_rate as i32, num_channels as i32);
 
             if let Some(pct) = self.rate {
-                let speed = utils::percent_to_param(pct, RATE_RANGE.min, RATE_RANGE.max);
+                let speed =
+                    utils::percent_to_param(pct, SPEED_PARAM_RANGE.min, SPEED_PARAM_RANGE.max);
                 sonic_sys::sonicSetSpeed(stream, speed);
             }
             if let Some(pct) = self.volume {
-                let volume = utils::percent_to_param(pct, VOLUME_RANGE.min, VOLUME_RANGE.max);
+                let volume =
+                    utils::percent_to_param(pct, VOLUME_PARAM_RANGE.min, VOLUME_PARAM_RANGE.max);
                 sonic_sys::sonicSetVolume(stream, volume);
             }
             if let Some(pct) = self.pitch {
-                let pitch = utils::percent_to_param(pct, PITCH_RANGE.min, PITCH_RANGE.max);
+                let pitch =
+                    utils::percent_to_param(pct, PITCH_PARAM_RANGE.min, PITCH_PARAM_RANGE.max);
                 sonic_sys::sonicSetPitch(stream, pitch);
             }
 
@@ -111,14 +127,17 @@ impl AudioOutputConfig {
         }
     }
 
+    /// Builds `time_ms` worth of silence at the given rate/channel count and
+    /// routes it through [`Self::apply_to_raw_samples`], so appended silence
+    /// picks up the same rate/volume/pitch treatment as the real audio.
     fn generate_silence(
         &self,
         time_ms: usize,
         sample_rate: usize,
         num_channels: usize,
     ) -> DengjenResult<AudioSamples> {
-        let num_samples = (time_ms * sample_rate) / 1000;
-        let silence = vec![0f32; num_samples];
+        let sample_count = (time_ms * sample_rate) / 1000;
+        let silence = vec![0f32; sample_count];
         self.apply_to_raw_samples(silence.into(), sample_rate, num_channels)
     }
 }
@@ -126,27 +145,26 @@ impl AudioOutputConfig {
 /// Wraps a backend model behind the higher-level synthesis entry points
 /// (`synthesize_lazy`/`synthesize_parallel`/`synthesize_streamed`/`synthesize_to_file`).
 pub struct DengjenSpeechSynthesizer {
-    model: Arc<dyn DengjenModel + Sync + Send>,
+    backend: Arc<dyn DengjenModel + Sync + Send>,
 }
 
 impl DengjenSpeechSynthesizer {
     pub fn new(model: Arc<dyn DengjenModel + Sync + Send>) -> DengjenResult<Self> {
-        Ok(Self { model })
+        Ok(Self { backend: model })
     }
 
     #[inline(always)]
     pub fn clone_model(&self) -> Arc<dyn DengjenModel + Send + Sync> {
-        Arc::clone(&self.model)
+        Arc::clone(&self.backend)
     }
 
-    fn create_synthesis_task_provider(
+    fn task_provider(
         &self,
         text: String,
         output_config: Option<AudioOutputConfig>,
     ) -> SpeechSynthesisTaskProvider {
-        let model = self.clone_model();
         SpeechSynthesisTaskProvider {
-            model,
+            model: self.clone_model(),
             text,
             output_config,
         }
@@ -157,8 +175,7 @@ impl DengjenSpeechSynthesizer {
         text: String,
         output_config: Option<AudioOutputConfig>,
     ) -> DengjenResult<DengjenSpeechStreamLazy> {
-        let provider = self.create_synthesis_task_provider(text, output_config);
-        DengjenSpeechStreamLazy::new(provider)
+        DengjenSpeechStreamLazy::new(self.task_provider(text, output_config))
     }
 
     pub fn synthesize_parallel(
@@ -166,8 +183,7 @@ impl DengjenSpeechSynthesizer {
         text: String,
         output_config: Option<AudioOutputConfig>,
     ) -> DengjenResult<DengjenSpeechStreamParallel> {
-        let provider = self.create_synthesis_task_provider(text, output_config);
-        DengjenSpeechStreamParallel::new(provider)
+        DengjenSpeechStreamParallel::new(self.task_provider(text, output_config))
     }
 
     pub fn synthesize_streamed(
@@ -178,14 +194,13 @@ impl DengjenSpeechSynthesizer {
         chunk_padding: usize,
         cancel_token: CancellationToken,
     ) -> DengjenResult<RealtimeSpeechStream> {
-        let output_info = self.model.audio_output_info()?;
-        let provider = self.create_synthesis_task_provider(text, output_config);
+        let info = self.backend.audio_output_info()?;
         RealtimeSpeechStream::new(
-            provider,
+            self.task_provider(text, output_config),
             chunk_size,
             chunk_padding,
-            output_info.sample_rate,
-            output_info.num_channels,
+            info.sample_rate,
+            info.num_channels,
             cancel_token,
         )
     }
@@ -196,25 +211,24 @@ impl DengjenSpeechSynthesizer {
         text: String,
         output_config: Option<AudioOutputConfig>,
     ) -> DengjenResult<()> {
-        let mut all_samples: Vec<f32> = Vec::new();
-        for result in self.synthesize_parallel(text, output_config)? {
-            let audio = result?;
-            all_samples.extend(audio.into_vec());
+        let mut collected: Vec<f32> = Vec::new();
+        for chunk in self.synthesize_parallel(text, output_config)? {
+            collected.extend(chunk?.into_vec());
         }
-        if all_samples.is_empty() {
+        if collected.is_empty() {
             return Err(DengjenError::OperationError(
                 "No speech data to write".to_string(),
             ));
         }
 
-        let output_info = self.model.audio_output_info()?;
-        let samples = AudioSamples::from(all_samples);
+        let info = self.backend.audio_output_info()?;
+        let samples = AudioSamples::from(collected);
         audio_ops::write_wave_samples_to_file(
             filename,
             samples.to_i16_vec().iter(),
-            output_info.sample_rate as u32,
-            output_info.num_channels.try_into().unwrap(),
-            output_info.sample_width.try_into().unwrap(),
+            info.sample_rate as u32,
+            info.num_channels.try_into().unwrap(),
+            info.sample_width.try_into().unwrap(),
         )?;
         Ok(())
     }
@@ -222,40 +236,40 @@ impl DengjenSpeechSynthesizer {
 
 impl DengjenModel for DengjenSpeechSynthesizer {
     fn audio_output_info(&self) -> DengjenResult<AudioInfo> {
-        self.model.audio_output_info()
+        self.backend.audio_output_info()
     }
     fn phonemize_text(&self, text: &str) -> DengjenResult<Phonemes> {
-        self.model.phonemize_text(text)
+        self.backend.phonemize_text(text)
     }
     fn speak_batch(&self, phoneme_batches: Vec<String>) -> DengjenResult<Vec<Audio>> {
-        self.model.speak_batch(phoneme_batches)
+        self.backend.speak_batch(phoneme_batches)
     }
     fn speak_one_sentence(&self, phonemes: String) -> DengjenAudioResult {
-        self.model.speak_one_sentence(phonemes)
+        self.backend.speak_one_sentence(phonemes)
     }
     fn get_default_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
-        self.model.get_default_synthesis_config()
+        self.backend.get_default_synthesis_config()
     }
     fn get_fallback_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
-        self.model.get_fallback_synthesis_config()
+        self.backend.get_fallback_synthesis_config()
     }
     fn set_fallback_synthesis_config(
         &self,
         synthesis_config: &SynthesisConfig,
     ) -> DengjenResult<()> {
-        self.model.set_fallback_synthesis_config(synthesis_config)
+        self.backend.set_fallback_synthesis_config(synthesis_config)
     }
     fn get_language(&self) -> DengjenResult<Option<String>> {
-        self.model.get_language()
+        self.backend.get_language()
     }
     fn get_speakers(&self) -> DengjenResult<Option<&HashMap<i64, String>>> {
-        self.model.get_speakers()
+        self.backend.get_speakers()
     }
     fn properties(&self) -> DengjenResult<HashMap<String, String>> {
-        self.model.properties()
+        self.backend.properties()
     }
     fn supports_streaming_output(&self) -> bool {
-        self.model.supports_streaming_output()
+        self.backend.supports_streaming_output()
     }
     fn stream_synthesis<'a>(
         &'a self,
@@ -265,14 +279,14 @@ impl DengjenModel for DengjenSpeechSynthesizer {
         cancel_token: CancellationToken,
     ) -> DengjenResult<Box<dyn Iterator<Item = DengjenResult<AudioSamples>> + Send + Sync + 'a>>
     {
-        self.model
+        self.backend
             .stream_synthesis(phonemes, chunk_size, chunk_padding, cancel_token)
     }
 }
 
-/// Bundles a model handle, the input text, and an optional output-shaping
-/// config so the various stream constructors don't each need their own
-/// (model, text, output_config) triple.
+/// Groups everything a stream constructor needs to turn input text into
+/// audio — the model to synthesize with, the text itself, and the optional
+/// post-processing config — so callers pass one value instead of three.
 struct SpeechSynthesisTaskProvider {
     model: Arc<dyn DengjenModel + Sync + Send>,
     text: String,
@@ -281,40 +295,44 @@ struct SpeechSynthesisTaskProvider {
 
 impl SpeechSynthesisTaskProvider {
     fn get_phonemes(&self) -> DengjenResult<Vec<String>> {
-        let phonemes = self.model.phonemize_text(&self.text)?;
-        Ok(phonemes.to_vec())
+        Ok(self.model.phonemize_text(&self.text)?.to_vec())
     }
 
-    fn process_one_sentence(&self, phonemes: String) -> DengjenAudioResult {
-        let audio = self.model.speak_one_sentence(phonemes)?;
+    fn shape_output(&self, audio: Audio) -> DengjenAudioResult {
         match &self.output_config {
             Some(config) => config.apply(audio),
             None => Ok(audio),
         }
     }
 
+    fn process_one_sentence(&self, sentence: String) -> DengjenAudioResult {
+        let audio = self.model.speak_one_sentence(sentence)?;
+        self.shape_output(audio)
+    }
+
     #[allow(dead_code)]
-    fn process_batches(&self, phonemes: Vec<String>) -> DengjenResult<Vec<Audio>> {
-        let batch = self.model.speak_batch(phonemes)?;
-        match &self.output_config {
-            Some(config) => batch.into_iter().map(|audio| config.apply(audio)).collect(),
-            None => Ok(batch),
-        }
+    fn process_batches(&self, sentences: Vec<String>) -> DengjenResult<Vec<Audio>> {
+        self.model
+            .speak_batch(sentences)?
+            .into_iter()
+            .map(|audio| self.shape_output(audio))
+            .collect()
     }
 }
 
-/// Synthesizes sentences one at a time as the caller pulls from the iterator.
+/// Pulls one sentence's audio out of the underlying model on each
+/// `Iterator::next` call, rather than synthesizing everything up front.
 pub struct DengjenSpeechStreamLazy {
     provider: SpeechSynthesisTaskProvider,
-    remaining_phonemes: std::vec::IntoIter<String>,
+    pending_sentences: std::vec::IntoIter<String>,
 }
 
 impl DengjenSpeechStreamLazy {
     fn new(provider: SpeechSynthesisTaskProvider) -> DengjenResult<Self> {
-        let remaining_phonemes = provider.get_phonemes()?.into_iter();
+        let pending_sentences = provider.get_phonemes()?.into_iter();
         Ok(Self {
             provider,
-            remaining_phonemes,
+            pending_sentences,
         })
     }
 }
@@ -323,29 +341,31 @@ impl Iterator for DengjenSpeechStreamLazy {
     type Item = DengjenAudioResult;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let phonemes = self.remaining_phonemes.next()?;
-        Some(self.provider.process_one_sentence(phonemes))
+        self.pending_sentences
+            .next()
+            .map(|sentence| self.provider.process_one_sentence(sentence))
     }
 }
 
-/// Synthesizes every sentence up front, in parallel via rayon, then hands out
-/// the precomputed results one at a time. `par_iter().map().collect()` is
-/// order-preserving, so results come out in the same order as the input
-/// sentences despite being computed concurrently.
+/// Synthesizes every sentence up front via rayon's parallel iterator, then
+/// replays the finished results one at a time. `par_iter().map().collect()`
+/// preserves input order in its output `Vec`, so callers see results in the
+/// same order as the source sentences even though synthesis itself ran
+/// concurrently and completed in whatever order the thread pool finished.
 #[must_use]
 pub struct DengjenSpeechStreamParallel {
-    results: std::vec::IntoIter<DengjenAudioResult>,
+    finished: std::vec::IntoIter<DengjenAudioResult>,
 }
 
 impl DengjenSpeechStreamParallel {
     fn new(provider: SpeechSynthesisTaskProvider) -> DengjenResult<Self> {
-        let phonemes = provider.get_phonemes()?;
-        let results: Vec<DengjenAudioResult> = phonemes
+        let sentences = provider.get_phonemes()?;
+        let finished: Vec<DengjenAudioResult> = sentences
             .par_iter()
             .map(|sentence| provider.process_one_sentence(sentence.clone()))
             .collect();
         Ok(Self {
-            results: results.into_iter(),
+            finished: finished.into_iter(),
         })
     }
 }
@@ -354,30 +374,39 @@ impl Iterator for DengjenSpeechStreamParallel {
     type Item = DengjenAudioResult;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.results.next()
+        self.finished.next()
     }
 }
 
-/// Backstop for `next_chunk_size`, in whatever unit the active backend's
-/// `chunk_size` parameter uses (mel frames for Piper, samples for Kokoro).
+/// Upper bound on the value `next_chunk_size` can return, in whatever unit
+/// the active backend's `chunk_size` parameter uses (mel frames for Piper,
+/// samples for Kokoro). A backstop against pathological growth, not a
+/// value any normal stream is expected to reach.
 const MAX_STREAM_CHUNK_SIZE: usize = 1_000_000;
 
+/// Delivers synthesized audio chunks as a background producer thread
+/// generates them, so a caller can start playback before the whole text
+/// finishes synthesizing.
 pub struct RealtimeSpeechStream {
     rx: Receiver<DengjenResult<AudioSamples>>,
     cancel_token: CancellationToken,
 }
 
 impl RealtimeSpeechStream {
-    /// Ramps the chunk size additively as the stream progresses: each sentence
-    /// contributes one more multiple of the *original* base chunk size, up to
-    /// a cap of 4 multiples (5x base), so later sentences synthesize in fewer,
-    /// larger chunks without ever compounding on a previously grown value or
-    /// dropping back toward `base` between sentences (issue #28). Clamped to
-    /// `MAX_STREAM_CHUNK_SIZE` as a backstop.
+    /// Grows the chunk size by one extra multiple of `base_chunk_size` per
+    /// sentence already seen, capped at 4 extra multiples (5x base total),
+    /// then clamped to `MAX_STREAM_CHUNK_SIZE`. The growth is always relative
+    /// to the fixed `base_chunk_size`, never to a value this function
+    /// previously returned, so calling it repeatedly across a stream can
+    /// only ramp up and plateau — never compound past the cap and never
+    /// fall back down between sentences. Issue #28 was a regression where an
+    /// earlier version violated that and let the size oscillate; keep this
+    /// additive, non-resetting shape when touching this function.
     fn next_chunk_size(base_chunk_size: usize, sentences_seen: usize) -> usize {
-        let ramp_multiple = sentences_seen.min(4);
+        let extra_multiples = sentences_seen.min(4);
+        let growth = base_chunk_size.saturating_mul(extra_multiples);
         base_chunk_size
-            .saturating_add(base_chunk_size.saturating_mul(ramp_multiple))
+            .saturating_add(growth)
             .min(MAX_STREAM_CHUNK_SIZE)
     }
 
@@ -392,26 +421,29 @@ impl RealtimeSpeechStream {
         let sentences = provider.get_phonemes()?;
         let (tx, rx) = flume::unbounded();
         let producer_cancel_token = cancel_token.clone();
+
         SYNTHESIS_THREAD_POOL.spawn(move || {
             let cancel_token = producer_cancel_token;
-            for (sentences_seen, phonemes) in sentences.into_iter().enumerate() {
+            for (sentence_index, phonemes) in sentences.into_iter().enumerate() {
                 if cancel_token.is_cancelled() {
                     return;
                 }
-                let sentence_chunk_size = Self::next_chunk_size(chunk_size, sentences_seen);
+
+                let this_chunk_size = Self::next_chunk_size(chunk_size, sentence_index);
                 let stream = match provider.model.stream_synthesis(
                     phonemes,
-                    sentence_chunk_size,
+                    this_chunk_size,
                     chunk_padding,
                     cancel_token.clone(),
                 ) {
                     Ok(stream) => stream,
-                    Err(e) => {
-                        tx.send(Err(e)).ok();
+                    Err(err) => {
+                        let _ = tx.send(Err(err));
                         return;
                     }
                 };
-                let drained = Self::process_rt_stream(
+
+                let stream_result = Self::process_rt_stream(
                     stream,
                     &tx,
                     provider.output_config.as_ref(),
@@ -419,49 +451,54 @@ impl RealtimeSpeechStream {
                     num_channels,
                     &cancel_token,
                 );
-                if drained.is_err() {
+                if stream_result.is_err() {
                     return;
                 }
             }
         });
+
         Ok(Self { rx, cancel_token })
     }
 
-    #[inline(always)]
+    /// Drains one sentence's model stream into `tx`, applying the output
+    /// config to each successful chunk and forwarding both successes and
+    /// errors — a chunk is never silently dropped. Checks `cancel_token`
+    /// before pulling each item so a mid-sentence cancellation stops the
+    /// drain promptly. Appends one silence chunk after the sentence's own
+    /// chunks if the config asks for it and the stream wasn't cancelled.
     fn process_rt_stream(
         stream: AudioStreamIterator,
         tx: &Sender<DengjenResult<AudioSamples>>,
-        audio_output_config: Option<&AudioOutputConfig>,
+        output_config: Option<&AudioOutputConfig>,
         sample_rate: usize,
         num_channels: usize,
         cancel_token: &CancellationToken,
     ) -> Result<(), SendError<DengjenResult<AudioSamples>>> {
-        for result in stream {
+        for chunk in stream {
             if cancel_token.is_cancelled() {
                 return Ok(());
             }
-            let outgoing = match (result, audio_output_config) {
-                (Ok(samples), Some(output_config)) => {
-                    output_config.apply_to_raw_samples(samples, sample_rate, num_channels)
+            let shaped = match (chunk, output_config) {
+                (Ok(samples), Some(config)) => {
+                    config.apply_to_raw_samples(samples, sample_rate, num_channels)
                 }
                 (Ok(samples), None) => Ok(samples),
-                (Err(e), _) => Err(e),
+                (Err(err), _) => Err(err),
             };
-            tx.send(outgoing)?;
+            tx.send(shaped)?;
         }
-        if !cancel_token.is_cancelled() {
-            if let Some(output_config) = audio_output_config {
-                if let Some(silence_ms) = output_config.appended_silence_ms {
-                    let silence_result = output_config.generate_silence(
-                        silence_ms as usize,
-                        sample_rate,
-                        num_channels,
-                    );
-                    tx.send(silence_result)?;
-                }
-            }
+
+        if cancel_token.is_cancelled() {
+            return Ok(());
         }
-        Ok(())
+        let Some(config) = output_config else {
+            return Ok(());
+        };
+        let Some(silence_ms) = config.appended_silence_ms else {
+            return Ok(());
+        };
+        let silence = config.generate_silence(silence_ms as usize, sample_rate, num_channels);
+        tx.send(silence)
     }
 }
 
@@ -470,10 +507,9 @@ impl Iterator for RealtimeSpeechStream {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.cancel_token.is_cancelled() {
-            None
-        } else {
-            self.rx.recv().ok()
+            return None;
         }
+        self.rx.recv().ok()
     }
 }
 

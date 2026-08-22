@@ -4,30 +4,32 @@ use dengjen_tts::{
 };
 use dengjen_tts_piper::from_config_path;
 use once_cell::sync::Lazy;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-const TEXT: &[&'static str] = &[
+const TEXT: &[&str] = &[
     "No field advances on its own; someone always has to want the next improvement badly enough to build it, fund it, or demand it from those who can.",
     "Faster Networks",
-    "Chief among these wants is the pressure to move information faster and more reliably, because nearly every modern institution now runs on top of a network."
+    "Chief among these wants is the pressure to move information faster and more reliably, because nearly every modern institution now runs on top of a network.",
 ];
 
-static STD_VOICE: Lazy<Arc<dyn DengjenModel + Send + Sync>> = Lazy::new(|| {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("models")
-        .join("std")
-        .join("model.onnx.json");
-    from_config_path(&path).unwrap()
-});
+fn fixture_model_path(segments: &[&str]) -> PathBuf {
+    segments
+        .iter()
+        .fold(PathBuf::from(env!("CARGO_MANIFEST_DIR")), |dir, segment| {
+            dir.join(segment)
+        })
+}
 
-static RT_VOICE: Lazy<Arc<dyn DengjenModel + Send + Sync>> = Lazy::new(|| {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("models")
-        .join("rt")
-        .join("config.json");
-    from_config_path(&path).unwrap()
-});
+fn load_voice(config_path: &Path) -> Arc<dyn DengjenModel + Send + Sync> {
+    from_config_path(config_path).unwrap()
+}
+
+static STD_VOICE: Lazy<Arc<dyn DengjenModel + Send + Sync>> =
+    Lazy::new(|| load_voice(&fixture_model_path(&["models", "std", "model.onnx.json"])));
+
+static RT_VOICE: Lazy<Arc<dyn DengjenModel + Send + Sync>> =
+    Lazy::new(|| load_voice(&fixture_model_path(&["models", "rt", "config.json"])));
 
 #[allow(dead_code)]
 pub fn init() {
@@ -39,28 +41,27 @@ pub fn gen_params(kind: &str) -> (DengjenSpeechSynthesizer, String, Option<Audio
     let voice = match kind {
         "std" => Arc::clone(&STD_VOICE),
         "rt" => Arc::clone(&RT_VOICE),
-        _ => panic!("Unrecognized voice kind requested."),
+        other => panic!("unrecognized voice kind requested: {other}"),
     };
 
     let synthesizer = DengjenSpeechSynthesizer::new(voice).unwrap();
-    let joined_text = TEXT.join("\n");
-    let audio_config = Some(AudioOutputConfig {
+    let text = TEXT.join("\n");
+    let output_config = Some(AudioOutputConfig {
         rate: Some(50),
         volume: Some(50),
         pitch: Some(50),
         appended_silence_ms: None,
     });
 
-    (synthesizer, joined_text, audio_config)
+    (synthesizer, text, output_config)
 }
 
 #[inline(always)]
 pub fn iterate_stream(
     stream: impl Iterator<Item = DengjenResult<AudioSamples>>,
 ) -> DengjenResult<()> {
-    for chunk_result in stream {
-        let audio_samples = chunk_result?;
-        let _ = black_box(audio_samples.as_wave_bytes());
+    for chunk in stream {
+        black_box(chunk?.as_wave_bytes());
     }
     Ok(())
 }
