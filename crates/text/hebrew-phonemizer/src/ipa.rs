@@ -307,6 +307,115 @@ pub(crate) fn is_hiriq_yod(curr: &Glyph, next: Option<&Glyph>) -> bool {
     curr.has(HIRIQ) && next.base == YOD.to_string() && !has_any_vowel_mark(&next.marks)
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct Segment {
+    pub onset: Vec<String>,
+    pub nucleus: String,
+    pub coda: Vec<String>,
+    pub dagesh: bool,
+}
+
+#[allow(dead_code)]
+pub(crate) fn word_to_segments(word: &str) -> Vec<Segment> {
+    let glyphs = apply_geresh_digraphs(iter_glyphs(word));
+
+    let mut segs: Vec<Segment> = Vec::new();
+    let mut onset: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < glyphs.len() {
+        let g = &glyphs[i];
+        let next = glyphs.get(i + 1);
+        let is_final = i == glyphs.len() - 1;
+
+        // A geresh-digraph placeholder glyph (base like "<IPA:...>") is
+        // always a bare consonant with no niqqud of its own.
+        if g.base.starts_with("<IPA:") {
+            let ipa = g
+                .base
+                .trim_start_matches("<IPA:")
+                .trim_end_matches('>')
+                .to_string();
+            onset.push(ipa);
+            i += 1;
+            continue;
+        }
+        // Every non-placeholder Glyph is built from exactly one base char
+        // (see Glyph::plain / iter_glyphs), so this is always Some; '\0'
+        // is an unreachable, harmless fallback that simply maps to no
+        // consonant rather than panicking.
+        let base_char = g.base.chars().next().unwrap_or('\0');
+
+        if is_shuruk(g) {
+            segs.push(Segment {
+                onset: std::mem::take(&mut onset),
+                nucleus: "u".to_string(),
+                ..Default::default()
+            });
+            i += 1;
+            continue;
+        }
+        if is_hiriq_yod(g, next) {
+            let cons = map_consonant(base_char, &g.marks, false);
+            if !cons.is_empty() && cons != "<GLT>" {
+                onset.push(cons);
+            }
+            segs.push(Segment {
+                onset: std::mem::take(&mut onset),
+                nucleus: "i".to_string(),
+                ..Default::default()
+            });
+            i += 2;
+            continue;
+        }
+        if is_holam_male(g) {
+            segs.push(Segment {
+                onset: std::mem::take(&mut onset),
+                nucleus: "o".to_string(),
+                ..Default::default()
+            });
+            i += 1;
+            continue;
+        }
+
+        let cons = map_consonant(base_char, &g.marks, is_final);
+        let (vowel, is_vocalic) = map_basic_vowel(g);
+
+        if is_vocalic {
+            if !cons.is_empty() && cons != "<GLT>" {
+                onset.push(cons);
+            }
+            segs.push(Segment {
+                onset: std::mem::take(&mut onset),
+                nucleus: vowel,
+                ..Default::default()
+            });
+        } else if g.has(SHEVA) {
+            if !cons.is_empty() && cons != "<GLT>" {
+                onset.push(cons);
+            }
+            segs.push(Segment {
+                onset: std::mem::take(&mut onset),
+                nucleus: "\u{0259}".to_string(),
+                dagesh: g.has(DAGESH),
+                ..Default::default()
+            });
+        } else if cons == "<GLT>" {
+            onset.push("\u{0294}".to_string());
+        } else if !cons.is_empty() {
+            onset.push(cons);
+        }
+        i += 1;
+    }
+
+    if !onset.is_empty() {
+        if let Some(last) = segs.last_mut() {
+            last.coda.extend(onset);
+        }
+    }
+    segs
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -469,5 +578,39 @@ mod tests {
             marks: vec!['\u{05B7}'],
         };
         assert!(!is_hiriq_yod(&curr, Some(&next)));
+    }
+
+    #[test]
+    fn word_to_segments_bet_patah_is_one_segment_with_a_vowel() {
+        let segs = word_to_segments("\u{05D1}\u{05B7}"); // bet + patah, no dagesh
+        assert_eq!(segs.len(), 1);
+        assert_eq!(segs[0].onset, vec!["v".to_string()]); // no dagesh -> map_consonant gives "v"
+        assert_eq!(segs[0].nucleus, "a");
+    }
+
+    #[test]
+    fn word_to_segments_shuruk_carries_the_preceding_onset_into_a_bare_u_nucleus() {
+        // Verified against piper1-gpl's real `_word_to_segments`: the he's "h"
+        // consonant has no vowel of its own, so it carries forward as the onset
+        // of the shuruk's "u" segment rather than forming its own segment.
+        let segs = word_to_segments("\u{05D4}\u{05D5}\u{05BC}"); // he + vav+dagesh (shuruk)
+        assert_eq!(segs.len(), 1);
+        assert_eq!(segs[0].onset, vec!["h".to_string()]);
+        assert_eq!(segs[0].nucleus, "u");
+    }
+
+    #[test]
+    fn word_to_segments_trailing_consonant_becomes_a_coda() {
+        let segs = word_to_segments("\u{05D1}\u{05B7}\u{05EA}"); // bet+patah, tav (no vowel)
+        assert_eq!(segs.len(), 1);
+        assert_eq!(segs[0].coda, vec!["t".to_string()]);
+    }
+
+    #[test]
+    fn word_to_segments_sheva_creates_a_placeholder_segment_recording_dagesh() {
+        let segs = word_to_segments("\u{05D1}\u{05BC}\u{05B0}"); // bet+dagesh+sheva
+        assert_eq!(segs.len(), 1);
+        assert_eq!(segs[0].nucleus, "\u{0259}");
+        assert!(segs[0].dagesh);
     }
 }
