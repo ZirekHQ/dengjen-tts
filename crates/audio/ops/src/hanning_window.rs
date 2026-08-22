@@ -1,5 +1,6 @@
 use once_cell::sync::Lazy;
-use std::{collections::HashMap, f32::consts::PI};
+use std::collections::HashMap;
+use std::f32::consts::PI;
 
 #[derive(Debug, PartialEq)]
 pub enum AudioOpsError {
@@ -9,9 +10,7 @@ pub enum AudioOpsError {
 impl std::fmt::Display for AudioOpsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            AudioOpsError::InvalidWindowLength(length) => {
-                write!(f, "invalid window length: {}", length)
-            }
+            Self::InvalidWindowLength(length) => write!(f, "invalid window length: {length}"),
         }
     }
 }
@@ -20,45 +19,39 @@ impl std::error::Error for AudioOpsError {}
 
 const PRECOMPUTED_HANN_WINDOW_LENGTHS: [usize; 7] = [64, 128, 256, 512, 1024, 2048, 4096];
 
-static HANN_WINDOW_LOOKUP_TABLE: Lazy<HashMap<usize, Vec<f32>>> = Lazy::new(|| {
-    PRECOMPUTED_HANN_WINDOW_LENGTHS
-        .into_iter()
-        .map(|length| (length, calculate_hann_window(length)))
-        .collect()
-});
+static HANN_WINDOW_LOOKUP_TABLE: Lazy<HashMap<usize, Vec<f32>>> =
+    Lazy::new(build_hann_window_lookup_table);
 
-/// Returns a Hann window of the given length, serving it from a precomputed lookup table
-/// when available and computing it on demand otherwise.
+fn build_hann_window_lookup_table() -> HashMap<usize, Vec<f32>> {
+    PRECOMPUTED_HANN_WINDOW_LENGTHS
+        .iter()
+        .map(|&length| (length, hann_window_values(length)))
+        .collect()
+}
+
+/// Hann window of `window_length` samples, served from a precomputed table when available.
 ///
-/// Errors with `AudioOpsError::InvalidWindowLength` when `window_length` is `0` or `1`.
+/// Errors with `InvalidWindowLength` for `window_length` of `0` or `1`.
 pub fn get_hann_window(window_length: usize) -> Result<Vec<f32>, AudioOpsError> {
     if window_length <= 1 {
         return Err(AudioOpsError::InvalidWindowLength(window_length));
     }
-    if let Some(hann_window) = HANN_WINDOW_LOOKUP_TABLE.get(&window_length) {
-        Ok(hann_window.clone())
-    } else {
-        Ok(calculate_hann_window(window_length))
-    }
+    Ok(HANN_WINDOW_LOOKUP_TABLE
+        .get(&window_length)
+        .cloned()
+        .unwrap_or_else(|| hann_window_values(window_length)))
 }
 
-/// Computes a Hann window of length `window_length`: `w(n) = 0.5 - 0.5 * cos(2π * n / (N - 1))`
-/// for `n` in `0..N`. See https://en.wikipedia.org/wiki/Window_function#Hann_and_Hamming_windows.
-///
-/// `w` is symmetric about the center (`w(n) == w(N - 1 - n)`), so only the first half is
-/// evaluated with `cos`; the second half is filled by mirroring those values.
-fn calculate_hann_window(window_length: usize) -> Vec<f32> {
-    let mut window = vec![0.0_f32; window_length];
-    let angular_step = 2.0 * PI / (window_length - 1) as f32;
-    let midpoint = window_length.div_ceil(2);
-
-    for n in 0..midpoint {
-        let value = 0.5 - 0.5 * (angular_step * n as f32).cos();
-        window[n] = value;
-        window[window_length - 1 - n] = value;
-    }
-
-    window
+/// `w(n) = 0.5 - 0.5 * cos(2π * n / (N - 1))`, exploiting the symmetry `w(n) == w(N - 1 - n)`
+/// so each value is computed once from its distance to the nearer edge.
+fn hann_window_values(length: usize) -> Vec<f32> {
+    let angular_step = 2.0 * PI / (length - 1) as f32;
+    (0..length)
+        .map(|n| {
+            let distance = n.min(length - 1 - n);
+            0.5 - 0.5 * (angular_step * distance as f32).cos()
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -99,7 +92,7 @@ mod tests {
     fn get_hann_window_lookup_table_matches_direct_computation() {
         // 64 is one of the precomputed lengths; verify the cached table entry
         // wasn't corrupted or stored under the wrong key.
-        assert_eq!(get_hann_window(64).unwrap(), calculate_hann_window(64));
+        assert_eq!(get_hann_window(64).unwrap(), hann_window_values(64));
     }
 
     #[test]

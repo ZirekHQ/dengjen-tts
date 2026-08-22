@@ -1,36 +1,36 @@
 use std::env;
 use std::path::PathBuf;
 
-const SONIC_SOURCE: &str = "../../../deps/sonic/sonic.c";
-const SONIC_HEADER: &str = "../../../deps/sonic/sonic.h";
+const SONIC_C_SOURCE: &str = "../../../deps/sonic/sonic.c";
+const SONIC_C_HEADER: &str = "../../../deps/sonic/sonic.h";
 
-fn compile_sonic_static_lib() {
-    let mut build = cc::Build::new();
-    build.file(SONIC_SOURCE);
-    build.include(SONIC_HEADER);
-    build.compile("libsonic");
+fn build_static_lib(source: &str, header: &str) {
+    cc::Build::new()
+        .file(source)
+        .include(header)
+        .compile("libsonic");
 }
 
-fn generate_bindings() -> bindgen::Bindings {
-    let builder = bindgen::Builder::default()
-        .header(SONIC_HEADER)
-        .parse_callbacks(Box::new(bindgen::CargoCallbacks));
+fn write_bindings(header: &str, out_dir: &str) {
+    let bindings = bindgen::Builder::default()
+        .header(header)
+        .parse_callbacks(Box::new(bindgen::CargoCallbacks))
+        .generate()
+        .expect("Unable to generate bindings");
 
-    builder.generate().expect("Unable to generate bindings")
+    let out_path = PathBuf::from(out_dir).join("bindings.rs");
+    bindings
+        .write_to_file(out_path)
+        .expect("Couldn't write bindings!");
 }
 
 fn main() {
     println!("cargo:rustc-link-lib=static=libsonic");
-    println!("cargo:rerun-if-changed={SONIC_SOURCE}");
-    println!("cargo:rerun-if-changed={SONIC_HEADER}");
+    println!("cargo:rerun-if-changed={SONIC_C_SOURCE}");
+    println!("cargo:rerun-if-changed={SONIC_C_HEADER}");
 
-    compile_sonic_static_lib();
+    build_static_lib(SONIC_C_SOURCE, SONIC_C_HEADER);
 
-    let bindings = generate_bindings();
     let out_dir = env::var("OUT_DIR").unwrap();
-    let bindings_path = PathBuf::from(out_dir).join("bindings.rs");
-
-    bindings
-        .write_to_file(bindings_path)
-        .expect("Couldn't write bindings!");
+    write_bindings(SONIC_C_HEADER, &out_dir);
 }

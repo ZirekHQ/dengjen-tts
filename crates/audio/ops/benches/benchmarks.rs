@@ -1,18 +1,20 @@
 use audio_ops::AudioSamples;
 use divan::Bencher;
 
-fn main() {
-    divan::main();
-}
+const SAMPLE_COUNT: usize = 44_100 * 10;
 
-pub fn samples_generator() -> impl Fn() -> (AudioSamples, AudioSamples) {
-    let data = Vec::from_iter((0..441000).map(|i| i as f32));
-    move || (data.clone().into(), data.clone().into())
+fn overlap_pair_source() -> impl Fn() -> (AudioSamples, AudioSamples) {
+    let template: Vec<f32> = (0..SAMPLE_COUNT).map(|idx| idx as f32).collect();
+    move || (template.clone().into(), template.clone().into())
 }
 
 #[divan::bench]
-fn bench_overlap_with(bencher: Bencher) {
-    bencher
-        .with_inputs(samples_generator())
-        .bench_refs(|(s1, s2)| s1.overlap_with(s2));
+fn bench_overlap_with(divan_bencher: Bencher) {
+    divan_bencher
+        .with_inputs(overlap_pair_source())
+        .bench_refs(|(left, right)| left.overlap_with(right));
+}
+
+fn main() {
+    divan::main();
 }

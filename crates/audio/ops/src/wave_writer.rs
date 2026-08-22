@@ -8,11 +8,17 @@ use std::path::Path;
 #[derive(Debug)]
 pub struct WaveWriterError(String);
 
+impl WaveWriterError {
+    fn new(message: impl Into<String>) -> Self {
+        Self(message.into())
+    }
+}
+
 impl Error for WaveWriterError {}
 
 impl fmt::Display for WaveWriterError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
+        f.write_str(&self.0)
     }
 }
 
@@ -27,31 +33,19 @@ where
     I: Iterator<Item = &'a i16>,
     B: Seek + Write,
 {
-    let mut writer = match WaveWriter::new(
-        num_channels as u16,
-        sample_rate,
-        (sample_width * 8) as u16,
-        buffer,
-    ) {
-        Ok(w) => w,
-        Err(_) => {
-            return Err(WaveWriterError(
-                "Failed to initialize wave writer".to_string(),
-            ))
-        }
-    };
+    let bits_per_sample = (sample_width * 8) as u16;
+    let mut writer = WaveWriter::new(num_channels as u16, sample_rate, bits_per_sample, buffer)
+        .map_err(|_| WaveWriterError::new("could not open the RIFF/WAVE stream for writing"))?;
 
     for sample in samples {
-        if writer.write_sample_i16(*sample).is_err() {
-            return Err(WaveWriterError("Failed to write wave samples".to_string()));
-        }
+        writer.write_sample_i16(*sample).map_err(|_| {
+            WaveWriterError::new("could not append a PCM sample to the WAVE stream")
+        })?;
     }
 
-    if writer.sync_header().is_err() {
-        return Err(WaveWriterError("Failed to update wave header".to_string()));
-    }
-
-    Ok(())
+    writer
+        .sync_header()
+        .map_err(|_| WaveWriterError::new("could not finalize the RIFF/WAVE chunk sizes"))
 }
 
 pub fn write_wave_samples_to_file<'a, I>(
@@ -64,105 +58,235 @@ pub fn write_wave_samples_to_file<'a, I>(
 where
     I: Iterator<Item = &'a i16>,
 {
-    let mut buffer: Vec<u8> = Vec::new();
+    let mut encoded = Vec::new();
     write_wave_samples_to_buffer(
-        Cursor::new(&mut buffer),
+        Cursor::new(&mut encoded),
         samples,
         sample_rate,
         num_channels,
         sample_width,
     )?;
 
-    let mut file = match File::create(path) {
-        Ok(f) => f,
-        Err(e) => {
-            return Err(WaveWriterError(format!(
-                "Failed to create file `{}` for writing. Error: {}",
-                path.display(),
-                e
-            )))
-        }
-    };
+    let mut file = File::create(path).map_err(|source| {
+        WaveWriterError::new(format!(
+            "could not create wave file `{}`: {source}",
+            path.display()
+        ))
+    })?;
 
-    if let Err(e) = file.write_all(&buffer) {
+    // write_all (not write) avoids silently truncating on a short write — see #34/#37
+    file.write_all(&encoded).map_err(|source| {
         let _ = std::fs::remove_file(path);
-        return Err(WaveWriterError(format!(
-            "Failed to write wave bytes to file `{}`. Error: {}",
-            path.display(),
-            e
-        )));
-    }
-
-    Ok(())
+        WaveWriterError::new(format!(
+            "could not write wave bytes to `{}`: {source}",
+            path.display()
+        ))
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::SeekFrom;
+
+    const STANDARD_WAVE_HEADER_LEN: u64 = 44;
+
+    struct ThresholdFailingWriter {
+        sink: Cursor<Vec<u8>>,
+        max_bytes_before_failure: u64,
+        fail_seeks: bool,
+    }
+
+    impl ThresholdFailingWriter {
+        fn failing_immediately() -> Self {
+            Self {
+                sink: Cursor::new(Vec::new()),
+                max_bytes_before_failure: 0,
+                fail_seeks: false,
+            }
+        }
+
+        fn failing_after_header() -> Self {
+            Self {
+                sink: Cursor::new(Vec::new()),
+                max_bytes_before_failure: STANDARD_WAVE_HEADER_LEN,
+                fail_seeks: false,
+            }
+        }
+
+        fn failing_on_seek() -> Self {
+            Self {
+                sink: Cursor::new(Vec::new()),
+                max_bytes_before_failure: u64::MAX,
+                fail_seeks: true,
+            }
+        }
+    }
+
+    impl Write for ThresholdFailingWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            if self.sink.get_ref().len() as u64 >= self.max_bytes_before_failure {
+                return Err(std::io::Error::other("synthetic write failure"));
+            }
+            self.sink.write(buf)
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.sink.flush()
+        }
+    }
+
+    impl Seek for ThresholdFailingWriter {
+        fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+            if self.fail_seeks {
+                return Err(std::io::Error::other("synthetic seek failure"));
+            }
+            self.sink.seek(pos)
+        }
+    }
+
+    fn sample_data() -> Vec<i16> {
+        vec![0, 100, -100, 32767, -32768]
+    }
 
     #[test]
-    fn write_wave_samples_to_buffer_produces_a_valid_riff_wave_header() {
-        let samples: Vec<i16> = vec![0, 100, -100, 32767, -32768];
-        let mut buf: Vec<u8> = Vec::new();
+    fn to_buffer_success_writes_a_valid_riff_wave_header() {
+        let samples = sample_data();
+        let mut bytes: Vec<u8> = Vec::new();
+
+        let result =
+            write_wave_samples_to_buffer(Cursor::new(&mut bytes), samples.iter(), 22050, 1, 2);
+
+        assert!(result.is_ok());
+        assert_eq!(&bytes[0..4], b"RIFF");
+        assert_eq!(&bytes[8..12], b"WAVE");
+    }
+
+    #[test]
+    fn to_buffer_errors_when_the_stream_cannot_be_opened() {
+        let samples = sample_data();
+
         let result = write_wave_samples_to_buffer(
-            std::io::Cursor::new(&mut buf),
+            ThresholdFailingWriter::failing_immediately(),
             samples.iter(),
             22050,
             1,
             2,
         );
-        assert!(result.is_ok());
-        assert_eq!(&buf[0..4], b"RIFF");
-        assert_eq!(&buf[8..12], b"WAVE");
-    }
 
-    #[test]
-    fn write_wave_samples_to_file_errors_when_parent_directory_does_not_exist() {
-        let path = Path::new("/nonexistent-dengjen-test-dir-xyz/out.wav");
-        let samples: Vec<i16> = vec![0, 1, 2];
-        let result = write_wave_samples_to_file(path, samples.iter(), 22050, 1, 2);
         assert!(result.is_err());
     }
 
-    /// `Write` impl that returns a short write (`Ok(n) with n < buf.len()`)
-    /// on its first call, then writes fully on subsequent calls. Used to
-    /// prove `write_all` loops past short writes instead of treating a
-    /// partial write as complete success.
-    struct ShortWriteThenFull {
-        data: Vec<u8>,
-        first_call_done: bool,
-    }
+    #[test]
+    fn to_buffer_errors_when_a_sample_write_fails() {
+        let samples = sample_data();
 
-    impl Write for ShortWriteThenFull {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            if !self.first_call_done {
-                self.first_call_done = true;
-                let n = buf.len().min(1);
-                self.data.extend_from_slice(&buf[..n]);
-                Ok(n)
-            } else {
-                self.data.extend_from_slice(buf);
-                Ok(buf.len())
-            }
-        }
+        let result = write_wave_samples_to_buffer(
+            ThresholdFailingWriter::failing_after_header(),
+            samples.iter(),
+            22050,
+            1,
+            2,
+        );
 
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
+        assert!(result.is_err());
     }
 
     #[test]
-    fn write_all_loops_past_a_short_write_until_the_full_buffer_lands() {
-        let buffer = vec![1u8, 2, 3, 4, 5];
-        let mut writer = ShortWriteThenFull {
-            data: Vec::new(),
-            first_call_done: false,
-        };
+    fn to_buffer_errors_when_the_header_sync_fails() {
+        let samples = sample_data();
 
-        writer
-            .write_all(&buffer)
-            .expect("write_all should retry past the short write");
+        let result = write_wave_samples_to_buffer(
+            ThresholdFailingWriter::failing_on_seek(),
+            samples.iter(),
+            22050,
+            1,
+            2,
+        );
 
-        assert_eq!(writer.data, buffer);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn to_buffer_failure_messages_stay_distinguishable_across_all_three_branches() {
+        let open_failure = write_wave_samples_to_buffer(
+            ThresholdFailingWriter::failing_immediately(),
+            sample_data().iter(),
+            22050,
+            1,
+            2,
+        )
+        .unwrap_err()
+        .to_string();
+
+        let sample_failure = write_wave_samples_to_buffer(
+            ThresholdFailingWriter::failing_after_header(),
+            sample_data().iter(),
+            22050,
+            1,
+            2,
+        )
+        .unwrap_err()
+        .to_string();
+
+        let sync_failure = write_wave_samples_to_buffer(
+            ThresholdFailingWriter::failing_on_seek(),
+            sample_data().iter(),
+            22050,
+            1,
+            2,
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert_ne!(open_failure, sample_failure);
+        assert_ne!(open_failure, sync_failure);
+        assert_ne!(sample_failure, sync_failure);
+    }
+
+    #[test]
+    fn to_file_errors_when_the_parent_directory_does_not_exist() {
+        let path = Path::new("/nonexistent-dengjen-test-dir-xyz/out.wav");
+        let samples: Vec<i16> = vec![0, 1, 2];
+
+        let result = write_wave_samples_to_file(path, samples.iter(), 22050, 1, 2);
+
+        assert!(result.is_err());
+    }
+
+    #[cfg(target_os = "linux")]
+    fn this_process_can_write_into_dev() -> bool {
+        let probe = Path::new("/dev/.wave_writer_root_probe");
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(probe)
+        {
+            Ok(_) => {
+                let _ = std::fs::remove_file(probe);
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn to_file_errors_when_the_write_fails() {
+        // /dev/full always accepts open() but fails every write() with ENOSPC.
+        if this_process_can_write_into_dev() {
+            eprintln!(
+                "skipping: this process can write into /dev (likely root), so the \
+                 production remove_file(\"/dev/full\") cleanup would delete a real device node"
+            );
+            return;
+        }
+
+        let path = Path::new("/dev/full");
+        let samples = sample_data();
+
+        let result = write_wave_samples_to_file(path, samples.iter(), 22050, 1, 2);
+
+        assert!(result.is_err());
     }
 }
