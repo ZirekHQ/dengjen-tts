@@ -70,13 +70,18 @@ pub(crate) fn char_to_id_map() -> HashMap<char, usize> {
 
 #[allow(dead_code)]
 pub(crate) fn normalize(c: char) -> char {
-    let endings = endings_to_regular();
-    if let Some(&base) = endings.get(&c) {
-        return base;
-    }
     let valid = valid_letters();
     if valid.contains(&c) {
         return c;
+    }
+    // SAFETY: endings_to_regular() is intentionally dead code, mirroring upstream
+    // piper1-gpl's own implementation. Final letter forms (U+05DA, U+05DD, U+05DF,
+    // U+05E3, U+05E5) are all within the hebrew_letters() range and pass the
+    // valid_letters check above, so this mapping never fires. The model was trained
+    // with that exact preprocessing, so final forms must pass through unchanged.
+    let endings = endings_to_regular();
+    if let Some(&base) = endings.get(&c) {
+        return base;
     }
     match c {
         '\n' | '\t' => ' ',
@@ -122,6 +127,10 @@ mod tests {
     #[test]
     fn char_to_id_map_prepends_mask_token_at_zero() {
         let map = char_to_id_map();
+        // space is in valid_letters, so it has a mapped ID >= 1 (never 0, which is reserved for mask token)
+        assert!(map.get(&' ').map_or(false, |&id| id >= 1));
+        // the mask token itself is the empty string in upstream, which has no
+        // single-char Rust representation — id 0 is reserved and unmapped here.
         assert!(map.values().all(|&id| id >= 1));
     }
 
@@ -132,12 +141,12 @@ mod tests {
     }
 
     #[test]
-    fn normalize_maps_final_letter_forms_to_regular_forms() {
-        assert_eq!(normalize('\u{05DA}'), '\u{05DB}');
-        assert_eq!(normalize('\u{05DD}'), '\u{05DE}');
-        assert_eq!(normalize('\u{05DF}'), '\u{05E0}');
-        assert_eq!(normalize('\u{05E3}'), '\u{05E4}');
-        assert_eq!(normalize('\u{05E5}'), '\u{05E6}');
+    fn normalize_leaves_final_letter_forms_unchanged() {
+        assert_eq!(normalize('\u{05DA}'), '\u{05DA}');
+        assert_eq!(normalize('\u{05DD}'), '\u{05DD}');
+        assert_eq!(normalize('\u{05DF}'), '\u{05DF}');
+        assert_eq!(normalize('\u{05E3}'), '\u{05E3}');
+        assert_eq!(normalize('\u{05E5}'), '\u{05E5}');
     }
 
     #[test]
