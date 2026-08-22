@@ -1,12 +1,15 @@
 use std::env;
 
+const HEADER_OUTPUT: &str = "libdengjen.h";
+
 fn main() {
+    // Regenerate the C header any time the exported FFI surface changes.
     println!("cargo:rerun-if-changed=./src/lib.rs");
 
-    let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+    let crate_root = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not set");
 
-    let bindings = cbindgen::Builder::new()
-        .with_crate(manifest_dir)
+    let header = cbindgen::Builder::new()
+        .with_crate(crate_root)
         .with_include_version(true)
         .with_documentation(false)
         .with_parse_deps(true)
@@ -14,7 +17,7 @@ fn main() {
         .with_cpp_compat(false)
         .with_language(cbindgen::Language::C)
         .generate()
-        .expect("Unable to generate bindings");
+        .expect("cbindgen failed to generate C bindings");
 
-    bindings.write_to_file("libdengjen.h");
+    header.write_to_file(HEADER_OUTPUT);
 }
