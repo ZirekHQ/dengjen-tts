@@ -1,66 +1,72 @@
 mod dev_utils;
 
 use dengjen_tts::DengjenResult;
-use std::{io::Write, path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc};
 
 #[test]
 fn test_lazy_stream() -> DengjenResult<()> {
     let (synthesizer, text, config) = dev_utils::gen_params("std");
-    let synthesis_stream = synthesizer
+    let stream = synthesizer
         .synthesize_lazy(text, config)?
-        .map(|result| result.map(|chunk| chunk.samples));
-    dev_utils::iterate_stream(synthesis_stream)
+        .map(|chunk| chunk.map(|c| c.samples));
+    dev_utils::iterate_stream(stream)
 }
 
 #[test]
 fn test_parallel_stream() -> DengjenResult<()> {
     let (synthesizer, text, config) = dev_utils::gen_params("std");
-    let synthesis_stream = synthesizer
+    let stream = synthesizer
         .synthesize_parallel(text, config)?
-        .map(|result| result.map(|chunk| chunk.samples));
-    dev_utils::iterate_stream(synthesis_stream)
+        .map(|chunk| chunk.map(|c| c.samples));
+    dev_utils::iterate_stream(stream)
 }
 
 #[test]
 fn test_realtime_stream() -> DengjenResult<()> {
     let (synthesizer, text, config) = dev_utils::gen_params("rt");
-    let token = dengjen_tts_core::CancellationToken::new();
-    let synthesis_stream = synthesizer.synthesize_streamed(text, config, 72, 3, token)?;
-    dev_utils::iterate_stream(synthesis_stream)
+    let cancel = dengjen_tts_core::CancellationToken::new();
+    let stream = synthesizer.synthesize_streamed(text, config, 72, 3, cancel)?;
+    dev_utils::iterate_stream(stream)
 }
 
-const KOKORO_STYLE_DIM: usize = 256;
-const KOKORO_MAX_TOKEN_LEN: usize = 510;
+const KOKORO_VOICE_STYLE_ROWS: usize = 510;
+const KOKORO_VOICE_STYLE_COLS: usize = 256;
 
-fn write_synthetic_kokoro_voice_file(dir: &std::path::Path, voice_name: &str) {
-    let path = dir.join(format!("{voice_name}.bin"));
-    let mut bytes = Vec::with_capacity(KOKORO_MAX_TOKEN_LEN * KOKORO_STYLE_DIM * 4);
-    for row in 0..KOKORO_MAX_TOKEN_LEN {
-        for _ in 0..KOKORO_STYLE_DIM {
-            bytes.extend_from_slice(&(row as f32).to_le_bytes());
+fn synthetic_voice_style_bytes() -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(KOKORO_VOICE_STYLE_ROWS * KOKORO_VOICE_STYLE_COLS * 4);
+    for row in 0..KOKORO_VOICE_STYLE_ROWS {
+        let value = (row as f32).to_le_bytes();
+        for _ in 0..KOKORO_VOICE_STYLE_COLS {
+            bytes.extend_from_slice(&value);
         }
     }
-    std::fs::write(&path, &bytes).unwrap();
+    bytes
 }
 
-fn write_minimal_kokoro_vocab(dir: &std::path::Path) -> PathBuf {
+fn write_synthetic_voice(voices_dir: &std::path::Path, name: &str) {
+    std::fs::write(
+        voices_dir.join(format!("{name}.bin")),
+        synthetic_voice_style_bytes(),
+    )
+    .expect("failed to write synthetic voice fixture");
+}
+
+fn write_minimal_vocab(dir: &std::path::Path) -> PathBuf {
     let path = dir.join("tokenizer.json");
-    let mut f = std::fs::File::create(&path).unwrap();
-    f.write_all(r#"{"model": {"vocab": {"$": 0, "t": 1, "ɛ": 2, "s": 3}}}"#.as_bytes())
-        .unwrap();
+    let vocab = r#"{"model": {"vocab": {"$": 0, "t": 1, "ɛ": 2, "s": 3}}}"#;
+    std::fs::write(&path, vocab).expect("failed to write synthetic vocab fixture");
     path
 }
 
-fn load_synthetic_kokoro_model() -> dengjen_tts_kokoro::KokoroModel {
-    let dir = std::env::temp_dir().join("dengjen_synth_kokoro_realtime_stream_test");
-    std::fs::create_dir_all(&dir).unwrap();
-    let voices_dir = dir.join("voices");
-    std::fs::create_dir_all(&voices_dir).unwrap();
-    write_synthetic_kokoro_voice_file(&voices_dir, "test_voice");
-    let vocab_path = write_minimal_kokoro_vocab(&dir);
+fn build_synthetic_kokoro_model() -> dengjen_tts_kokoro::KokoroModel {
+    let root = std::env::temp_dir().join("dengjen_synth_tests_kokoro_fixture");
+    let voices_dir = root.join("voices");
+    std::fs::create_dir_all(&voices_dir).expect("failed to create fixture voices dir");
+    write_synthetic_voice(&voices_dir, "test_voice");
+    let vocab_path = write_minimal_vocab(&root);
 
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let model_path = manifest_dir.join("../models/kokoro/tests/fixtures/synthetic_kokoro.onnx");
+    let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../models/kokoro/tests/fixtures/synthetic_kokoro.onnx");
 
     let config = dengjen_tts_kokoro::KokoroVoiceConfig {
         model_path,
@@ -70,24 +76,20 @@ fn load_synthetic_kokoro_model() -> dengjen_tts_kokoro::KokoroModel {
         voices: vec!["test_voice".to_string()],
     };
     let model = dengjen_tts_kokoro::KokoroModel::from_config(config)
-        .expect("failed to load synthetic Kokoro model");
-    std::fs::remove_dir_all(&dir).ok();
+        .expect("failed to build synthetic Kokoro model");
+    std::fs::remove_dir_all(&root).ok();
     model
 }
 
-// Regression guard for the bug fixed alongside this test: Kokoro's `stream_synthesis` used to
-// treat `chunk_size` as a raw sample count, even though every real caller tunes it as a
-// Piper-style mel-frame count. Against capi's real default of 72, that produced
-// ceil(16000 / 72) = 223 tiny ~3ms chunks per sentence. With the fix, Kokoro scales
-// `chunk_size` by a nominal hop of 256 internally, so 72 -> 72 * 256 = 18432, which exceeds the
-// synthetic fixture's fixed 16000-sample output - landing the whole sentence in one chunk.
+// Regression guard: Kokoro used to scale chunk_size as a raw sample count instead of a
+// mel-frame count, so capi's default of 72 fragmented every sentence into ~223 tiny chunks.
 #[test]
 fn kokoro_realtime_stream_uses_realistic_chunk_duration_for_capi_default_chunk_size() {
-    let model = load_synthetic_kokoro_model();
+    let model = build_synthetic_kokoro_model();
     let model: Arc<dyn dengjen_tts_core::DengjenModel + Send + Sync> = Arc::new(model);
-    let synth = dengjen_tts::DengjenSpeechSynthesizer::new(model).unwrap();
+    let synthesizer = dengjen_tts::DengjenSpeechSynthesizer::new(model).unwrap();
 
-    let stream = synth.synthesize_streamed(
+    let stream = synthesizer.synthesize_streamed(
         "t\u{025b}st".to_string(),
         None,
         72,
@@ -100,8 +102,7 @@ fn kokoro_realtime_stream_uses_realistic_chunk_duration_for_capi_default_chunk_s
             if msg.contains("Failed to initialize eSpeak-ng") =>
         {
             eprintln!(
-                "Skipping kokoro_realtime_stream_uses_realistic_chunk_duration_for_capi_default_chunk_size: \
-                 espeak-ng data not available on this machine."
+                "skipping kokoro_realtime_stream_uses_realistic_chunk_duration_for_capi_default_chunk_size: espeak-ng data unavailable on this machine"
             );
             return;
         }
@@ -109,7 +110,7 @@ fn kokoro_realtime_stream_uses_realistic_chunk_duration_for_capi_default_chunk_s
     };
 
     let chunks: Vec<Vec<f32>> = stream
-        .map(|r| r.expect("chunk synthesis failed").into_vec())
+        .map(|chunk| chunk.expect("chunk synthesis failed").into_vec())
         .collect();
 
     assert_eq!(
