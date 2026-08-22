@@ -145,27 +145,26 @@ impl AudioOutputConfig {
 /// Wraps a backend model behind the higher-level synthesis entry points
 /// (`synthesize_lazy`/`synthesize_parallel`/`synthesize_streamed`/`synthesize_to_file`).
 pub struct DengjenSpeechSynthesizer {
-    model: Arc<dyn DengjenModel + Sync + Send>,
+    backend: Arc<dyn DengjenModel + Sync + Send>,
 }
 
 impl DengjenSpeechSynthesizer {
     pub fn new(model: Arc<dyn DengjenModel + Sync + Send>) -> DengjenResult<Self> {
-        Ok(Self { model })
+        Ok(Self { backend: model })
     }
 
     #[inline(always)]
     pub fn clone_model(&self) -> Arc<dyn DengjenModel + Send + Sync> {
-        Arc::clone(&self.model)
+        Arc::clone(&self.backend)
     }
 
-    fn create_synthesis_task_provider(
+    fn task_provider(
         &self,
         text: String,
         output_config: Option<AudioOutputConfig>,
     ) -> SpeechSynthesisTaskProvider {
-        let model = self.clone_model();
         SpeechSynthesisTaskProvider {
-            model,
+            model: self.clone_model(),
             text,
             output_config,
         }
@@ -176,8 +175,7 @@ impl DengjenSpeechSynthesizer {
         text: String,
         output_config: Option<AudioOutputConfig>,
     ) -> DengjenResult<DengjenSpeechStreamLazy> {
-        let provider = self.create_synthesis_task_provider(text, output_config);
-        DengjenSpeechStreamLazy::new(provider)
+        DengjenSpeechStreamLazy::new(self.task_provider(text, output_config))
     }
 
     pub fn synthesize_parallel(
@@ -185,8 +183,7 @@ impl DengjenSpeechSynthesizer {
         text: String,
         output_config: Option<AudioOutputConfig>,
     ) -> DengjenResult<DengjenSpeechStreamParallel> {
-        let provider = self.create_synthesis_task_provider(text, output_config);
-        DengjenSpeechStreamParallel::new(provider)
+        DengjenSpeechStreamParallel::new(self.task_provider(text, output_config))
     }
 
     pub fn synthesize_streamed(
@@ -197,14 +194,13 @@ impl DengjenSpeechSynthesizer {
         chunk_padding: usize,
         cancel_token: CancellationToken,
     ) -> DengjenResult<RealtimeSpeechStream> {
-        let output_info = self.model.audio_output_info()?;
-        let provider = self.create_synthesis_task_provider(text, output_config);
+        let info = self.backend.audio_output_info()?;
         RealtimeSpeechStream::new(
-            provider,
+            self.task_provider(text, output_config),
             chunk_size,
             chunk_padding,
-            output_info.sample_rate,
-            output_info.num_channels,
+            info.sample_rate,
+            info.num_channels,
             cancel_token,
         )
     }
@@ -215,25 +211,24 @@ impl DengjenSpeechSynthesizer {
         text: String,
         output_config: Option<AudioOutputConfig>,
     ) -> DengjenResult<()> {
-        let mut all_samples: Vec<f32> = Vec::new();
-        for result in self.synthesize_parallel(text, output_config)? {
-            let audio = result?;
-            all_samples.extend(audio.into_vec());
+        let mut collected: Vec<f32> = Vec::new();
+        for chunk in self.synthesize_parallel(text, output_config)? {
+            collected.extend(chunk?.into_vec());
         }
-        if all_samples.is_empty() {
+        if collected.is_empty() {
             return Err(DengjenError::OperationError(
                 "No speech data to write".to_string(),
             ));
         }
 
-        let output_info = self.model.audio_output_info()?;
-        let samples = AudioSamples::from(all_samples);
+        let info = self.backend.audio_output_info()?;
+        let samples = AudioSamples::from(collected);
         audio_ops::write_wave_samples_to_file(
             filename,
             samples.to_i16_vec().iter(),
-            output_info.sample_rate as u32,
-            output_info.num_channels.try_into().unwrap(),
-            output_info.sample_width.try_into().unwrap(),
+            info.sample_rate as u32,
+            info.num_channels.try_into().unwrap(),
+            info.sample_width.try_into().unwrap(),
         )?;
         Ok(())
     }
@@ -241,40 +236,40 @@ impl DengjenSpeechSynthesizer {
 
 impl DengjenModel for DengjenSpeechSynthesizer {
     fn audio_output_info(&self) -> DengjenResult<AudioInfo> {
-        self.model.audio_output_info()
+        self.backend.audio_output_info()
     }
     fn phonemize_text(&self, text: &str) -> DengjenResult<Phonemes> {
-        self.model.phonemize_text(text)
+        self.backend.phonemize_text(text)
     }
     fn speak_batch(&self, phoneme_batches: Vec<String>) -> DengjenResult<Vec<Audio>> {
-        self.model.speak_batch(phoneme_batches)
+        self.backend.speak_batch(phoneme_batches)
     }
     fn speak_one_sentence(&self, phonemes: String) -> DengjenAudioResult {
-        self.model.speak_one_sentence(phonemes)
+        self.backend.speak_one_sentence(phonemes)
     }
     fn get_default_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
-        self.model.get_default_synthesis_config()
+        self.backend.get_default_synthesis_config()
     }
     fn get_fallback_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
-        self.model.get_fallback_synthesis_config()
+        self.backend.get_fallback_synthesis_config()
     }
     fn set_fallback_synthesis_config(
         &self,
         synthesis_config: &SynthesisConfig,
     ) -> DengjenResult<()> {
-        self.model.set_fallback_synthesis_config(synthesis_config)
+        self.backend.set_fallback_synthesis_config(synthesis_config)
     }
     fn get_language(&self) -> DengjenResult<Option<String>> {
-        self.model.get_language()
+        self.backend.get_language()
     }
     fn get_speakers(&self) -> DengjenResult<Option<&HashMap<i64, String>>> {
-        self.model.get_speakers()
+        self.backend.get_speakers()
     }
     fn properties(&self) -> DengjenResult<HashMap<String, String>> {
-        self.model.properties()
+        self.backend.properties()
     }
     fn supports_streaming_output(&self) -> bool {
-        self.model.supports_streaming_output()
+        self.backend.supports_streaming_output()
     }
     fn stream_synthesis<'a>(
         &'a self,
@@ -284,7 +279,7 @@ impl DengjenModel for DengjenSpeechSynthesizer {
         cancel_token: CancellationToken,
     ) -> DengjenResult<Box<dyn Iterator<Item = DengjenResult<AudioSamples>> + Send + Sync + 'a>>
     {
-        self.model
+        self.backend
             .stream_synthesis(phonemes, chunk_size, chunk_padding, cancel_token)
     }
 }
