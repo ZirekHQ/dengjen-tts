@@ -97,16 +97,18 @@ impl AudioSamples {
         if self.0.is_empty() {
             return;
         }
-        // Matches the largest signed sample's magnitude, not the true peak
-        // amplitude across both polarities — a strongly negative-skewed
-        // buffer can still clip after this call.
-        let largest_signed_magnitude = self
+        let highest = self
             .0
             .iter()
             .max_by(|a, b| a.partial_cmp(b).unwrap())
-            .unwrap()
-            .abs();
-        let divisor = largest_signed_magnitude.max(max_value) / max_value.abs();
+            .unwrap();
+        let lowest = self
+            .0
+            .iter()
+            .min_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap();
+        let peak_magnitude = highest.abs().max(lowest.abs());
+        let divisor = peak_magnitude.max(max_value) / max_value.abs();
         self.0.iter_mut().for_each(|sample| *sample /= divisor);
     }
 
@@ -361,6 +363,19 @@ mod tests {
             .max_by(|a, b| a.partial_cmp(b).unwrap())
             .unwrap();
         assert_eq!(peak, 1.0);
+    }
+
+    #[test]
+    fn normalize_scales_by_true_peak_magnitude_for_a_negative_skewed_buffer() {
+        let mut buffer = AudioSamples::from(vec![-5.0, 0.1]);
+        buffer.normalize(1.0);
+        let peak_magnitude = buffer
+            .into_vec()
+            .into_iter()
+            .map(f32::abs)
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap();
+        assert_eq!(peak_magnitude, 1.0);
     }
 
     #[test]
