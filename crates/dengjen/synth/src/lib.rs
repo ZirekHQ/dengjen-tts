@@ -21,8 +21,8 @@ const VOLUME_PARAM_RANGE: ParamRange = ParamRange { min: 0.0, max: 1.0 };
 const PITCH_PARAM_RANGE: ParamRange = ParamRange { min: 0.5, max: 1.5 };
 
 /// Rayon pool that synthesis work runs on, kept off whatever thread calls
-/// into this crate. Oversized relative to core count since synthesis tasks
-/// spend much of their time blocked on model inference rather than on CPU.
+/// into this crate. Sized to a multiple of the core count so more
+/// synthesis requests can run concurrently than there are cores.
 pub static SYNTHESIS_THREAD_POOL: Lazy<ThreadPool> = Lazy::new(|| {
     let core_count = std::thread::available_parallelism()
         .map(usize::from)
