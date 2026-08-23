@@ -5,7 +5,7 @@
 [submodule "deps/libtashkeel"]
 	path = deps/libtashkeel
 	url = https://github.com/austek/libtashkeel
-	branch = main
+	branch = chore/clear-rustsec-advisories
 [submodule "deps/espeak-ng"]
 	path = deps/espeak-ng
 	url = https://github.com/rhasspy/espeak-ng
