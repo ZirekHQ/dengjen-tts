@@ -334,7 +334,17 @@ mod tests {
     #[cfg(feature = "espeak")]
     #[test]
     fn do_phonemize_text_wraps_the_full_espeak_init_error_message() {
-        // No espeak-ng-data is reachable in this sandbox, so init deterministically fails here.
+        // Force espeak-ng's init to fail deterministically, regardless of the ambient
+        // environment: a system-wide espeak-ng-data install, or an earlier CI step in the same
+        // job exporting this same env var for the rest of the job (see #85). This is the only
+        // test in this crate gated on the `espeak` feature and the only one touching this env
+        // var, so mutating it here races with nothing else in this test binary.
+        // espeak_phonemizer::resolve_data_directory only checks whether this directory's
+        // `espeak-ng-data` subdirectory exists, so the path need not exist on disk at all.
+        std::env::set_var(
+            "DENGJEN_ESPEAKNG_DATA_DIRECTORY",
+            "/nonexistent/dengjen-test-guaranteed-missing-espeak-ng-data",
+        );
         // kokoro/phonemize.rs, synth/tests.rs, and cli/tests/kokoro_synthetic_cli.rs all guard
         // on this exact substring, so truncating the wrapped error would silently break them.
         let commons = TestVitsCommons {
