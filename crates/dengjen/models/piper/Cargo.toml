@@ -14,6 +14,11 @@ hebrew = ["dep:hebrew-phonemizer"]
 pinyin = ["dep:pinyin-phonemizer"]
 # espeak-ng is GPL-3.0-or-later. Default-on for now to avoid breaking existing users.
 espeak = ["dep:espeak-phonemizer"]
+# GPU execution providers, opt-in per platform. Inference falls back to CPU at runtime if the
+# provider fails to initialize (see inference::execution_providers).
+cuda = ["ort/cuda"]
+coreml = ["ort/coreml"]
+directml = ["ort/directml"]
 
 [dependencies]
 espeak-phonemizer = { path = "../../../text/espeak-phonemizer", optional = true }

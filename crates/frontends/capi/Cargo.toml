@@ -15,6 +15,11 @@ crate-type = ["staticlib", "cdylib"]
 default = ["piper", "espeak"]
 piper = ["dep:dengjen-tts-piper", "dep:ort"]
 espeak = ["dengjen-tts-piper/espeak"]
+# Desktop GPU providers only — Android/iOS already bake in nnapi/coreml respectively via their
+# own target-specific `ort` dependency stanzas below.
+cuda = ["dengjen-tts-piper/cuda"]
+coreml = ["dengjen-tts-piper/coreml"]
+directml = ["dengjen-tts-piper/directml"]
 ort-dylib = ["ort/load-dynamic"]
 
 [dependencies]

@@ -16,6 +16,9 @@ default = ["tashkeel", "espeak"]
 ort-dylib = ["ort/load-dynamic"]
 tashkeel = ["dep:libtashkeel_core", "dengjen-tts-piper/tashkeel"]
 espeak = ["dep:espeak-phonemizer", "dengjen-tts-piper/espeak"]
+cuda = ["dengjen-tts-piper/cuda"]
+coreml = ["dengjen-tts-piper/coreml"]
+directml = ["dengjen-tts-piper/directml"]
 
 [dependencies]
 espeak-phonemizer = { path = "../../text/espeak-phonemizer", optional = true }

@@ -10,6 +10,9 @@ workspace = true
 [features]
 default = ["espeak"]
 espeak = ["dengjen-tts-piper/espeak"]
+cuda = ["dengjen-tts-piper/cuda"]
+coreml = ["dengjen-tts-piper/coreml"]
+directml = ["dengjen-tts-piper/directml"]
 ort-dylib = ["ort/load-dynamic"]
 
 [dependencies]
