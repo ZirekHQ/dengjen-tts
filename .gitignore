@@ -26,6 +26,14 @@ var/
 include/
 man/
 venv/
+# The Python-packaging patterns above (bin/, build/, include/, lib/, etc.) are
+# bare directory names, so they match anywhere in the tree — not just at a
+# venv root. That silently swept up real vendored C source under
+# vendor/espeak-ng/ (its own include/ dirs for public headers) during git add,
+# so CI's fresh clone was missing them even though local working trees had
+# them on disk. Un-ignore this vendored tree explicitly; extend this rule to
+# any future vendor/ directory that hits the same collision.
+!crates/text/espeak-phonemizer/vendor/espeak-ng/**
 *.egg-info/
 .installed.cfg
 *.egg
