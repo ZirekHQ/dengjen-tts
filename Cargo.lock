@@ -456,6 +456,7 @@ version = "0.2.0"
 dependencies = [
  "dengjen-tts-core",
  "espeak-phonemizer",
+ "hebrew-phonemizer",
  "libtashkeel_core",
  "ndarray",
  "ort",

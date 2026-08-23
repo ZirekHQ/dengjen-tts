@@ -2,7 +2,7 @@ use dengjen_tts_core::{DengjenError, DengjenResult, PiperSynthesisConfig};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs::File;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Deserialize, Default)]
 pub struct AudioConfig {
@@ -63,6 +63,8 @@ pub struct ModelConfig {
     pub(crate) phoneme_type: Option<PhonemeType>,
     pub(crate) default_speaker_id: Option<i64>,
     pub(crate) hop_length: Option<usize>,
+    #[cfg_attr(not(feature = "hebrew"), allow(dead_code))]
+    pub(crate) hebrew_model_path: Option<PathBuf>,
 }
 
 pub(crate) fn load_model_config(
@@ -174,6 +176,7 @@ mod tests {
         assert_eq!(config.phoneme_type, None);
         assert_eq!(config.default_speaker_id, None);
         assert_eq!(config.hop_length, None);
+        assert_eq!(config.hebrew_model_path, None);
     }
 
     #[test]
@@ -198,6 +201,29 @@ mod tests {
         assert_eq!(config.phoneme_type, Some(PhonemeType::Hebrew));
         assert_eq!(config.default_speaker_id, Some(3));
         assert_eq!(config.hop_length, Some(512));
+    }
+
+    #[test]
+    fn model_config_parses_hebrew_model_path_when_present() {
+        let json = r#"{
+            "key": null,
+            "language": null,
+            "audio": {"sample_rate": 22050, "quality": null},
+            "num_speakers": 1,
+            "speaker_id_map": {},
+            "streaming": false,
+            "espeak": {"voice": "en-us"},
+            "inference": {"noise_scale": 0.667, "length_scale": 1.0, "noise_w": 0.8},
+            "num_symbols": 256,
+            "phoneme_map": {},
+            "phoneme_id_map": {"^": [1], "$": [2], "_": [3]},
+            "hebrew_model_path": "/models/nakdimon.onnx"
+        }"#;
+        let config: ModelConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            config.hebrew_model_path,
+            Some(PathBuf::from("/models/nakdimon.onnx"))
+        );
     }
 
     fn single_char_phoneme_map() -> HashMap<String, Vec<i64>> {
