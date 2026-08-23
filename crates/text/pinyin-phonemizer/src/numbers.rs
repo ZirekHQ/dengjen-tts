@@ -45,7 +45,6 @@ fn format_integer(digits: &str) -> String {
         .collect()
 }
 
-#[allow(dead_code)]
 pub(crate) fn normalize_numbers(text: &str) -> String {
     let text = normalize_temperatures(text);
     let text = normalize_percentages(&text);

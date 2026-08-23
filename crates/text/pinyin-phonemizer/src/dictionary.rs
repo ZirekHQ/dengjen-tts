@@ -13,7 +13,6 @@ use std::path::Path;
 pub(crate) struct Dictionaries {
     pub monophonic: HashMap<char, String>,
     pub char_bopomofo: HashMap<char, String>,
-    #[allow(dead_code)]
     // read once lib.rs's orchestration (a later task) builds a real config from it
     pub polyphonic_chars: Vec<(char, String)>,
 }
@@ -45,7 +44,6 @@ fn read_tab_separated_char_string_pairs(path: &Path) -> DengjenResult<Vec<(char,
         .collect()
 }
 
-#[allow(dead_code)]
 pub(crate) fn load_dictionaries(
     monophonic_path: &Path,
     polyphonic_path: &Path,
@@ -76,7 +74,6 @@ pub(crate) fn load_dictionaries(
     })
 }
 
-#[allow(dead_code)]
 pub(crate) fn get_phoneme_labels(
     polyphonic_chars: &[(char, String)],
 ) -> (Vec<String>, HashMap<char, Vec<usize>>) {
@@ -108,7 +105,6 @@ pub(crate) fn resolve_char_dictionary_only(dictionaries: &Dictionaries, c: char)
         .cloned()
 }
 
-#[allow(dead_code)]
 pub(crate) fn resolve_char(
     dictionaries: &Dictionaries,
     g2pw: &G2pwEngine,

@@ -35,7 +35,6 @@ pub(crate) fn truncate_window(
     (start, end)
 }
 
-#[allow(dead_code)]
 pub(crate) struct G2pwConfig {
     pub labels: Vec<String>,
     pub char2phonemes: HashMap<char, Vec<usize>>,
@@ -54,7 +53,6 @@ impl G2pwConfig {
     }
 }
 
-#[allow(dead_code)]
 pub(crate) struct G2pwEngine {
     session: Mutex<Session>,
     tokenizer: tokenizers::Tokenizer,
@@ -71,7 +69,6 @@ fn inference_error(cause: impl std::fmt::Display) -> DengjenError {
     DengjenError::InferenceError(format!("g2pW inference failed: {cause}"))
 }
 
-#[allow(dead_code)]
 pub(crate) fn create_g2pw_engine(
     onnx_model_path: &Path,
     tokenizer_path: &Path,
@@ -96,7 +93,6 @@ impl G2pwEngine {
     /// `config.char2phonemes`) — the three-tier resolution stage this crate
     /// builds on top of this module is responsible for only calling this for
     /// characters that actually need it.
-    #[allow(dead_code)]
     pub fn resolve_polyphonic(&self, text: &str, query_char_index: usize) -> DengjenResult<String> {
         let chars: Vec<char> = text.chars().collect();
         let query_char = *chars.get(query_char_index).ok_or_else(|| {

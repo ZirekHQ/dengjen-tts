@@ -10,18 +10,13 @@ pub(crate) struct Word {
     pub end: usize,
 }
 
-// wordize/tokenize_and_map/Token are wired into lib.rs's public API in later
-// tasks of this crate's implementation plan; only exercised by this file's own
-// tests until then. #[allow(dead_code)] until that wiring lands.
 #[derive(Debug, Clone, PartialEq)]
-#[allow(dead_code)]
 pub(crate) struct Token {
     pub text: String,
     pub start: usize,
     pub end: usize,
 }
 
-#[allow(dead_code)]
 pub(crate) fn wordize(text: &str) -> (Vec<Word>, Vec<Option<usize>>) {
     let chars: Vec<char> = text.chars().collect();
     let mut words: Vec<Word> = Vec::new();
@@ -63,7 +58,6 @@ pub(crate) fn wordize(text: &str) -> (Vec<Word>, Vec<Option<usize>>) {
     (words, text_to_word)
 }
 
-#[allow(dead_code)]
 pub(crate) fn tokenize_and_map(
     tokenizer: &tokenizers::Tokenizer,
     text: &str,

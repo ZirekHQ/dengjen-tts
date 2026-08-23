@@ -7,13 +7,11 @@ use std::collections::HashMap;
 /// the ordering is load-bearing: `split_initial_final_tone`'s scan below
 /// relies on trying "zh"/"ch"/"sh" before any single-letter initial that
 /// would otherwise shadow them.
-#[allow(dead_code)]
 pub(crate) const PINYIN_INITIALS: [&str; 23] = [
     "zh", "ch", "sh", "b", "p", "m", "f", "d", "t", "n", "l", "g", "k", "h", "j", "q", "x", "r",
     "z", "c", "s", "y", "w",
 ];
 
-#[allow(dead_code)]
 pub(crate) fn convert_bopomofo_to_pinyin(
     bopomofo: &str,
     dict: &HashMap<String, String>,
@@ -27,7 +25,6 @@ pub(crate) fn convert_bopomofo_to_pinyin(
     dict.get(&component).map(|pinyin| format!("{pinyin}{tone}"))
 }
 
-#[allow(dead_code)]
 pub(crate) fn split_initial_final_tone(syllable: &str) -> Option<(String, String, char)> {
     let mut chars: Vec<char> = syllable.chars().collect();
     let tone = chars.pop()?;
