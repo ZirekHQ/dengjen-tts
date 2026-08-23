@@ -2,6 +2,7 @@
 
 mod dictionary;
 mod g2pw;
+mod syllable;
 mod tokenize;
 
 // Public API lands once every stage is wired up (see the pinyin-phonemizer
