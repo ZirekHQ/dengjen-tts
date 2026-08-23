@@ -91,7 +91,10 @@ impl AudioOutputConfig {
                     utils::percent_to_param(pct, SPEED_PARAM_RANGE.min, SPEED_PARAM_RANGE.max);
                 sonic_sys::sonicSetSpeed(stream, speed);
             }
-            if let Some(pct) = self.volume {
+            // volume == 0 (exact mute) is handled below, after Sonic has run, rather than by
+            // calling sonicSetVolume(0.0): Sonic clamps its volume parameter to a minimum of
+            // 0.01 internally, so asking it for silence doesn't actually produce silence.
+            if let Some(pct) = self.volume.filter(|&pct| pct != 0) {
                 let volume =
                     utils::percent_to_param(pct, VOLUME_PARAM_RANGE.min, VOLUME_PARAM_RANGE.max);
                 sonic_sys::sonicSetVolume(stream, volume);
@@ -122,6 +125,10 @@ impl AudioOutputConfig {
             output.set_len(available as usize);
 
             sonic_sys::sonicDestroyStream(stream);
+
+            if self.volume == Some(0) {
+                output.fill(0.0);
+            }
 
             Ok(output.into())
         }
