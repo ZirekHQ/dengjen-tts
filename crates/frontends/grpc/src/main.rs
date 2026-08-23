@@ -151,7 +151,7 @@ impl DengjenGrpcService {
         let synth_options = Self::synth_options_from_default_config(model)?;
         Ok(grpc::VoiceInfo {
             voice_id,
-            synth_options: Some(synth_options),
+            synthesis_options: Some(synth_options),
             language,
             speakers,
             audio: Some(grpc::AudioInfo {
@@ -660,7 +660,7 @@ mod voice_loading_tests {
             .build_voice_info("v1".to_string(), voice.model_ref())
             .unwrap();
         assert_eq!(
-            info.synth_options.unwrap().speaker.as_deref(),
+            info.synthesis_options.unwrap().speaker.as_deref(),
             Some("Default")
         );
     }
