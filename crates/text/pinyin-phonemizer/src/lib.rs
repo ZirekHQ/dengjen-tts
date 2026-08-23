@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod dictionary;
 mod g2pw;
 mod tokenize;
 
