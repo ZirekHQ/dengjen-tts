@@ -554,6 +554,7 @@ dependencies = [
  "libtashkeel_core",
  "ndarray",
  "ort",
+ "pinyin-phonemizer",
  "serde",
  "serde_json",
 ]

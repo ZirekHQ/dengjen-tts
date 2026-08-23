@@ -21,7 +21,7 @@ use config::{load_model_config, resolve_default_speaker_id};
 pub use inference::VitsModel;
 #[cfg(feature = "espeak")]
 use phonemize::should_diacritize;
-use phonemize::{phonemize_dispatch, HebrewEngine, TashkeelEngine};
+use phonemize::{phonemize_dispatch, HebrewEngine, PinyinEngine, TashkeelEngine};
 pub use streaming::VitsStreamingModel;
 
 const PAD: &str = "_";
@@ -64,6 +64,7 @@ trait VitsModelCommons {
     #[cfg_attr(not(all(feature = "tashkeel", feature = "espeak")), allow(dead_code))]
     fn get_tashkeel_engine(&self) -> Option<&TashkeelEngine>;
     fn get_hebrew_engine(&self) -> Option<&HebrewEngine>;
+    fn get_pinyin_engine(&self) -> Option<&PinyinEngine>;
 
     fn get_meta_ids(&self) -> (i64, i64, i64) {
         let phoneme_id_map = &self.get_config().phoneme_id_map;
@@ -139,6 +140,7 @@ trait VitsModelCommons {
             config.phoneme_type.unwrap_or_default(),
             text,
             self.get_hebrew_engine(),
+            self.get_pinyin_engine(),
         ) {
             return handled;
         }
@@ -165,6 +167,7 @@ trait VitsModelCommons {
             config.phoneme_type.unwrap_or_default(),
             text,
             self.get_hebrew_engine(),
+            self.get_pinyin_engine(),
         )
         .unwrap_or_else(|| {
             Err(DengjenError::PhonemizationError(
@@ -225,6 +228,9 @@ mod tests {
             None
         }
         fn get_hebrew_engine(&self) -> Option<&HebrewEngine> {
+            None
+        }
+        fn get_pinyin_engine(&self) -> Option<&PinyinEngine> {
             None
         }
     }
