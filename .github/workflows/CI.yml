@@ -221,6 +221,8 @@ jobs:
         run: cargo test -p espeak-phonemizer -- --test-threads=1
       - name: cargo test (dengjen-tts-piper, espeak feature disabled)
         run: cargo test -p dengjen-tts-piper --no-default-features --features tashkeel
+      - name: cargo test (dengjen-tts-piper, hebrew feature enabled)
+        run: cargo test -p dengjen-tts-piper --no-default-features --features espeak,tashkeel,hebrew
       - name: cargo test (dengjen-tts-kokoro)
         run: cargo test -p dengjen-tts-kokoro
       - name: cargo test (dengjen-tts-kokoro, espeak feature disabled)
