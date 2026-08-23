@@ -1,5 +1,7 @@
 use crate::config::{load_model_config, ModelConfig};
-use crate::phonemize::{create_tashkeel_engine, TashkeelEngine};
+use crate::phonemize::{
+    create_hebrew_engine, create_tashkeel_engine, HebrewEngine, TashkeelEngine,
+};
 use crate::VitsModelCommons;
 use dengjen_tts_core::{
     Audio, AudioInfo, DengjenAudioResult, DengjenError, DengjenModel, DengjenResult, Phonemes,
@@ -98,27 +100,32 @@ pub struct VitsModel {
     session: Mutex<Session>,
     #[cfg_attr(not(all(feature = "tashkeel", feature = "espeak")), allow(dead_code))]
     tashkeel_engine: Option<TashkeelEngine>,
+    #[cfg_attr(not(feature = "hebrew"), allow(dead_code))]
+    hebrew_engine: Option<HebrewEngine>,
 }
 
 impl VitsModel {
     pub fn new(config_path: PathBuf, onnx_path: &Path) -> DengjenResult<Self> {
         let (config, synth_config) = load_model_config(&config_path)?;
-        Self::from_config(config, synth_config, onnx_path)
+        Self::from_config(config, synth_config, &config_path, onnx_path)
     }
     pub(crate) fn from_config(
         config: ModelConfig,
         synth_config: PiperSynthesisConfig,
+        config_path: &Path,
         onnx_path: &Path,
     ) -> DengjenResult<Self> {
         let session = create_inference_session(onnx_path).map_err(session_init_error)?;
         let speaker_map = reversed_mapping(&config.speaker_id_map);
         let tashkeel_engine = create_tashkeel_engine(&config)?;
+        let hebrew_engine = create_hebrew_engine(&config, config_path)?;
         Ok(Self {
             synth_config: RwLock::new(synth_config),
             config,
             speaker_map,
             session: Mutex::new(session),
             tashkeel_engine,
+            hebrew_engine,
         })
     }
     fn infer_with_values(&self, input_phonemes: Vec<i64>) -> DengjenAudioResult {
@@ -157,6 +164,9 @@ impl VitsModelCommons for VitsModel {
     }
     fn get_tashkeel_engine(&self) -> Option<&TashkeelEngine> {
         self.tashkeel_engine.as_ref()
+    }
+    fn get_hebrew_engine(&self) -> Option<&HebrewEngine> {
+        self.hebrew_engine.as_ref()
     }
 }
 

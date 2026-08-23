@@ -11,6 +11,7 @@ members = [
     "crates/frontends/capi",
     "crates/frontends/cli",
     "crates/text/espeak-phonemizer",
+    "crates/text/hebrew-phonemizer",
     "crates/audio/sonic-sys",
     "crates/audio/ops",
 ]

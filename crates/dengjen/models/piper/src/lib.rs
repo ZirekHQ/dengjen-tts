@@ -21,7 +21,7 @@ use config::{load_model_config, resolve_default_speaker_id};
 pub use inference::VitsModel;
 #[cfg(feature = "espeak")]
 use phonemize::should_diacritize;
-use phonemize::{phonemize_dispatch, TashkeelEngine};
+use phonemize::{phonemize_dispatch, HebrewEngine, TashkeelEngine};
 pub use streaming::VitsStreamingModel;
 
 const PAD: &str = "_";
@@ -34,8 +34,13 @@ pub fn from_config_path(config_path: &Path) -> DengjenResult<Arc<dyn DengjenMode
     if config.streaming.unwrap_or_default() {
         let encoder_path = config_path.with_file_name("encoder.onnx");
         let decoder_path = config_path.with_file_name("decoder.onnx");
-        let model =
-            VitsStreamingModel::from_config(config, synth_config, &encoder_path, &decoder_path)?;
+        let model = VitsStreamingModel::from_config(
+            config,
+            synth_config,
+            config_path,
+            &encoder_path,
+            &decoder_path,
+        )?;
         return Ok(Arc::new(model));
     }
 
@@ -46,7 +51,7 @@ pub fn from_config_path(config_path: &Path) -> DengjenResult<Arc<dyn DengjenMode
         )));
     };
     let onnx_path = config_path.with_file_name(stem);
-    let model = VitsModel::from_config(config, synth_config, &onnx_path)?;
+    let model = VitsModel::from_config(config, synth_config, config_path, &onnx_path)?;
     Ok(Arc::new(model))
 }
 
@@ -58,6 +63,7 @@ trait VitsModelCommons {
     fn get_speaker_map(&self) -> &HashMap<i64, String>;
     #[cfg_attr(not(all(feature = "tashkeel", feature = "espeak")), allow(dead_code))]
     fn get_tashkeel_engine(&self) -> Option<&TashkeelEngine>;
+    fn get_hebrew_engine(&self) -> Option<&HebrewEngine>;
 
     fn get_meta_ids(&self) -> (i64, i64, i64) {
         let phoneme_id_map = &self.get_config().phoneme_id_map;
@@ -129,7 +135,11 @@ trait VitsModelCommons {
     #[cfg(feature = "espeak")]
     fn do_phonemize_text(&self, text: &str) -> DengjenResult<Phonemes> {
         let config = self.get_config();
-        if let Some(handled) = phonemize_dispatch(config.phoneme_type.unwrap_or_default(), text) {
+        if let Some(handled) = phonemize_dispatch(
+            config.phoneme_type.unwrap_or_default(),
+            text,
+            self.get_hebrew_engine(),
+        ) {
             return handled;
         }
         let voice = &config.espeak.voice;
@@ -151,7 +161,12 @@ trait VitsModelCommons {
     #[cfg(not(feature = "espeak"))]
     fn do_phonemize_text(&self, text: &str) -> DengjenResult<Phonemes> {
         let config = self.get_config();
-        phonemize_dispatch(config.phoneme_type.unwrap_or_default(), text).unwrap_or_else(|| {
+        phonemize_dispatch(
+            config.phoneme_type.unwrap_or_default(),
+            text,
+            self.get_hebrew_engine(),
+        )
+        .unwrap_or_else(|| {
             Err(DengjenError::PhonemizationError(
                 "This voice requires espeak-based phonemization, but the `espeak` feature (GPL-3.0-or-later, via espeak-ng) is disabled".to_string(),
             ))
@@ -207,6 +222,9 @@ mod tests {
             &self.speaker_map
         }
         fn get_tashkeel_engine(&self) -> Option<&TashkeelEngine> {
+            None
+        }
+        fn get_hebrew_engine(&self) -> Option<&HebrewEngine> {
             None
         }
     }

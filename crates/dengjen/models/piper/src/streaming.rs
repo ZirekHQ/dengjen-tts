@@ -3,7 +3,9 @@ use crate::inference::{
     build_vits_inputs, create_inference_session, expect_piper_config, inference_error,
     reversed_mapping, session_init_error, snapshot_scales_and_speaker,
 };
-use crate::phonemize::{create_tashkeel_engine, TashkeelEngine};
+use crate::phonemize::{
+    create_hebrew_engine, create_tashkeel_engine, HebrewEngine, TashkeelEngine,
+};
 use crate::VitsModelCommons;
 use dengjen_tts_core::{
     Audio, AudioInfo, AudioSamples, AudioStreamIterator, CancellationToken, DengjenAudioResult,
@@ -29,12 +31,15 @@ pub struct VitsStreamingModel {
     decoder_model: Arc<Mutex<Session>>,
     #[cfg_attr(not(all(feature = "tashkeel", feature = "espeak")), allow(dead_code))]
     tashkeel_engine: Option<TashkeelEngine>,
+    #[cfg_attr(not(feature = "hebrew"), allow(dead_code))]
+    hebrew_engine: Option<HebrewEngine>,
 }
 
 impl VitsStreamingModel {
     pub(crate) fn from_config(
         config: ModelConfig,
         synth_config: PiperSynthesisConfig,
+        config_path: &Path,
         encoder_path: &Path,
         decoder_path: &Path,
     ) -> DengjenResult<Self> {
@@ -42,6 +47,7 @@ impl VitsStreamingModel {
         let decoder_model = create_inference_session(decoder_path).map_err(session_init_error)?;
         let speaker_map = reversed_mapping(&config.speaker_id_map);
         let tashkeel_engine = create_tashkeel_engine(&config)?;
+        let hebrew_engine = create_hebrew_engine(&config, config_path)?;
         Ok(Self {
             synth_config: RwLock::new(synth_config),
             config,
@@ -49,6 +55,7 @@ impl VitsStreamingModel {
             encoder_model: Mutex::new(encoder_model),
             decoder_model: Arc::new(Mutex::new(decoder_model)),
             tashkeel_engine,
+            hebrew_engine,
         })
     }
 
@@ -87,6 +94,9 @@ impl VitsModelCommons for VitsStreamingModel {
     }
     fn get_tashkeel_engine(&self) -> Option<&TashkeelEngine> {
         self.tashkeel_engine.as_ref()
+    }
+    fn get_hebrew_engine(&self) -> Option<&HebrewEngine> {
+        self.hebrew_engine.as_ref()
     }
 }
 

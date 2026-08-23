@@ -209,6 +209,13 @@ jobs:
           persist-credentials: false
       - name: cargo test (workspace, excluding espeak-phonemizer, dengjen-tts, and dengjen-tts-kokoro)
         run: cargo test --workspace --exclude espeak-phonemizer --exclude dengjen-tts --exclude dengjen-tts-kokoro --no-fail-fast
+      # Runs before espeak-ng-data is located below: do_phonemize_text_wraps_the_full_espeak_init_error_message
+      # (crates/dengjen/models/piper/src/lib.rs) assumes espeak-ng-data is NOT reachable, to deterministically
+      # exercise espeak-ng's init-failure path. Once DENGJEN_ESPEAKNG_DATA_DIRECTORY is set below, init succeeds
+      # and that test fails instead on a different, unrelated error path (empty voice name) — a pre-existing
+      # environment-fragility bug this step must not newly expose. See issue #85.
+      - name: cargo test (dengjen-tts-piper, hebrew feature enabled)
+        run: cargo test -p dengjen-tts-piper --no-default-features --features espeak,tashkeel,hebrew
       - name: locate espeak-ng-data directory
         run: |
           data_dir="$(dirname "$(find /usr -maxdepth 5 -type d -name espeak-ng-data -not -path '/usr/share/doc/*' | head -n1)")"
