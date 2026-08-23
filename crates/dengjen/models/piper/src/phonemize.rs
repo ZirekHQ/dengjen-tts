@@ -12,6 +12,11 @@ pub(crate) type HebrewEngine = hebrew_phonemizer::NakdimonEngine;
 #[cfg(not(feature = "hebrew"))]
 pub(crate) type HebrewEngine = ();
 
+#[cfg(feature = "pinyin")]
+pub(crate) type PinyinEngine = pinyin_phonemizer::PinyinEngine;
+#[cfg(not(feature = "pinyin"))]
+pub(crate) type PinyinEngine = ();
+
 #[cfg(feature = "tashkeel")]
 pub(crate) fn should_diacritize(voice: &str) -> bool {
     voice == "ar"
@@ -30,6 +35,9 @@ pub(crate) fn phonemize_dispatch(
     #[cfg_attr(not(feature = "hebrew"), allow(unused_variables))] hebrew_engine: Option<
         &HebrewEngine,
     >,
+    #[cfg_attr(not(feature = "pinyin"), allow(unused_variables))] pinyin_engine: Option<
+        &PinyinEngine,
+    >,
 ) -> Option<DengjenResult<Phonemes>> {
     match phoneme_type {
         PhonemeType::Espeak => None,
@@ -46,10 +54,18 @@ pub(crate) fn phonemize_dispatch(
         PhonemeType::Hebrew => Some(Err(DengjenError::PhonemizationError(
             "Phonemization for phoneme_type `Hebrew` requires the `hebrew` feature".to_string(),
         ))),
-        unsupported => Some(Err(DengjenError::PhonemizationError(format!(
-            "Phonemization for phoneme_type `{:?}` is not yet supported",
-            unsupported
-        )))),
+        #[cfg(feature = "pinyin")]
+        PhonemeType::Pinyin => Some(match pinyin_engine {
+            Some(engine) => pinyin_phonemizer::text_to_pinyin_phonemes(engine, text),
+            None => Err(DengjenError::PhonemizationError(
+                "This voice's phoneme_type is `pinyin` but no pinyin engine was initialized"
+                    .to_string(),
+            )),
+        }),
+        #[cfg(not(feature = "pinyin"))]
+        PhonemeType::Pinyin => Some(Err(DengjenError::PhonemizationError(
+            "Phonemization for phoneme_type `Pinyin` requires the `pinyin` feature".to_string(),
+        ))),
     }
 }
 
@@ -110,13 +126,46 @@ pub(crate) fn create_hebrew_engine(
     Ok(None)
 }
 
+#[cfg(feature = "pinyin")]
+pub(crate) fn create_pinyin_engine(
+    config: &ModelConfig,
+    config_path: &Path,
+) -> DengjenResult<Option<PinyinEngine>> {
+    if config.phoneme_type != Some(PhonemeType::Pinyin) {
+        return Ok(None);
+    }
+    let Some(model_dir) = config.pinyin_model_dir.as_ref() else {
+        return Err(DengjenError::InvalidConfiguration(
+            "This voice's phoneme_type is `pinyin` but no g2pW model directory was configured"
+                .to_string(),
+        ));
+    };
+    // Resolved relative to the config file's own directory, matching every
+    // other model path in this crate (see resolve_hebrew_model_path above),
+    // rather than the process's current working directory.
+    let resolved_model_dir = resolve_pinyin_model_dir(config_path, model_dir);
+    pinyin_phonemizer::create_pinyin_engine(&resolved_model_dir).map(Some)
+}
+
+#[cfg(feature = "pinyin")]
+fn resolve_pinyin_model_dir(config_path: &Path, model_dir: &Path) -> std::path::PathBuf {
+    config_path.with_file_name(model_dir)
+}
+#[cfg(not(feature = "pinyin"))]
+pub(crate) fn create_pinyin_engine(
+    _config: &ModelConfig,
+    _config_path: &Path,
+) -> DengjenResult<Option<PinyinEngine>> {
+    Ok(None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn phonemize_dispatch_falls_through_to_espeak_for_espeak_phoneme_type() {
-        assert!(phonemize_dispatch(PhonemeType::Espeak, "hello", None).is_none());
+        assert!(phonemize_dispatch(PhonemeType::Espeak, "hello", None, None).is_none());
     }
 
     #[cfg(feature = "hebrew")]
@@ -133,16 +182,10 @@ mod tests {
 
     #[test]
     fn phonemize_dispatch_passes_text_through_unchanged_for_text_phoneme_type() {
-        let result = phonemize_dispatch(PhonemeType::Text, "hello", None)
+        let result = phonemize_dispatch(PhonemeType::Text, "hello", None, None)
             .unwrap()
             .unwrap();
         assert_eq!(result.sentences(), &vec!["hello".to_string()]);
-    }
-
-    #[test]
-    fn phonemize_dispatch_errors_on_unsupported_pinyin_phoneme_type() {
-        let result = phonemize_dispatch(PhonemeType::Pinyin, "hello", None).unwrap();
-        assert!(result.is_err());
     }
 
     #[cfg(feature = "hebrew")]
@@ -156,6 +199,7 @@ mod tests {
             PhonemeType::Hebrew,
             "\u{05E9}\u{05DC}\u{05D5}\u{05DD}",
             None,
+            None,
         );
         assert!(result.unwrap().is_err());
     }
@@ -163,10 +207,27 @@ mod tests {
     #[cfg(not(feature = "hebrew"))]
     #[test]
     fn phonemize_dispatch_still_errors_on_hebrew_when_feature_disabled() {
-        // Third param stays `Option<&HebrewEngine>` regardless of the feature
-        // flag — only what `HebrewEngine` resolves to changes. Pass `None`,
-        // never `()`.
-        let result = phonemize_dispatch(PhonemeType::Hebrew, "hello", None).unwrap();
+        // Third/fourth params stay `Option<&HebrewEngine>`/`Option<&PinyinEngine>`
+        // regardless of feature flags — only what each type resolves to changes.
+        // Pass `None`, never `()`.
+        let result = phonemize_dispatch(PhonemeType::Hebrew, "hello", None, None).unwrap();
+        assert!(result.is_err());
+    }
+
+    #[cfg(feature = "pinyin")]
+    #[test]
+    fn phonemize_dispatch_delegates_pinyin_to_the_pinyin_engine_when_present() {
+        // No real model available in this sandbox — assert on the *absence*
+        // path instead: dispatch must return a clear error, not panic, when
+        // this voice is configured for pinyin but no engine was constructed.
+        let result = phonemize_dispatch(PhonemeType::Pinyin, "\u{4F60}\u{597D}", None, None);
+        assert!(result.unwrap().is_err());
+    }
+
+    #[cfg(not(feature = "pinyin"))]
+    #[test]
+    fn phonemize_dispatch_still_errors_on_pinyin_when_feature_disabled() {
+        let result = phonemize_dispatch(PhonemeType::Pinyin, "hello", None, None).unwrap();
         assert!(result.is_err());
     }
 

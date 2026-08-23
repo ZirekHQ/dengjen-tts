@@ -219,8 +219,8 @@ jobs:
           echo "DENGJEN_ESPEAKNG_DATA_DIRECTORY=$data_dir" >> "$GITHUB_ENV"
       - name: cargo test (espeak-phonemizer, single-threaded)
         run: cargo test -p espeak-phonemizer -- --test-threads=1
-      - name: cargo test (dengjen-tts-piper, hebrew feature enabled)
-        run: cargo test -p dengjen-tts-piper --no-default-features --features espeak,tashkeel,hebrew
+      - name: cargo test (dengjen-tts-piper, hebrew and pinyin features enabled)
+        run: cargo test -p dengjen-tts-piper --no-default-features --features espeak,tashkeel,hebrew,pinyin
       - name: cargo test (dengjen-tts-piper, espeak feature disabled)
         run: cargo test -p dengjen-tts-piper --no-default-features --features tashkeel
       - name: cargo test (dengjen-tts-kokoro)

@@ -4,7 +4,8 @@ use crate::inference::{
     reversed_mapping, session_init_error, snapshot_scales_and_speaker,
 };
 use crate::phonemize::{
-    create_hebrew_engine, create_tashkeel_engine, HebrewEngine, TashkeelEngine,
+    create_hebrew_engine, create_pinyin_engine, create_tashkeel_engine, HebrewEngine, PinyinEngine,
+    TashkeelEngine,
 };
 use crate::VitsModelCommons;
 use dengjen_tts_core::{
@@ -33,6 +34,8 @@ pub struct VitsStreamingModel {
     tashkeel_engine: Option<TashkeelEngine>,
     #[cfg_attr(not(feature = "hebrew"), allow(dead_code))]
     hebrew_engine: Option<HebrewEngine>,
+    #[cfg_attr(not(feature = "pinyin"), allow(dead_code))]
+    pinyin_engine: Option<PinyinEngine>,
 }
 
 impl VitsStreamingModel {
@@ -48,6 +51,7 @@ impl VitsStreamingModel {
         let speaker_map = reversed_mapping(&config.speaker_id_map);
         let tashkeel_engine = create_tashkeel_engine(&config)?;
         let hebrew_engine = create_hebrew_engine(&config, config_path)?;
+        let pinyin_engine = create_pinyin_engine(&config, config_path)?;
         Ok(Self {
             synth_config: RwLock::new(synth_config),
             config,
@@ -56,6 +60,7 @@ impl VitsStreamingModel {
             decoder_model: Arc::new(Mutex::new(decoder_model)),
             tashkeel_engine,
             hebrew_engine,
+            pinyin_engine,
         })
     }
 
@@ -97,6 +102,9 @@ impl VitsModelCommons for VitsStreamingModel {
     }
     fn get_hebrew_engine(&self) -> Option<&HebrewEngine> {
         self.hebrew_engine.as_ref()
+    }
+    fn get_pinyin_engine(&self) -> Option<&PinyinEngine> {
+        self.pinyin_engine.as_ref()
     }
 }
 

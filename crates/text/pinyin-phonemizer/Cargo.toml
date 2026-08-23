@@ -1,0 +1,20 @@
+[package]
+name = "pinyin-phonemizer"
+version = "0.1.0"
+edition = "2021"
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+dengjen-tts-core = { path = "../../dengjen/core" }
+ndarray = "0.17"
+serde = { version = "1.0.160", features = ["derive"] }
+serde_json = "1.0.89"
+tokenizers = { version = "0.23", default-features = false, features = ["onig"] }
+
+[dependencies.ort]
+version = "2.0.0-rc.13"
+default-features = false
+features = ["std", "ndarray", "tracing", "download-binaries", "tls-rustls", "copy-dylibs", "api-27"]

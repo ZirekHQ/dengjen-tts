@@ -65,6 +65,8 @@ pub struct ModelConfig {
     pub(crate) hop_length: Option<usize>,
     #[cfg_attr(not(feature = "hebrew"), allow(dead_code))]
     pub(crate) hebrew_model_path: Option<PathBuf>,
+    #[cfg_attr(not(feature = "pinyin"), allow(dead_code))]
+    pub(crate) pinyin_model_dir: Option<PathBuf>,
 }
 
 pub(crate) fn load_model_config(
@@ -177,6 +179,7 @@ mod tests {
         assert_eq!(config.default_speaker_id, None);
         assert_eq!(config.hop_length, None);
         assert_eq!(config.hebrew_model_path, None);
+        assert_eq!(config.pinyin_model_dir, None);
     }
 
     #[test]
@@ -224,6 +227,26 @@ mod tests {
             config.hebrew_model_path,
             Some(PathBuf::from("/models/nakdimon.onnx"))
         );
+    }
+
+    #[test]
+    fn model_config_parses_pinyin_model_dir_when_present() {
+        let json = r#"{
+            "key": null,
+            "language": null,
+            "audio": {"sample_rate": 22050, "quality": null},
+            "num_speakers": 1,
+            "speaker_id_map": {},
+            "streaming": false,
+            "espeak": {"voice": "en-us"},
+            "inference": {"noise_scale": 0.667, "length_scale": 1.0, "noise_w": 0.8},
+            "num_symbols": 256,
+            "phoneme_map": {},
+            "phoneme_id_map": {"^": [1], "$": [2], "_": [3]},
+            "pinyin_model_dir": "/models/g2pw"
+        }"#;
+        let config: ModelConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.pinyin_model_dir, Some(PathBuf::from("/models/g2pw")));
     }
 
     fn single_char_phoneme_map() -> HashMap<String, Vec<i64>> {
