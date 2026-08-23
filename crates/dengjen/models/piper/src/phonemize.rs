@@ -94,8 +94,13 @@ pub(crate) fn create_hebrew_engine(
     // other model path in this crate (e.g. `onnx_path`/`encoder_path`, which
     // use `config_path.with_file_name(..)` the same way), rather than the
     // process's current working directory.
-    let resolved_model_path = config_path.with_file_name(model_path);
+    let resolved_model_path = resolve_hebrew_model_path(config_path, model_path);
     hebrew_phonemizer::create_nakdimon_engine(&resolved_model_path).map(Some)
+}
+
+#[cfg(feature = "hebrew")]
+fn resolve_hebrew_model_path(config_path: &Path, model_path: &Path) -> std::path::PathBuf {
+    config_path.with_file_name(model_path)
 }
 #[cfg(not(feature = "hebrew"))]
 pub(crate) fn create_hebrew_engine(
@@ -112,6 +117,18 @@ mod tests {
     #[test]
     fn phonemize_dispatch_falls_through_to_espeak_for_espeak_phoneme_type() {
         assert!(phonemize_dispatch(PhonemeType::Espeak, "hello", None).is_none());
+    }
+
+    #[cfg(feature = "hebrew")]
+    #[test]
+    fn hebrew_model_path_is_resolved_relative_to_the_config_file() {
+        let config_path = Path::new("voices/he-IL/voice.onnx.json");
+        let model_path = Path::new("nakdimon.onnx");
+
+        assert_eq!(
+            resolve_hebrew_model_path(config_path, model_path),
+            Path::new("voices/he-IL/nakdimon.onnx")
+        );
     }
 
     #[test]

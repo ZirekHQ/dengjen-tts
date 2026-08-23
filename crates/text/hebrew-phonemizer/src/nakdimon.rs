@@ -260,6 +260,27 @@ mod tests {
     }
 
     #[test]
+    fn num_classes_accepts_the_expected_model_output_shape() {
+        let shape = Shape::new(vec![1, 4, 7]);
+
+        assert_eq!(num_classes(&shape, 4, 7).unwrap(), 7);
+    }
+
+    #[test]
+    fn num_classes_rejects_wrong_rank_batch_sequence_and_class_dimensions() {
+        let cases = [
+            (Shape::new(vec![4, 7]), 4, 7),
+            (Shape::new(vec![2, 4, 7]), 4, 7),
+            (Shape::new(vec![1, 3, 7]), 4, 7),
+            (Shape::new(vec![1, 4, 6]), 4, 7),
+        ];
+
+        for (shape, seq_len, expected_classes) in cases {
+            assert!(num_classes(&shape, seq_len, expected_classes).is_err());
+        }
+    }
+
+    #[test]
     fn diacritize_restores_niqqud_with_a_real_model() {
         let Ok(model_path) = std::env::var("DENGJEN_NAKDIMON_TEST_MODEL_PATH") else {
             eprintln!("skipping: DENGJEN_NAKDIMON_TEST_MODEL_PATH not set");
