@@ -6,7 +6,7 @@ syntax = "proto3";
 
 package dengjen_grpc;
 
-service dengjen_grpc {
+service DengjenGrpc {
 
   // Return dengjen version
   rpc GetDengjenVersion(Empty) returns (Version) {}
@@ -56,7 +56,7 @@ message VoiceIdentifier {
 
 message VoiceInfo {
   string voice_id = 1;
-  SynthesisOptions synth_options = 2;
+  SynthesisOptions synthesis_options = 2;
   map<int64, string> speakers = 3;
   AudioInfo audio = 4;
   optional string language = 5;
