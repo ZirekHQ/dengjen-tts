@@ -2,16 +2,23 @@
 //!
 //! This module hand-declares only the three `espeak_*` entry points this
 //! crate actually calls, plus the constants those calls need. Every name,
-//! type and value here is checked against the vendored C header
-//! (`deps/espeak-ng/src/include/espeak/speak_lib.h`) rather than chosen for
-//! Rust style, so the C naming convention (`espeak_ERROR`, `espeakCHARS_UTF8`,
-//! ...) is kept on purpose: it lets a reader diff this file against the
-//! header directly instead of translating names in their head.
+//! type and value here is checked against canonical espeak-ng's public
+//! `speak_lib.h` rather than chosen for Rust style, so the C naming
+//! convention (`espeak_ERROR`, `espeakCHARS_UTF8`, ...) is kept on purpose:
+//! it lets a reader diff this file against the header directly instead of
+//! translating names in their head. The `espeak-rs-sys` crate (a dependency
+//! of this crate) builds and statically links the actual espeak-ng library
+//! these declarations bind to — see its own generated `speak_lib.h`-derived
+//! bindings for the same symbols if a second source is useful.
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
 use std::os::raw::{c_char, c_int};
+
+// Depended on only for its build script, which builds and statically links espeak-ng; every
+// call in this module resolves against the symbols that build script emits.
+use espeak_rs_sys as _;
 
 /// Mirrors the C `espeak_ERROR` enum; only the success case is used here.
 pub type espeak_ERROR = c_int;
