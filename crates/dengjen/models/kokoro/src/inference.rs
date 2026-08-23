@@ -27,9 +27,31 @@ pub struct KokoroModel {
     default_voice: String,
 }
 
+/// GPU execution providers to try before falling back to CPU, in priority order. Each entry's
+/// presence is gated at compile time by its matching Cargo feature; a provider that fails to
+/// initialize at runtime (missing driver, unsupported hardware) is silently skipped by ort — see
+/// `ExecutionProviderDispatch`'s `error_on_failure` default — so no explicit fallback logic is
+/// needed here.
+// Each push is behind its own #[cfg], so clippy's `vec![]` suggestion doesn't apply: cfg
+// attributes aren't permitted per-element inside a `vec![]` invocation on stable.
+#[allow(clippy::vec_init_then_push)]
+fn execution_providers() -> Vec<ort::ep::ExecutionProviderDispatch> {
+    #[allow(unused_mut)]
+    let mut providers = Vec::new();
+    #[cfg(feature = "cuda")]
+    providers.push(ort::ep::CUDA::default().build());
+    #[cfg(feature = "directml")]
+    providers.push(ort::ep::DirectML::default().build());
+    #[cfg(feature = "coreml")]
+    providers.push(ort::ep::CoreML::default().build());
+    providers
+}
+
 impl KokoroModel {
     pub fn from_config(config: KokoroVoiceConfig) -> DengjenResult<Self> {
         let session = Session::builder()
+            .map_err(|e| DengjenError::FailedToLoadResource(e.to_string()))?
+            .with_execution_providers(execution_providers())
             .map_err(|e| DengjenError::FailedToLoadResource(e.to_string()))?
             .commit_from_file(&config.model_path)
             .map_err(|e| {
@@ -199,6 +221,11 @@ impl Iterator for KokoroAudioStreamer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn execution_providers_is_empty_when_no_gpu_feature_is_enabled() {
+        assert!(execution_providers().is_empty());
+    }
 
     #[test]
     fn yields_equal_size_chunks_when_length_is_an_exact_multiple() {
