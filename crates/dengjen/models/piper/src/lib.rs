@@ -34,8 +34,13 @@ pub fn from_config_path(config_path: &Path) -> DengjenResult<Arc<dyn DengjenMode
     if config.streaming.unwrap_or_default() {
         let encoder_path = config_path.with_file_name("encoder.onnx");
         let decoder_path = config_path.with_file_name("decoder.onnx");
-        let model =
-            VitsStreamingModel::from_config(config, synth_config, &encoder_path, &decoder_path)?;
+        let model = VitsStreamingModel::from_config(
+            config,
+            synth_config,
+            config_path,
+            &encoder_path,
+            &decoder_path,
+        )?;
         return Ok(Arc::new(model));
     }
 
@@ -46,7 +51,7 @@ pub fn from_config_path(config_path: &Path) -> DengjenResult<Arc<dyn DengjenMode
         )));
     };
     let onnx_path = config_path.with_file_name(stem);
-    let model = VitsModel::from_config(config, synth_config, &onnx_path)?;
+    let model = VitsModel::from_config(config, synth_config, config_path, &onnx_path)?;
     Ok(Arc::new(model))
 }
 

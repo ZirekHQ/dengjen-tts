@@ -107,17 +107,18 @@ pub struct VitsModel {
 impl VitsModel {
     pub fn new(config_path: PathBuf, onnx_path: &Path) -> DengjenResult<Self> {
         let (config, synth_config) = load_model_config(&config_path)?;
-        Self::from_config(config, synth_config, onnx_path)
+        Self::from_config(config, synth_config, &config_path, onnx_path)
     }
     pub(crate) fn from_config(
         config: ModelConfig,
         synth_config: PiperSynthesisConfig,
+        config_path: &Path,
         onnx_path: &Path,
     ) -> DengjenResult<Self> {
         let session = create_inference_session(onnx_path).map_err(session_init_error)?;
         let speaker_map = reversed_mapping(&config.speaker_id_map);
         let tashkeel_engine = create_tashkeel_engine(&config)?;
-        let hebrew_engine = create_hebrew_engine(&config)?;
+        let hebrew_engine = create_hebrew_engine(&config, config_path)?;
         Ok(Self {
             synth_config: RwLock::new(synth_config),
             config,

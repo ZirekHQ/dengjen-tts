@@ -1,5 +1,6 @@
 use crate::config::{ModelConfig, PhonemeType};
 use dengjen_tts_core::{DengjenError, DengjenResult, Phonemes};
+use std::path::Path;
 
 #[cfg(feature = "tashkeel")]
 pub(crate) type TashkeelEngine = libtashkeel_core::DynamicInferenceEngine;
@@ -76,7 +77,10 @@ pub(crate) fn create_tashkeel_engine(
 }
 
 #[cfg(feature = "hebrew")]
-pub(crate) fn create_hebrew_engine(config: &ModelConfig) -> DengjenResult<Option<HebrewEngine>> {
+pub(crate) fn create_hebrew_engine(
+    config: &ModelConfig,
+    config_path: &Path,
+) -> DengjenResult<Option<HebrewEngine>> {
     if config.phoneme_type != Some(PhonemeType::Hebrew) {
         return Ok(None);
     }
@@ -86,10 +90,18 @@ pub(crate) fn create_hebrew_engine(config: &ModelConfig) -> DengjenResult<Option
                 .to_string(),
         ));
     };
-    hebrew_phonemizer::create_nakdimon_engine(model_path).map(Some)
+    // Resolved relative to the config file's own directory, matching every
+    // other model path in this crate (e.g. `onnx_path`/`encoder_path`, which
+    // use `config_path.with_file_name(..)` the same way), rather than the
+    // process's current working directory.
+    let resolved_model_path = config_path.with_file_name(model_path);
+    hebrew_phonemizer::create_nakdimon_engine(&resolved_model_path).map(Some)
 }
 #[cfg(not(feature = "hebrew"))]
-pub(crate) fn create_hebrew_engine(_config: &ModelConfig) -> DengjenResult<Option<HebrewEngine>> {
+pub(crate) fn create_hebrew_engine(
+    _config: &ModelConfig,
+    _config_path: &Path,
+) -> DengjenResult<Option<HebrewEngine>> {
     Ok(None)
 }
 

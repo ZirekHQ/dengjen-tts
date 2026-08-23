@@ -39,6 +39,7 @@ impl VitsStreamingModel {
     pub(crate) fn from_config(
         config: ModelConfig,
         synth_config: PiperSynthesisConfig,
+        config_path: &Path,
         encoder_path: &Path,
         decoder_path: &Path,
     ) -> DengjenResult<Self> {
@@ -46,7 +47,7 @@ impl VitsStreamingModel {
         let decoder_model = create_inference_session(decoder_path).map_err(session_init_error)?;
         let speaker_map = reversed_mapping(&config.speaker_id_map);
         let tashkeel_engine = create_tashkeel_engine(&config)?;
-        let hebrew_engine = create_hebrew_engine(&config)?;
+        let hebrew_engine = create_hebrew_engine(&config, config_path)?;
         Ok(Self {
             synth_config: RwLock::new(synth_config),
             config,
