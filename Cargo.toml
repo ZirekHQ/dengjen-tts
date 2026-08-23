@@ -35,6 +35,11 @@ undocumented_unsafe_blocks = "deny"
 
 [patch.crates-io]
 libtashkeel_core = { path = "./deps/libtashkeel/crates/core" }
+# Tracks a ZirekHQ fork branch bumping the vendored espeak-ng submodule pin
+# past espeak-ng/espeak-ng#2127, which added espeak_TextToPhonemesWithTerminator
+# after crates.io's published espeak-rs-sys 0.2.0 was cut. Drop this patch
+# once that fix (or an equivalent pin bump) ships in a published release.
+espeak-rs-sys = { path = "./deps/espeak-rs-piper/crates/espeak-rs-sys" }
 
 [profile.release]
 opt-level = 3

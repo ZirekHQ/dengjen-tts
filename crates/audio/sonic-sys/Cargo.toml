@@ -16,7 +16,6 @@ workspace = true
 
 [build-dependencies.bindgen]
 version = "0.59.1"
-default-features = false
 
 [build-dependencies]
 cc = "1.0.79"
