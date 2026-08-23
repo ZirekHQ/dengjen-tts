@@ -2,6 +2,7 @@
 
 mod dictionary;
 mod g2pw;
+mod numbers;
 mod syllable;
 mod tokenize;
 
