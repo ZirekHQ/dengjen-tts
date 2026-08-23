@@ -1,3 +1,12 @@
+[submodule "deps/sonic"]
+	path = deps/sonic
+	url = https://github.com/waywardgeek/sonic
+	branch = master
 [submodule "deps/libtashkeel"]
 	path = deps/libtashkeel
 	url = https://github.com/austek/libtashkeel
+	branch = chore/clear-rustsec-advisories
+[submodule "deps/espeak-ng"]
+	path = deps/espeak-ng
+	url = https://github.com/rhasspy/espeak-ng
+	branch = master
