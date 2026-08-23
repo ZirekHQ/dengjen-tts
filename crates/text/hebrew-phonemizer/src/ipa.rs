@@ -40,7 +40,6 @@ const RESH: char = '\u{05E8}';
 const SHIN: char = '\u{05E9}';
 const TAV: char = '\u{05EA}';
 
-#[allow(dead_code)]
 fn final_form_base(c: char) -> char {
     match c {
         KAF_FINAL => KAF,
@@ -52,7 +51,6 @@ fn final_form_base(c: char) -> char {
     }
 }
 
-#[allow(dead_code)]
 fn geresh_digraphs() -> HashMap<String, &'static str> {
     HashMap::from([
         (format!("{GIMEL}{GERESH}"), "d\u{0361}\u{0292}"),
@@ -61,14 +59,12 @@ fn geresh_digraphs() -> HashMap<String, &'static str> {
     ])
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Glyph {
     pub base: String,
     pub marks: Vec<char>,
 }
 
-#[allow(dead_code)]
 impl Glyph {
     fn plain(base: char) -> Self {
         Glyph {
@@ -80,20 +76,14 @@ impl Glyph {
     pub(crate) fn has(&self, mark: char) -> bool {
         self.marks.contains(&mark)
     }
-
-    pub(crate) fn any(&self, marks: &[char]) -> bool {
-        marks.iter().any(|m| self.marks.contains(m))
-    }
 }
 
-#[allow(dead_code)]
 fn strip_taamim(s: &str) -> String {
     s.chars()
         .filter(|&c| !(TAAMIM_START..=TAAMIM_END).contains(&(c as u32)))
         .collect()
 }
 
-#[allow(dead_code)]
 pub(crate) fn iter_glyphs(word: &str) -> Vec<Glyph> {
     let normalized: String = strip_taamim(word).nfc().collect();
     let mut glyphs: Vec<Glyph> = Vec::new();
@@ -109,7 +99,6 @@ pub(crate) fn iter_glyphs(word: &str) -> Vec<Glyph> {
     glyphs
 }
 
-#[allow(dead_code)]
 pub(crate) fn apply_geresh_digraphs(glyphs: Vec<Glyph>) -> Vec<Glyph> {
     let digraphs = geresh_digraphs();
     let mut out = Vec::new();
@@ -133,7 +122,6 @@ pub(crate) fn apply_geresh_digraphs(glyphs: Vec<Glyph>) -> Vec<Glyph> {
     out
 }
 
-#[allow(dead_code)]
 pub(crate) fn map_consonant(base: char, marks: &[char], is_final: bool) -> String {
     let b = final_form_base(base);
     let has = |m: char| marks.contains(&m);
@@ -227,7 +215,6 @@ const HOLAM: char = '\u{05B9}';
 const QUBUTZ: char = '\u{05BB}';
 const QAMATS_QATAN: char = '\u{05C7}';
 
-#[allow(dead_code)]
 pub(crate) fn map_basic_vowel(g: &Glyph) -> (String, bool) {
     if g.has(QAMATS_QATAN) {
         return ("o".to_string(), true);
@@ -256,7 +243,6 @@ pub(crate) fn map_basic_vowel(g: &Glyph) -> (String, bool) {
     (String::new(), false)
 }
 
-#[allow(dead_code)]
 pub(crate) fn is_shuruk(g: &Glyph) -> bool {
     if g.base != VAV.to_string() || !g.has(DAGESH) {
         return false;
@@ -278,7 +264,6 @@ pub(crate) fn is_shuruk(g: &Glyph) -> bool {
     !g.marks.iter().any(|m| other_vowel_marks.contains(m))
 }
 
-#[allow(dead_code)]
 pub(crate) fn is_holam_male(g: &Glyph) -> bool {
     g.base == VAV.to_string() && g.has(HOLAM) && !g.has(DAGESH)
 }
@@ -301,13 +286,11 @@ fn has_any_vowel_mark(marks: &[char]) -> bool {
     marks.iter().any(|m| vowel_marks.contains(m))
 }
 
-#[allow(dead_code)]
 pub(crate) fn is_hiriq_yod(curr: &Glyph, next: Option<&Glyph>) -> bool {
     let Some(next) = next else { return false };
     curr.has(HIRIQ) && next.base == YOD.to_string() && !has_any_vowel_mark(&next.marks)
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Segment {
     pub onset: Vec<String>,
@@ -316,7 +299,6 @@ pub(crate) struct Segment {
     pub dagesh: bool,
 }
 
-#[allow(dead_code)]
 pub(crate) fn word_to_segments(word: &str) -> Vec<Segment> {
     let glyphs = apply_geresh_digraphs(iter_glyphs(word));
 
@@ -412,7 +394,6 @@ pub(crate) fn word_to_segments(word: &str) -> Vec<Segment> {
     segs
 }
 
-#[allow(dead_code)]
 fn resolve_sheva_and_qamats(mut segs: Vec<Segment>) -> Vec<Segment> {
     let mut prev_silenced_shva = false;
     for i in 0..segs.len() {
@@ -451,7 +432,6 @@ fn resolve_sheva_and_qamats(mut segs: Vec<Segment>) -> Vec<Segment> {
     merged
 }
 
-#[allow(dead_code)]
 fn syllabify_to_ipa(segs: &[Segment]) -> String {
     // Segholate-style exception: exactly two syllables where the last one
     // is closed (has a coda) are stressed on the first syllable instead of
@@ -493,7 +473,6 @@ const STRESS: char = '\u{02C8}';
 // "skip one stress mark, then check for a vowel" and upstream's literal
 // "next char is one of aeiouəˈ" are equivalent for every string this
 // function actually produces.
-#[allow(dead_code)]
 fn strip_unrealized_glottal_stops(ipa: &str) -> String {
     let chars: Vec<char> = ipa.chars().collect();
     let mut out = String::with_capacity(ipa.len());
@@ -518,7 +497,6 @@ fn strip_unrealized_glottal_stops(ipa: &str) -> String {
     out
 }
 
-#[allow(dead_code)]
 pub(crate) fn hebrew_word_to_ipa(word: &str) -> String {
     let segs = resolve_sheva_and_qamats(word_to_segments(word));
     let ipa = syllabify_to_ipa(&segs);
@@ -529,7 +507,6 @@ pub(crate) fn hebrew_word_to_ipa(word: &str) -> String {
     ipa.replace('\u{0361}', "")
 }
 
-#[allow(dead_code)]
 pub(crate) fn hebrew_to_ipa(text: &str) -> String {
     let normalized: String = strip_taamim(text).nfc().collect();
     normalized

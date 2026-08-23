@@ -6,18 +6,15 @@ use ort::value::{Shape, Tensor};
 use std::path::Path;
 use std::sync::Mutex;
 
-#[allow(dead_code)]
 fn can_dagesh(letter: char) -> bool {
     "\u{05D1}\u{05D2}\u{05D3}\u{05D4}\u{05D5}\u{05D6}\u{05D8}\u{05D9}\u{05DB}\u{05DC}\u{05DE}\u{05E0}\u{05E1}\u{05E4}\u{05E6}\u{05E7}\u{05E9}\u{05EA}\u{05DA}\u{05E3}"
         .contains(letter)
 }
 
-#[allow(dead_code)]
 fn can_sin(letter: char) -> bool {
     letter == '\u{05E9}'
 }
 
-#[allow(dead_code)]
 fn can_niqqud(letter: char) -> bool {
     "\u{05D0}\u{05D1}\u{05D2}\u{05D3}\u{05D4}\u{05D5}\u{05D6}\u{05D7}\u{05D8}\u{05D9}\u{05DB}\u{05DC}\u{05DE}\u{05E0}\u{05E1}\u{05E2}\u{05E4}\u{05E6}\u{05E7}\u{05E8}\u{05E9}\u{05EA}\u{05DA}\u{05DF}"
         .contains(letter)
@@ -29,7 +26,6 @@ fn can_niqqud(letter: char) -> bool {
 /// `niqqud_classes()`/`dagesh_classes()`/`sin_classes()` already start with
 /// their own real RAFE entry at index 0 of the *class* list, which is
 /// distinct from the mask id.
-#[allow(dead_code)]
 fn merge_diacritics(
     letters: &[char],
     niqqud_ids: &[usize],
@@ -59,11 +55,9 @@ fn merge_diacritics(
 /// A Nakdimon niqqud-restoration ONNX session. `Session::run` requires `&mut
 /// self`, so the session is behind a `Mutex` to keep `diacritize` callable
 /// from `&self` (matching the other inference engines in this workspace).
-#[allow(dead_code)]
 pub struct NakdimonEngine(Mutex<Session>);
 
 /// Loads a Nakdimon ONNX model from `model_path` for niqqud restoration.
-#[allow(dead_code)]
 pub fn create_nakdimon_engine(model_path: &Path) -> DengjenResult<NakdimonEngine> {
     let session = Session::builder()
         .map_err(session_init_error)?
@@ -72,45 +66,64 @@ pub fn create_nakdimon_engine(model_path: &Path) -> DengjenResult<NakdimonEngine
     Ok(NakdimonEngine(Mutex::new(session)))
 }
 
-#[allow(dead_code)]
 fn session_init_error(cause: ort::Error) -> DengjenError {
     DengjenError::InferenceError(format!(
         "Failed to initialize the Nakdimon inference session: {cause}"
     ))
 }
 
-#[allow(dead_code)]
 fn inference_error(cause: impl std::fmt::Display) -> DengjenError {
     DengjenError::InferenceError(format!("Nakdimon inference failed: {cause}"))
 }
 
-/// Validates a `(1, seq_len, num_classes)` output shape against the actual
-/// input `seq_len` and returns the class-count axis (index 2), erroring
-/// instead of panicking if the model produced a tensor of an unexpected rank
-/// or a sequence length that disagrees with the input we gave it.
-#[allow(dead_code)]
-fn num_classes(shape: &Shape, seq_len: usize) -> DengjenResult<usize> {
+/// Validates a `(1, seq_len, expected_classes)` output shape against the
+/// actual input `seq_len` and the calling table's class count, erroring
+/// instead of panicking if the model produced a tensor of an unexpected
+/// rank, a batch size other than 1, a sequence length that disagrees with
+/// the input we gave it, or a class-count axis that doesn't match
+/// `expected_classes` (the corresponding `*_classes()` table's length, plus
+/// one for the mask token). Checked in that order: rank first, since a
+/// wrong-rank tensor makes every later index meaningless to report on.
+///
+/// Tying the validated class count to `expected_classes` up front is what
+/// keeps `merge_diacritics`'s `table[id - 1]` indexing in bounds: every id
+/// `argmax_per_position` can produce is `< expected_classes`, so `id - 1` is
+/// always a valid index into a table of length `expected_classes - 1`.
+fn num_classes(shape: &Shape, seq_len: usize, expected_classes: usize) -> DengjenResult<usize> {
+    let Some(&num_classes) = shape.get(2) else {
+        return Err(inference_error(format!(
+            "expected a rank-3 output tensor, got shape {shape:?}"
+        )));
+    };
+    if shape.first() != Some(&1) {
+        return Err(inference_error(format!(
+            "expected batch size 1, model produced shape {shape:?}"
+        )));
+    }
     if shape.get(1) != Some(&(seq_len as i64)) {
         return Err(inference_error(format!(
             "expected output sequence length {seq_len}, model produced shape {shape:?}"
         )));
     }
-    shape.get(2).map(|&n| n as usize).ok_or_else(|| {
-        inference_error(format!(
-            "expected a rank-3 output tensor, got shape {shape:?}"
-        ))
-    })
+    if num_classes as usize != expected_classes {
+        return Err(inference_error(format!(
+            "expected {expected_classes} classes, model produced shape {shape:?}"
+        )));
+    }
+    Ok(num_classes as usize)
 }
 
 /// Argmaxes the last axis of a flattened `(seq_len, num_classes)` logits
 /// buffer, returning one class id per sequence position.
-#[allow(dead_code)]
 fn argmax_per_position(data: &[f32], seq_len: usize, num_classes: usize) -> Vec<usize> {
     (0..seq_len)
         .map(|pos| {
             let row = &data[pos * num_classes..(pos + 1) * num_classes];
             row.iter()
                 .enumerate()
+                // Ties break toward the LAST max value here, vs. upstream's
+                // `np.argmax` (first); accepted as unlikely to matter for
+                // real float32 model logits.
                 .max_by(|a, b| a.1.total_cmp(b.1))
                 .map(|(idx, _)| idx)
                 .unwrap_or(0)
@@ -124,7 +137,6 @@ fn argmax_per_position(data: &[f32], seq_len: usize, num_classes: usize) -> Vec<
 /// already present in the input would fall through `normalize()`'s
 /// unknown-character fallback (`'O'`) instead of being recognized, silently
 /// degrading model input rather than erroring.
-#[allow(dead_code)]
 fn remove_niqqud(text: &str) -> String {
     text.chars()
         .filter(|&c| !(0x05B0..=0x05C7).contains(&(c as u32)))
@@ -133,7 +145,6 @@ fn remove_niqqud(text: &str) -> String {
 
 impl NakdimonEngine {
     /// Restores niqqud (vowel points) in `text` using the loaded Nakdimon model.
-    #[allow(dead_code)]
     pub fn diacritize(&self, text: &str) -> DengjenResult<String> {
         let text = remove_niqqud(text);
         let letters: Vec<char> = text.chars().collect();
@@ -175,9 +186,21 @@ impl NakdimonEngine {
             .try_extract_tensor::<f32>()
             .map_err(inference_error)?;
 
-        let niqqud_ids = argmax_per_position(n_data, seq_len, num_classes(n_shape, seq_len)?);
-        let dagesh_ids = argmax_per_position(d_data, seq_len, num_classes(d_shape, seq_len)?);
-        let sin_ids = argmax_per_position(s_data, seq_len, num_classes(s_shape, seq_len)?);
+        let niqqud_ids = argmax_per_position(
+            n_data,
+            seq_len,
+            num_classes(n_shape, seq_len, niqqud_classes().len() + 1)?,
+        );
+        let dagesh_ids = argmax_per_position(
+            d_data,
+            seq_len,
+            num_classes(d_shape, seq_len, dagesh_classes().len() + 1)?,
+        );
+        let sin_ids = argmax_per_position(
+            s_data,
+            seq_len,
+            num_classes(s_shape, seq_len, sin_classes().len() + 1)?,
+        );
 
         Ok(merge_diacritics(
             &letters,

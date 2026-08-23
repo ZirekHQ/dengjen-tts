@@ -7,21 +7,15 @@
 
 use std::collections::HashMap;
 
-#[allow(dead_code)]
 pub(crate) const RAFE: char = '\u{05BF}';
-#[allow(dead_code)]
 const DAGESH_LETTER: char = '\u{05BC}';
-#[allow(dead_code)]
 const SHIN_YEMANIT: char = '\u{05C1}';
-#[allow(dead_code)]
 const SHIN_SMALIT: char = '\u{05C2}';
 
-#[allow(dead_code)]
 pub(crate) fn hebrew_letters() -> Vec<char> {
     ('\u{05D0}'..='\u{05EA}').collect()
 }
 
-#[allow(dead_code)]
 pub(crate) fn niqqud_classes() -> Vec<char> {
     let mut classes = vec![RAFE];
     classes.extend('\u{05B0}'..='\u{05BC}');
@@ -29,24 +23,20 @@ pub(crate) fn niqqud_classes() -> Vec<char> {
     classes
 }
 
-#[allow(dead_code)]
 pub(crate) fn sin_classes() -> Vec<char> {
     vec![RAFE, SHIN_YEMANIT, SHIN_SMALIT]
 }
 
-#[allow(dead_code)]
 pub(crate) fn dagesh_classes() -> Vec<char> {
     vec![RAFE, DAGESH_LETTER]
 }
 
-#[allow(dead_code)]
 pub(crate) fn valid_letters() -> Vec<char> {
     let mut letters: Vec<char> = " !\"'(),-.:;?".chars().collect();
     letters.extend(hebrew_letters());
     letters
 }
 
-#[allow(dead_code)]
 const SPECIAL_TOKENS: [char; 3] = ['H', 'O', '5'];
 
 #[allow(dead_code)]
@@ -57,7 +47,6 @@ fn endings_to_regular() -> HashMap<char, char> {
         .collect()
 }
 
-#[allow(dead_code)]
 pub(crate) fn char_to_id_map() -> HashMap<char, usize> {
     let mut chars: Vec<char> = SPECIAL_TOKENS.to_vec();
     chars.extend(valid_letters());
@@ -68,13 +57,12 @@ pub(crate) fn char_to_id_map() -> HashMap<char, usize> {
         .collect()
 }
 
-#[allow(dead_code)]
 pub(crate) fn normalize(c: char) -> char {
     let valid = valid_letters();
     if valid.contains(&c) {
         return c;
     }
-    // SAFETY: endings_to_regular() is intentionally dead code, mirroring upstream
+    // NOTE: endings_to_regular() is intentionally dead code, mirroring upstream
     // piper1-gpl's own implementation. Final letter forms (U+05DA, U+05DD, U+05DF,
     // U+05E3, U+05E5) are all within the hebrew_letters() range and pass the
     // valid_letters check above, so this mapping never fires. The model was trained
@@ -128,7 +116,7 @@ mod tests {
     fn char_to_id_map_prepends_mask_token_at_zero() {
         let map = char_to_id_map();
         // space is in valid_letters, so it has a mapped ID >= 1 (never 0, which is reserved for mask token)
-        assert!(map.get(&' ').map_or(false, |&id| id >= 1));
+        assert!(map.get(&' ').is_some_and(|&id| id >= 1));
         // the mask token itself is the empty string in upstream, which has no
         // single-char Rust representation — id 0 is reserved and unmapped here.
         assert!(map.values().all(|&id| id >= 1));
