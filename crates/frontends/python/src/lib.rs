@@ -6,11 +6,12 @@
 #![forbid(unsafe_code)]
 
 use dengjen_tts::{
-    AudioOutputConfig, DengjenSpeechStreamLazy, DengjenSpeechStreamParallel,
+    detect_model_type, AudioOutputConfig, DengjenSpeechStreamLazy, DengjenSpeechStreamParallel,
     DengjenSpeechSynthesizer, RealtimeSpeechStream,
 };
 use dengjen_tts_core::{
-    Audio, AudioInfo, CancellationToken, DengjenError, DengjenModel, SynthesisConfig,
+    Audio, AudioInfo, CancellationToken, DengjenError, DengjenModel, DengjenResult,
+    SynthesisConfig,
 };
 #[cfg(feature = "tashkeel")]
 use libtashkeel_core::{
@@ -376,6 +377,16 @@ mod value_type_tests {
 /// actual inference work lives behind the `DengjenModel` trait object; this
 /// type's job is just to translate the trait's synthesis-config shape into
 /// the speaker/scale getters and setters Python callers expect.
+fn load_voice(
+    config_path: &std::path::Path,
+) -> DengjenResult<Arc<dyn DengjenModel + Send + Sync>> {
+    let model_type = detect_model_type(config_path)?;
+    if model_type == "kokoro" {
+        return dengjen_tts_kokoro::from_config_path(config_path);
+    }
+    dengjen_tts_piper::from_config_path(config_path)
+}
+
 #[pyclass(weakref, module = "pydengjen")]
 #[pyo3(name = "PiperModel")]
 struct PiperModel(Arc<dyn DengjenModel + Send + Sync>);
@@ -384,7 +395,7 @@ struct PiperModel(Arc<dyn DengjenModel + Send + Sync>);
 impl PiperModel {
     #[new]
     fn new(config_path: &str) -> PyDengjenResult<Self> {
-        let model = dengjen_tts_piper::from_config_path(&PathBuf::from(config_path))?;
+        let model = load_voice(&PathBuf::from(config_path))?;
         Ok(Self(model))
     }
 
@@ -796,6 +807,12 @@ mod model_and_synthesizer_tests {
 
     fn fake_piper_model() -> PiperModel {
         PiperModel(Arc::new(FakeModel::with_one_speaker()))
+    }
+
+    #[test]
+    fn load_voice_errors_on_a_missing_config_path() {
+        let path = std::path::Path::new("/nonexistent-dengjen-python-load-voice-test.json");
+        assert!(load_voice(path).is_err());
     }
 
     #[test]

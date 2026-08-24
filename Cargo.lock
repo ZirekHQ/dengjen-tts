@@ -630,6 +630,7 @@ version = "0.2.0"
 dependencies = [
  "dengjen-tts",
  "dengjen-tts-core",
+ "dengjen-tts-kokoro",
  "dengjen-tts-piper",
  "espeak-phonemizer",
  "fs_extra",
