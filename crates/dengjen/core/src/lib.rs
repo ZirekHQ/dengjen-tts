@@ -10,7 +10,7 @@ mod cancellation;
 mod synthesis_config;
 
 pub use cancellation::CancellationToken;
-pub use synthesis_config::{PiperSynthesisConfig, SynthesisConfig};
+pub use synthesis_config::SynthesisConfig;
 
 pub type DengjenResult<T> = Result<T, DengjenError>;
 pub type DengjenAudioResult = DengjenResult<Audio>;
@@ -90,8 +90,8 @@ pub trait DengjenModel {
     fn speak_batch(&self, phoneme_batches: Vec<String>) -> DengjenResult<Vec<Audio>>;
     fn speak_one_sentence(&self, phonemes: String) -> DengjenAudioResult;
 
-    fn get_default_synthesis_config(&self) -> DengjenResult<SynthesisConfig>;
-    fn get_fallback_synthesis_config(&self) -> DengjenResult<SynthesisConfig>;
+    fn get_default_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>>;
+    fn get_fallback_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>>;
     fn set_fallback_synthesis_config(
         &self,
         synthesis_config: &SynthesisConfig,
@@ -162,11 +162,11 @@ mod tests {
         fn speak_one_sentence(&self, _phonemes: String) -> DengjenAudioResult {
             Err(DengjenError::OperationError("not implemented".to_string()))
         }
-        fn get_default_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
-            Ok(SynthesisConfig::None)
+        fn get_default_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
+            Ok(None)
         }
-        fn get_fallback_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
-            Ok(SynthesisConfig::None)
+        fn get_fallback_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
+            Ok(None)
         }
         fn set_fallback_synthesis_config(
             &self,
