@@ -33,6 +33,11 @@ version = "0.2.0"
 path = "../../dengjen/models/piper"
 optional = true
 
+[dependencies.dengjen-tts-kokoro]
+version = "0.1.0"
+path = "../../dengjen/models/kokoro"
+default-features = false
+
 [dependencies.ort]
 version = "2.0.0-rc.13"
 default-features = false

@@ -366,7 +366,7 @@ pub extern "C" fn libdengjenLoadVoiceFromConfigPath(
     config_path_ptr: FfiStr,
     out_error: &mut ExternError,
 ) -> *mut DengjenVoice {
-    let load_from_config = move || _load_piper_voice(config_path_ptr);
+    let load_from_config = move || _load_voice(config_path_ptr);
     call_with_result(out_error, load_from_config)
 }
 
@@ -610,13 +610,21 @@ fn init_ort_environment() {
     });
 }
 
-fn _load_piper_voice(config_path_ptr: FfiStr) -> DengjenFFIResult<DengjenVoice> {
+fn load_voice(config_path: &std::path::Path) -> DengjenResult<Arc<dyn DengjenModel + Send + Sync>> {
+    let model_type = dengjen_tts::detect_model_type(config_path)?;
+    if model_type == "kokoro" {
+        return dengjen_tts_kokoro::from_config_path(config_path);
+    }
+    dengjen_tts_piper::from_config_path(config_path)
+}
+
+fn _load_voice(config_path_ptr: FfiStr) -> DengjenFFIResult<DengjenVoice> {
     init_ort_environment();
     let Some(config_path) = config_path_ptr.into_opt_string() else {
         return Err(DengjenFFIError::invalid_utf8());
     };
-    let piper_model = dengjen_tts_piper::from_config_path(&PathBuf::from(config_path))?;
-    let synth = DengjenSpeechSynthesizer::new(piper_model)?;
+    let model = load_voice(&PathBuf::from(config_path))?;
+    let synth = DengjenSpeechSynthesizer::new(model)?;
     Ok(synth.into())
 }
 
@@ -838,6 +846,12 @@ mod tests {
         assert_eq!(out_error.get_code().code(), error_codes::NULL_POINTER);
         // SAFETY: see `get_audio_info_null_voice_returns_null_pointer_error_without_panicking`.
         unsafe { out_error.manually_release() };
+    }
+
+    #[test]
+    fn load_voice_errors_on_a_missing_config_path() {
+        let path = std::path::Path::new("/nonexistent-dengjen-capi-load-voice-test.json");
+        assert!(load_voice(path).is_err());
     }
 
     /// Minimal stand-in for `DengjenModel` so a real `DengjenVoice` can be built without an
