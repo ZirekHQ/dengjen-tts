@@ -259,6 +259,9 @@ impl DengjenGrpcService {
 
     /// Applies each `Some` field of `synth_opts` onto the voice's fallback synthesis
     /// config, leaving unset fields (and an unresolvable speaker name) untouched.
+    /// Tolerates a backend with no synthesis config at all (e.g. Kokoro) the same
+    /// way `synth_options_from_default_config`/`synth_options_from_model` do: an
+    /// empty default instead of an error.
     fn apply_synth_options(
         &self,
         voice_id: &str,
@@ -272,16 +275,12 @@ impl DengjenGrpcService {
             ))
         })?;
         let model = voice.model_ref();
-        let current = model.get_fallback_synthesis_config()?.ok_or_else(|| {
-            DengjenError::InvalidConfiguration("Could not set synthesis parameters ".to_string())
-        })?;
-        let mut piper_config = dengjen_tts_piper::PiperSynthesisConfig::from(&current);
+        let mut new_config = model.get_fallback_synthesis_config()?.unwrap_or_default();
         if let Some(speaker_name) = &synth_opts.speaker {
             if let Some(speaker_id) = model.speaker_name_to_id(speaker_name)? {
-                piper_config.speaker = Some(speaker_id);
+                new_config.speaker = Some(speaker_id);
             }
         }
-        let mut new_config = SynthesisConfig::from(&piper_config);
         new_config.parameters.extend(synth_opts.parameters);
         if let Some(length_scale) = synth_opts.length_scale {
             new_config.parameters.insert(
@@ -1102,6 +1101,85 @@ mod synth_options_tests {
             opts.parameters.is_empty(),
             "the 3 named-field keys must not also appear in the generic map: {:?}",
             opts.parameters
+        );
+    }
+
+    #[test]
+    fn apply_synth_options_preserves_a_previously_set_generic_key_across_a_later_named_field_update() {
+        let speakers = StdHashMap::from([(0i64, "alice".to_string())]);
+        let model = ConfigurableModel {
+            speakers,
+            config: StdMutex::new(SynthesisConfig::from(&PiperSynthesisConfig {
+                speaker: Some(0),
+                noise_scale: 0.667,
+                length_scale: 1.0,
+                noise_w: 0.8,
+            })),
+        };
+        let service = service_with_voice("v1", model);
+
+        let mut first_parameters = StdHashMap::new();
+        first_parameters.insert("custom_knob".to_string(), 1.25);
+        service
+            .apply_synth_options(
+                "v1",
+                grpc::SynthesisOptions {
+                    speaker: None,
+                    length_scale: None,
+                    noise_scale: None,
+                    noise_w: None,
+                    parameters: first_parameters,
+                },
+            )
+            .unwrap();
+
+        // A second, unrelated update that only touches a named field must not
+        // wipe `custom_knob` set by the first call.
+        let result = service
+            .apply_synth_options(
+                "v1",
+                grpc::SynthesisOptions {
+                    speaker: None,
+                    length_scale: Some(2.0),
+                    noise_scale: None,
+                    noise_w: None,
+                    parameters: StdHashMap::new(),
+                },
+            )
+            .unwrap();
+        assert_eq!(result.length_scale, Some(2.0));
+        assert_eq!(
+            result.parameters.get("custom_knob"),
+            Some(&1.25),
+            "a generic key set by a prior call must survive a later call that doesn't touch it"
+        );
+    }
+
+    #[test]
+    fn set_synthesis_options_no_ops_cleanly_for_a_backend_with_no_synthesis_config() {
+        let model = ConfiglessModel {
+            speakers: StdHashMap::from([(0i64, "Narrator".to_string())]),
+        };
+        let service = DengjenGrpcService::new();
+        let voice = Voice::new(Arc::new(model)).unwrap();
+        service
+            .0
+            .write()
+            .unwrap()
+            .insert("v1".to_string(), voice);
+        let result = service.apply_synth_options(
+            "v1",
+            grpc::SynthesisOptions {
+                speaker: None,
+                length_scale: None,
+                noise_scale: None,
+                noise_w: None,
+                parameters: StdHashMap::new(),
+            },
+        );
+        assert!(
+            result.is_ok(),
+            "SetSynthesisOptions on a configless backend must no-op, not error: {result:?}"
         );
     }
 }
