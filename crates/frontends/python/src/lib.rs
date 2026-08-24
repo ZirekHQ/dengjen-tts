@@ -373,10 +373,6 @@ mod value_type_tests {
     }
 }
 
-/// A loaded Piper voice model, exposed to Python as an opaque handle. All the
-/// actual inference work lives behind the `DengjenModel` trait object; this
-/// type's job is just to translate the trait's synthesis-config shape into
-/// the speaker/scale getters and setters Python callers expect.
 fn load_voice(
     config_path: &std::path::Path,
 ) -> DengjenResult<Arc<dyn DengjenModel + Send + Sync>> {
@@ -387,6 +383,10 @@ fn load_voice(
     dengjen_tts_piper::from_config_path(config_path)
 }
 
+/// A loaded Piper voice model, exposed to Python as an opaque handle. All the
+/// actual inference work lives behind the `DengjenModel` trait object; this
+/// type's job is just to translate the trait's synthesis-config shape into
+/// the speaker/scale getters and setters Python callers expect.
 #[pyclass(weakref, module = "pydengjen")]
 #[pyo3(name = "PiperModel")]
 struct PiperModel(Arc<dyn DengjenModel + Send + Sync>);
