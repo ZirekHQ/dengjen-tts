@@ -471,8 +471,9 @@ pub unsafe extern "C" fn libdengjenSetPiperSynthConfig(
 /// Sets a single named entry in the voice's generic synthesis `parameters` map. This is an
 /// additive escape hatch alongside the named-field setters (e.g. [`libdengjenSetPiperSynthConfig`]):
 /// `key` may be any string, but whether it has any effect depends on the loaded backend — a
-/// backend that doesn't recognize `key` silently ignores it. Piper, the only backend currently
-/// loadable through this API, only recognizes `length_scale`, `noise_scale`, and `noise_w`.
+/// backend that doesn't recognize `key` silently ignores it. Piper only recognizes
+/// `length_scale`, `noise_scale`, and `noise_w`; Kokoro ignores all three (it has no tunable
+/// synthesis parameters).
 ///
 /// # Safety
 /// If non-null, `voice_ptr` must be well-aligned and point to a valid `DengjenVoice`. `key_ptr`
@@ -852,6 +853,53 @@ mod tests {
     fn load_voice_errors_on_a_missing_config_path() {
         let path = std::path::Path::new("/nonexistent-dengjen-capi-load-voice-test.json");
         assert!(load_voice(path).is_err());
+    }
+
+    fn write_temp_config(dir: &std::path::Path, name: &str, contents: &str) -> std::path::PathBuf {
+        let path = dir.join(name);
+        std::fs::write(&path, contents).unwrap();
+        path
+    }
+
+    #[test]
+    fn load_voice_routes_kokoro_model_type_toward_the_kokoro_loader() {
+        let dir = std::env::temp_dir().join("dengjen_capi_load_voice_test_kokoro");
+        std::fs::create_dir_all(&dir).unwrap();
+        // A syntactically valid but incomplete Kokoro config: detect_model_type reads it fine,
+        // but dengjen_tts_kokoro::from_config_path's own RawKokoroVoiceConfig requires
+        // `model_path` (crates/dengjen/models/kokoro/src/config.rs:8), which this JSON omits.
+        // If this had instead fallen through to Piper's loader, the error would name a
+        // Piper-required field (`audio`) instead — so asserting on `model_path` specifically
+        // proves the Kokoro branch was actually taken, not just that some error occurred.
+        let path = write_temp_config(&dir, "config.json", r#"{"model_type": "kokoro"}"#);
+        let err = match load_voice(&path) {
+            Err(e) => format!("{}", e),
+            Ok(_) => panic!("expected an error for an incomplete Kokoro config"),
+        };
+        assert!(
+            err.contains("model_path"),
+            "expected a Kokoro-loader error naming the missing `model_path` field, got: {err}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn load_voice_routes_vits_model_type_toward_the_piper_loader() {
+        let dir = std::env::temp_dir().join("dengjen_capi_load_voice_test_vits");
+        std::fs::create_dir_all(&dir).unwrap();
+        // A syntactically valid but incomplete Piper/VITS config, missing Piper's required
+        // `audio` field. Asserting on `audio` (rather than just "some error occurred") proves
+        // the Piper branch was taken, not the Kokoro one.
+        let path = write_temp_config(&dir, "config.json", r#"{"model_type": "vits"}"#);
+        let err = match load_voice(&path) {
+            Err(e) => format!("{}", e),
+            Ok(_) => panic!("expected an error for an incomplete VITS config"),
+        };
+        assert!(
+            err.contains("audio"),
+            "expected a Piper-loader error naming the missing `audio` field, got: {err}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// Minimal stand-in for `DengjenModel` so a real `DengjenVoice` can be built without an
