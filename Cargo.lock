@@ -584,6 +584,7 @@ dependencies = [
  "async-stream",
  "dengjen-tts",
  "dengjen-tts-core",
+ "dengjen-tts-kokoro",
  "dengjen-tts-piper",
  "env_logger 0.10.2",
  "log",

@@ -112,7 +112,7 @@ impl DengjenGrpcService {
             return self.build_voice_info(voice_id, voice.model_ref());
         }
 
-        let model = dengjen_tts_piper::from_config_path(&config_path)?;
+        let model = load_voice(&config_path)?;
         log::info!(
             "Loaded Vits voice from: `{}`. Voice ID: {}",
             config_path.display(),
@@ -273,6 +273,14 @@ impl DengjenGrpcService {
         model.set_fallback_synthesis_config(&new_config)?;
         Self::synth_options_from_model(model)
     }
+}
+
+fn load_voice(config_path: &std::path::Path) -> DengjenResult<Arc<dyn DengjenModel + Send + Sync>> {
+    let model_type = dengjen_tts::detect_model_type(config_path)?;
+    if model_type == "kokoro" {
+        return dengjen_tts_kokoro::from_config_path(config_path);
+    }
+    dengjen_tts_piper::from_config_path(config_path)
 }
 
 /// Converts the optional proto `SpeechArgs` into synth's `AudioOutputConfig`,
@@ -673,6 +681,49 @@ mod voice_loading_tests {
             info.synthesis_options.unwrap().speaker.as_deref(),
             Some("Default")
         );
+    }
+}
+
+#[cfg(test)]
+mod load_voice_dispatch_tests {
+    use super::*;
+    use std::io::Write;
+
+    fn write_temp_config(dir: &std::path::Path, name: &str, contents: &str) -> std::path::PathBuf {
+        let path = dir.join(name);
+        let mut f = std::fs::File::create(&path).unwrap();
+        f.write_all(contents.as_bytes()).unwrap();
+        path
+    }
+
+    #[test]
+    fn load_voice_errors_on_a_missing_config_path() {
+        let path = std::path::Path::new("/nonexistent-dengjen-grpc-load-voice-test.json");
+        assert!(load_voice(path).is_err());
+    }
+
+    #[test]
+    fn load_voice_routes_kokoro_model_type_toward_the_kokoro_loader() {
+        let dir = std::env::temp_dir().join("dengjen_grpc_load_voice_test_kokoro");
+        std::fs::create_dir_all(&dir).unwrap();
+        // A syntactically valid but incomplete Kokoro config: detect_model_type reads it fine,
+        // but dengjen_tts_kokoro::from_config_path's own RawKokoroVoiceConfig requires
+        // `model_path` (crates/dengjen/models/kokoro/src/config.rs:8), which this JSON omits.
+        // If this had instead fallen through to Piper's loader, the error would name a
+        // Piper-required field (`audio`) instead — so asserting on `model_path` specifically
+        // proves the Kokoro branch was actually taken, not just that some error occurred.
+        let path = write_temp_config(&dir, "config.json", r#"{"model_type": "kokoro"}"#);
+        // `Arc<dyn DengjenModel + Send + Sync>` isn't `Debug`, so `Result::unwrap_err` (which
+        // requires `T: Debug`) can't be used here; match instead.
+        let err = match load_voice(&path) {
+            Err(e) => format!("{}", e),
+            Ok(_) => panic!("expected an error for an incomplete Kokoro config"),
+        };
+        assert!(
+            err.contains("model_path"),
+            "expected a Kokoro-loader error naming the missing `model_path` field, got: {err}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
 
