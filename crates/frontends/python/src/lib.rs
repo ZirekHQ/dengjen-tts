@@ -446,6 +446,17 @@ impl PiperModel {
         config.parameters.extend(parameters);
         Ok(self.0.set_fallback_synthesis_config(&config)?)
     }
+
+    /// Reads the voice's full generic synthesis `parameters` map — the read-side
+    /// counterpart to `set_parameters`. Returns an empty dict if the loaded
+    /// backend has no synthesis config at all (e.g. Kokoro).
+    fn get_parameters(&self) -> PyDengjenResult<HashMap<String, f32>> {
+        Ok(self
+            .0
+            .get_fallback_synthesis_config()?
+            .unwrap_or_default()
+            .parameters)
+    }
 }
 
 impl PiperModel {
@@ -901,6 +912,23 @@ mod model_and_synthesizer_tests {
         model.set_parameters(parameters).unwrap();
         let raw = model.0.get_fallback_synthesis_config().unwrap().unwrap();
         assert_eq!(raw.parameters.get("custom_knob"), Some(&1.25));
+    }
+
+    #[test]
+    fn get_parameters_reads_a_value_set_via_set_parameters() {
+        let model = PiperModel(Arc::new(FakeModel::with_one_speaker()));
+        let mut parameters = HashMap::new();
+        parameters.insert("custom_knob".to_string(), 1.25);
+        model.set_parameters(parameters).unwrap();
+        let result = model.get_parameters().unwrap();
+        assert_eq!(result.get("custom_knob"), Some(&1.25));
+    }
+
+    #[test]
+    fn get_parameters_returns_an_empty_dict_for_a_configless_backend() {
+        let model = PiperModel(Arc::new(FakeModel::with_no_config()));
+        let result = model.get_parameters().unwrap();
+        assert!(result.is_empty());
     }
 
     #[test]
