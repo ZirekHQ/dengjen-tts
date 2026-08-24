@@ -10,8 +10,7 @@ use dengjen_tts::{
     DengjenSpeechSynthesizer, RealtimeSpeechStream,
 };
 use dengjen_tts_core::{
-    Audio, AudioInfo, CancellationToken, DengjenError, DengjenModel, DengjenResult,
-    SynthesisConfig,
+    Audio, AudioInfo, CancellationToken, DengjenError, DengjenModel, DengjenResult, SynthesisConfig,
 };
 #[cfg(feature = "tashkeel")]
 use libtashkeel_core::{
@@ -373,9 +372,7 @@ mod value_type_tests {
     }
 }
 
-fn load_voice(
-    config_path: &std::path::Path,
-) -> DengjenResult<Arc<dyn DengjenModel + Send + Sync>> {
+fn load_voice(config_path: &std::path::Path) -> DengjenResult<Arc<dyn DengjenModel + Send + Sync>> {
     let model_type = detect_model_type(config_path)?;
     if model_type == "kokoro" {
         return dengjen_tts_kokoro::from_config_path(config_path);
