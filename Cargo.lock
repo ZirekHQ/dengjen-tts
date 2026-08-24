@@ -1183,6 +1183,7 @@ dependencies = [
  "cbindgen",
  "dengjen-tts",
  "dengjen-tts-core",
+ "dengjen-tts-kokoro",
  "dengjen-tts-piper",
  "ffi-support",
  "libc",
