@@ -1,4 +1,5 @@
-use dengjen_tts_core::{DengjenError, DengjenResult, PiperSynthesisConfig};
+use crate::synth_config::PiperSynthesisConfig;
+use dengjen_tts_core::{DengjenError, DengjenResult};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs::File;

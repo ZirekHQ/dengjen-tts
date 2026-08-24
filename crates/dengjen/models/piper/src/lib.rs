@@ -15,6 +15,7 @@ mod config;
 mod inference;
 mod phonemize;
 mod streaming;
+pub mod synth_config;
 
 pub use config::*;
 use config::{load_model_config, resolve_default_speaker_id};
@@ -23,6 +24,7 @@ pub use inference::VitsModel;
 use phonemize::should_diacritize;
 use phonemize::{phonemize_dispatch, HebrewEngine, PinyinEngine, TashkeelEngine};
 pub use streaming::VitsStreamingModel;
+pub use synth_config::PiperSynthesisConfig;
 
 const PAD: &str = "_";
 const BOS: &str = "^";
@@ -54,8 +56,6 @@ pub fn from_config_path(config_path: &Path) -> DengjenResult<Arc<dyn DengjenMode
     let model = VitsModel::from_config(config, synth_config, config_path, &onnx_path)?;
     Ok(Arc::new(model))
 }
-
-pub use dengjen_tts_core::PiperSynthesisConfig;
 
 trait VitsModelCommons {
     fn get_synth_config(&self) -> &RwLock<PiperSynthesisConfig>;
