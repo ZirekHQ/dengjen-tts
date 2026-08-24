@@ -169,7 +169,7 @@ impl DengjenGrpcService {
     /// `on_unset_speaker` (the two config sources disagree on the unset fallback).
     fn synth_options_from_piper_config(
         model: &(impl DengjenModel + ?Sized),
-        config: dengjen_tts_core::PiperSynthesisConfig,
+        config: dengjen_tts_piper::PiperSynthesisConfig,
         on_unset_speaker: impl FnOnce() -> DengjenGrpcResult<Option<String>>,
     ) -> DengjenGrpcResult<grpc::SynthesisOptions> {
         let speaker = match config.speaker {
@@ -181,22 +181,22 @@ impl DengjenGrpcService {
             length_scale: Some(config.length_scale),
             noise_scale: Some(config.noise_scale),
             noise_w: Some(config.noise_w),
+            parameters: std::collections::HashMap::new(),
         })
     }
 
     fn synth_options_from_default_config(
         model: &(impl DengjenModel + ?Sized),
     ) -> DengjenGrpcResult<grpc::SynthesisOptions> {
-        let config = match model.get_default_synthesis_config()? {
-            SynthesisConfig::Piper(config) => config,
-            SynthesisConfig::None => {
-                return Err(DengjenError::InvalidConfiguration(
-                    "Invalid synthesis config for Vits model".to_string(),
-                )
-                .into())
-            }
-        };
-        Self::synth_options_from_piper_config(model, config, || Ok(Some("Default".to_string())))
+        let config = model.get_default_synthesis_config()?.ok_or_else(|| {
+            DengjenError::InvalidConfiguration(
+                "Invalid synthesis config for Vits model".to_string(),
+            )
+        })?;
+        let piper_config = dengjen_tts_piper::PiperSynthesisConfig::from(&config);
+        Self::synth_options_from_piper_config(model, piper_config, || {
+            Ok(Some("Default".to_string()))
+        })
     }
 
     /// Reads a model's fallback synthesis config as gRPC-facing `SynthesisOptions`,
@@ -204,16 +204,15 @@ impl DengjenGrpcService {
     fn synth_options_from_model(
         model: &(impl DengjenModel + ?Sized),
     ) -> DengjenGrpcResult<grpc::SynthesisOptions> {
-        let config = match model.get_fallback_synthesis_config()? {
-            SynthesisConfig::Piper(config) => config,
-            SynthesisConfig::None => {
-                return Err(DengjenError::InvalidConfiguration(
-                    "Invalid synthesis config for Vits model".to_string(),
-                )
-                .into())
-            }
-        };
-        Self::synth_options_from_piper_config(model, config, || Ok(model.speaker_id_to_name(&0)?))
+        let config = model.get_fallback_synthesis_config()?.ok_or_else(|| {
+            DengjenError::InvalidConfiguration(
+                "Invalid synthesis config for Vits model".to_string(),
+            )
+        })?;
+        let piper_config = dengjen_tts_piper::PiperSynthesisConfig::from(&config);
+        Self::synth_options_from_piper_config(model, piper_config, || {
+            Ok(model.speaker_id_to_name(&0)?)
+        })
     }
 
     fn lookup_synth_options(&self, voice_id: &str) -> DengjenGrpcResult<grpc::SynthesisOptions> {
@@ -242,30 +241,36 @@ impl DengjenGrpcService {
             ))
         })?;
         let model = voice.model_ref();
-        let mut config = match model.get_fallback_synthesis_config()? {
-            SynthesisConfig::Piper(config) => config,
-            SynthesisConfig::None => {
-                return Err(DengjenError::InvalidConfiguration(
-                    "Could not set synthesis parameters ".to_string(),
-                )
-                .into())
-            }
-        };
-        if let Some(speaker_name) = synth_opts.speaker {
-            if let Some(speaker_id) = model.speaker_name_to_id(&speaker_name)? {
-                config.speaker = Some(speaker_id);
+        let current = model.get_fallback_synthesis_config()?.ok_or_else(|| {
+            DengjenError::InvalidConfiguration("Could not set synthesis parameters ".to_string())
+        })?;
+        let mut piper_config = dengjen_tts_piper::PiperSynthesisConfig::from(&current);
+        if let Some(speaker_name) = &synth_opts.speaker {
+            if let Some(speaker_id) = model.speaker_name_to_id(speaker_name)? {
+                piper_config.speaker = Some(speaker_id);
             }
         }
+        let mut new_config = SynthesisConfig::from(&piper_config);
+        new_config.parameters.extend(synth_opts.parameters);
         if let Some(length_scale) = synth_opts.length_scale {
-            config.length_scale = length_scale;
+            new_config.parameters.insert(
+                dengjen_tts_piper::synth_config::LENGTH_SCALE.to_string(),
+                length_scale,
+            );
         }
         if let Some(noise_scale) = synth_opts.noise_scale {
-            config.noise_scale = noise_scale;
+            new_config.parameters.insert(
+                dengjen_tts_piper::synth_config::NOISE_SCALE.to_string(),
+                noise_scale,
+            );
         }
         if let Some(noise_w) = synth_opts.noise_w {
-            config.noise_w = noise_w;
+            new_config.parameters.insert(
+                dengjen_tts_piper::synth_config::NOISE_W.to_string(),
+                noise_w,
+            );
         }
-        model.set_fallback_synthesis_config(&SynthesisConfig::Piper(config))?;
+        model.set_fallback_synthesis_config(&new_config)?;
         Self::synth_options_from_model(model)
     }
 }
@@ -544,6 +549,7 @@ mod error_mapping_tests {
 mod voice_loading_tests {
     use super::*;
     use dengjen_tts_core::{Audio, AudioInfo as CoreAudioInfo, DengjenAudioResult, Phonemes};
+    use dengjen_tts_piper::PiperSynthesisConfig;
     use std::collections::HashMap as StdHashMap;
 
     struct FakeModel {
@@ -567,11 +573,15 @@ mod voice_loading_tests {
         fn speak_one_sentence(&self, _phonemes: String) -> DengjenAudioResult {
             Ok(Audio::new(Default::default(), 22050, None))
         }
-        fn get_default_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
-            Ok(SynthesisConfig::Piper(Default::default()))
+        fn get_default_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
+            Ok(Some(
+                SynthesisConfig::from(&PiperSynthesisConfig::default()),
+            ))
         }
-        fn get_fallback_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
-            Ok(SynthesisConfig::Piper(Default::default()))
+        fn get_fallback_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
+            Ok(Some(
+                SynthesisConfig::from(&PiperSynthesisConfig::default()),
+            ))
         }
         fn set_fallback_synthesis_config(&self, _c: &SynthesisConfig) -> DengjenResult<()> {
             Ok(())
@@ -669,9 +679,8 @@ mod voice_loading_tests {
 #[cfg(test)]
 mod synth_options_tests {
     use super::*;
-    use dengjen_tts_core::{
-        Audio, AudioInfo as CoreAudioInfo, DengjenAudioResult, Phonemes, PiperSynthesisConfig,
-    };
+    use dengjen_tts_core::{Audio, AudioInfo as CoreAudioInfo, DengjenAudioResult, Phonemes};
+    use dengjen_tts_piper::PiperSynthesisConfig;
     use std::collections::HashMap as StdHashMap;
     use std::sync::Mutex as StdMutex;
 
@@ -697,16 +706,14 @@ mod synth_options_tests {
         fn speak_one_sentence(&self, _phonemes: String) -> DengjenAudioResult {
             Ok(Audio::new(Default::default(), 22050, None))
         }
-        fn get_default_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
-            Ok(SynthesisConfig::Piper(self.config.lock().unwrap().clone()))
+        fn get_default_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
+            Ok(Some(SynthesisConfig::from(&*self.config.lock().unwrap())))
         }
-        fn get_fallback_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
-            Ok(SynthesisConfig::Piper(self.config.lock().unwrap().clone()))
+        fn get_fallback_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
+            Ok(Some(SynthesisConfig::from(&*self.config.lock().unwrap())))
         }
         fn set_fallback_synthesis_config(&self, c: &SynthesisConfig) -> DengjenResult<()> {
-            if let SynthesisConfig::Piper(new_config) = c {
-                *self.config.lock().unwrap() = new_config.clone();
-            }
+            *self.config.lock().unwrap() = PiperSynthesisConfig::from(c);
             Ok(())
         }
         fn get_speakers(&self) -> DengjenResult<Option<&StdHashMap<i64, String>>> {
@@ -742,6 +749,7 @@ mod synth_options_tests {
             length_scale: None,
             noise_scale: None,
             noise_w: None,
+            parameters: StdHashMap::new(),
         };
         assert!(matches!(
             service.apply_synth_options("missing", opts),
@@ -791,6 +799,7 @@ mod synth_options_tests {
             length_scale: Some(2.0),
             noise_scale: None,
             noise_w: None,
+            parameters: StdHashMap::new(),
         };
         let result = service.apply_synth_options("v1", update).unwrap();
         assert_eq!(result.speaker.as_deref(), Some("Robot"));
@@ -833,6 +842,7 @@ mod synth_options_tests {
             length_scale: None,
             noise_scale: None,
             noise_w: None,
+            parameters: StdHashMap::new(),
         };
         let result = service.apply_synth_options("v1", update).unwrap();
         assert_eq!(
@@ -840,5 +850,57 @@ mod synth_options_tests {
             Some("Narrator"),
             "unknown speaker name must leave the current speaker unchanged"
         );
+    }
+
+    #[test]
+    fn apply_synth_options_merges_generic_parameters_the_named_fields_dont_cover() {
+        let speakers = StdHashMap::from([(0i64, "alice".to_string())]);
+        let model = ConfigurableModel {
+            speakers,
+            config: StdMutex::new(PiperSynthesisConfig {
+                speaker: Some(0),
+                noise_scale: 0.667,
+                length_scale: 1.0,
+                noise_w: 0.8,
+            }),
+        };
+        let service = service_with_voice("v1", model);
+        let mut parameters = StdHashMap::new();
+        parameters.insert("length_scale".to_string(), 2.5);
+        let update = grpc::SynthesisOptions {
+            speaker: None,
+            length_scale: None,
+            noise_scale: None,
+            noise_w: None,
+            parameters,
+        };
+        let result = service.apply_synth_options("v1", update).unwrap();
+        assert_eq!(result.length_scale, Some(2.5));
+    }
+
+    #[test]
+    fn apply_synth_options_prefers_the_named_field_over_a_conflicting_parameters_key() {
+        let speakers = StdHashMap::from([(0i64, "alice".to_string())]);
+        let model = ConfigurableModel {
+            speakers,
+            config: StdMutex::new(PiperSynthesisConfig {
+                speaker: Some(0),
+                noise_scale: 0.667,
+                length_scale: 1.0,
+                noise_w: 0.8,
+            }),
+        };
+        let service = service_with_voice("v1", model);
+        let mut parameters = StdHashMap::new();
+        parameters.insert("length_scale".to_string(), 9.9);
+        let update = grpc::SynthesisOptions {
+            speaker: None,
+            length_scale: Some(3.0),
+            noise_scale: None,
+            noise_w: None,
+            parameters,
+        };
+        let result = service.apply_synth_options("v1", update).unwrap();
+        assert_eq!(result.length_scale, Some(3.0));
     }
 }

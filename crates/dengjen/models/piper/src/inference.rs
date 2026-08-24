@@ -3,10 +3,11 @@ use crate::phonemize::{
     create_hebrew_engine, create_pinyin_engine, create_tashkeel_engine, HebrewEngine, PinyinEngine,
     TashkeelEngine,
 };
+use crate::synth_config::PiperSynthesisConfig;
 use crate::VitsModelCommons;
 use dengjen_tts_core::{
     Audio, AudioInfo, DengjenAudioResult, DengjenError, DengjenModel, DengjenResult, Phonemes,
-    PiperSynthesisConfig, SynthesisConfig,
+    SynthesisConfig,
 };
 use ndarray::{Array1, Array2};
 use ort::session::{Session, SessionInputValue};
@@ -61,17 +62,6 @@ pub(crate) fn session_init_error(cause: ort::Error) -> DengjenError {
 
 pub(crate) fn inference_error(cause: impl std::fmt::Display) -> DengjenError {
     DengjenError::InferenceError(format!("Failed to run model inference. Error: {}", cause))
-}
-
-pub(crate) fn expect_piper_config(
-    synthesis_config: &SynthesisConfig,
-) -> DengjenResult<&PiperSynthesisConfig> {
-    match synthesis_config {
-        SynthesisConfig::Piper(config) => Ok(config),
-        SynthesisConfig::None => Err(DengjenError::InvalidConfiguration(
-            "Piper models require a PiperSynthesisConfig".to_string(),
-        )),
-    }
 }
 
 /// Builds the positional input list every VITS graph expects: the phoneme ids,
@@ -220,19 +210,21 @@ impl DengjenModel for VitsModel {
         let (pad_id, bos_id, eos_id) = self.get_meta_ids();
         self.infer_with_values(self.phonemes_to_input_ids(&phonemes, pad_id, bos_id, eos_id))
     }
-    fn get_default_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
-        Ok(SynthesisConfig::Piper(self.factory_synthesis_config()))
+    fn get_default_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
+        Ok(Some(SynthesisConfig::from(
+            &self.factory_synthesis_config(),
+        )))
     }
-    fn get_fallback_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
-        Ok(SynthesisConfig::Piper(
-            self.synth_config.read().unwrap().clone(),
-        ))
+    fn get_fallback_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
+        Ok(Some(SynthesisConfig::from(
+            &self.synth_config.read().unwrap().clone(),
+        )))
     }
     fn set_fallback_synthesis_config(
         &self,
         synthesis_config: &SynthesisConfig,
     ) -> DengjenResult<()> {
-        self._do_set_default_synth_config(expect_piper_config(synthesis_config)?)
+        self._do_set_default_synth_config(&PiperSynthesisConfig::from(synthesis_config))
     }
     fn get_language(&self) -> DengjenResult<Option<String>> {
         Ok(self.language())

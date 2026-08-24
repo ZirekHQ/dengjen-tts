@@ -81,6 +81,10 @@ message SynthesisOptions {
   optional float length_scale = 2;
   optional float noise_scale = 3;
   optional float noise_w = 4;
+  // Generic escape hatch for backend-specific knobs. Fields 1-4 take precedence
+  // over a conflicting key here; unknown keys are backend-dependent and may be
+  // ignored by a backend that doesn't recognize them.
+  map<string, float> parameters = 5;
 }
 
 message VoiceSynthesisOptions{

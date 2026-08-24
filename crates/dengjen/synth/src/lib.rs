@@ -254,10 +254,10 @@ impl DengjenModel for DengjenSpeechSynthesizer {
     fn speak_one_sentence(&self, phonemes: String) -> DengjenAudioResult {
         self.backend.speak_one_sentence(phonemes)
     }
-    fn get_default_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
+    fn get_default_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
         self.backend.get_default_synthesis_config()
     }
-    fn get_fallback_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
+    fn get_fallback_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
         self.backend.get_fallback_synthesis_config()
     }
     fn set_fallback_synthesis_config(
@@ -616,11 +616,11 @@ mod cancellation_tests {
                 "not used by this test".to_string(),
             ))
         }
-        fn get_default_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
-            Ok(SynthesisConfig::None)
+        fn get_default_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
+            Ok(None)
         }
-        fn get_fallback_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
-            Ok(SynthesisConfig::None)
+        fn get_fallback_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
+            Ok(None)
         }
         fn set_fallback_synthesis_config(&self, _c: &SynthesisConfig) -> DengjenResult<()> {
             Ok(())
@@ -885,11 +885,11 @@ mod realtime_stream_error_tests {
                 "not used by this test".to_string(),
             ))
         }
-        fn get_default_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
-            Ok(SynthesisConfig::None)
+        fn get_default_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
+            Ok(None)
         }
-        fn get_fallback_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
-            Ok(SynthesisConfig::None)
+        fn get_fallback_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
+            Ok(None)
         }
         fn set_fallback_synthesis_config(&self, _c: &SynthesisConfig) -> DengjenResult<()> {
             Ok(())
@@ -975,11 +975,11 @@ mod realtime_stream_error_tests {
                 "not used by this test".to_string(),
             ))
         }
-        fn get_default_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
-            Ok(SynthesisConfig::None)
+        fn get_default_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
+            Ok(None)
         }
-        fn get_fallback_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
-            Ok(SynthesisConfig::None)
+        fn get_fallback_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
+            Ok(None)
         }
         fn set_fallback_synthesis_config(&self, _c: &SynthesisConfig) -> DengjenResult<()> {
             Ok(())
@@ -1205,11 +1205,11 @@ mod lazy_parallel_tests {
             let samples = AudioSamples::from(vec![n as f32; n]);
             Ok(Audio::new(samples, 16000, None))
         }
-        fn get_default_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
-            Ok(SynthesisConfig::None)
+        fn get_default_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
+            Ok(None)
         }
-        fn get_fallback_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
-            Ok(SynthesisConfig::None)
+        fn get_fallback_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
+            Ok(None)
         }
         fn set_fallback_synthesis_config(&self, _c: &SynthesisConfig) -> DengjenResult<()> {
             Ok(())

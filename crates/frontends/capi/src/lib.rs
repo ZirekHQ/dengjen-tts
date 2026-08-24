@@ -1,6 +1,6 @@
 use dengjen_tts::{AudioOutputConfig, DengjenSpeechSynthesizer, SYNTHESIS_THREAD_POOL};
 use dengjen_tts_core::{
-    AudioSamples, CancellationToken, DengjenError, DengjenModel, DengjenResult, SynthesisConfig,
+    AudioSamples, CancellationToken, DengjenError, DengjenModel, DengjenResult,
 };
 use ffi_support::{call_with_result, define_string_destructor, ErrorCode, ExternError, FfiStr};
 use std::ops::Deref;
@@ -427,19 +427,17 @@ pub unsafe extern "C" fn libdengjenGetPiperDefaultSynthConfig(
         return std::ptr::null_mut();
     };
     call_with_result(out_error, move || {
-        let piper_config = match voice
+        let config = voice
             .get_default_synthesis_config()
             .map_err(DengjenFFIError::from)?
-        {
-            SynthesisConfig::Piper(config) => config,
-            SynthesisConfig::None => {
-                return Err(DengjenFFIError::with_code(
+            .ok_or_else(|| {
+                DengjenFFIError::with_code(
                     error_codes::INVALID_CONFIGURATION,
                     "voice has no default Piper synthesis config to return",
-                ))
-            }
-        };
-        Ok(PiperSynthConfig {
+                )
+            })?;
+        let piper_config = dengjen_tts_piper::PiperSynthesisConfig::from(&config);
+        Ok::<_, DengjenFFIError>(PiperSynthConfig {
             speaker: piper_config.speaker.map_or(0, |sid| sid as u32),
             length_scale: piper_config.length_scale,
             noise_scale: piper_config.noise_scale,
@@ -462,10 +460,47 @@ pub unsafe extern "C" fn libdengjenSetPiperSynthConfig(
     let Some(voice) = (unsafe { require_ref(voice_ptr, "voice_ptr", out_error) }) else {
         return;
     };
-    let new_config = SynthesisConfig::Piper(synth_config.as_piper_synth_config());
+    let new_config = dengjen_tts_core::SynthesisConfig::from(&synth_config.as_piper_synth_config());
     call_with_result(out_error, move || {
         voice
             .set_fallback_synthesis_config(&new_config)
+            .map_err(DengjenFFIError::from)
+    })
+}
+
+/// Sets a single named entry in the voice's generic synthesis `parameters` map. This is an
+/// additive escape hatch alongside the named-field setters (e.g. [`libdengjenSetPiperSynthConfig`]):
+/// `key` may be any string, but whether it has any effect depends on the loaded backend — a
+/// backend that doesn't recognize `key` silently ignores it. Piper, the only backend currently
+/// loadable through this API, only recognizes `length_scale`, `noise_scale`, and `noise_w`.
+///
+/// # Safety
+/// If non-null, `voice_ptr` must be well-aligned and point to a valid `DengjenVoice`. `key_ptr`
+/// must be a valid, NUL-terminated UTF-8 C string for the duration of this call. Passing a null
+/// `voice_ptr` is handled gracefully: a NULL_POINTER error is written to `out_error`.
+#[no_mangle]
+#[allow(non_snake_case)]
+pub unsafe extern "C" fn libdengjenSetSynthesisParameter(
+    voice_ptr: *mut DengjenVoice,
+    key_ptr: FfiStr,
+    value: f32,
+    out_error: &mut ExternError,
+) {
+    // SAFETY: `voice_ptr` carries this function's own non-null-or-valid contract.
+    let Some(voice) = (unsafe { require_ref(voice_ptr, "voice_ptr", out_error) }) else {
+        return;
+    };
+    call_with_result(out_error, move || {
+        let Some(key) = key_ptr.into_opt_string() else {
+            return Err(DengjenFFIError::invalid_utf8());
+        };
+        let mut config = voice
+            .get_fallback_synthesis_config()
+            .map_err(DengjenFFIError::from)?
+            .unwrap_or_default();
+        config.parameters.insert(key, value);
+        voice
+            .set_fallback_synthesis_config(&config)
             .map_err(DengjenFFIError::from)
     })
 }
@@ -789,6 +824,94 @@ mod tests {
             libdengjenSetPiperSynthConfig(std::ptr::null_mut(), synth_config, &mut out_error);
         }
         assert_eq!(out_error.get_code().code(), error_codes::NULL_POINTER);
+        // SAFETY: see `get_audio_info_null_voice_returns_null_pointer_error_without_panicking`.
+        unsafe { out_error.manually_release() };
+    }
+
+    #[test]
+    fn set_synthesis_parameter_null_voice_returns_null_pointer_error_without_panicking() {
+        let mut out_error = ExternError::default();
+        let key = FfiStr::from_cstr(std::ffi::CStr::from_bytes_with_nul(b"noise_scale\0").unwrap());
+        unsafe {
+            libdengjenSetSynthesisParameter(std::ptr::null_mut(), key, 0.5, &mut out_error);
+        }
+        assert_eq!(out_error.get_code().code(), error_codes::NULL_POINTER);
+        // SAFETY: see `get_audio_info_null_voice_returns_null_pointer_error_without_panicking`.
+        unsafe { out_error.manually_release() };
+    }
+
+    /// Minimal stand-in for `DengjenModel` so a real `DengjenVoice` can be built without an
+    /// ONNX-backed model — this crate has no such fixture (nothing here loads real Piper/Kokoro
+    /// model files), so this is the only way to reach `libdengjenSetSynthesisParameter`'s
+    /// post-null-voice-check code path (the key conversion) with a non-null `voice_ptr`.
+    struct FakeModel {
+        fallback_config: Mutex<Option<dengjen_tts_core::SynthesisConfig>>,
+    }
+
+    impl DengjenModel for FakeModel {
+        fn audio_output_info(&self) -> DengjenResult<dengjen_tts_core::AudioInfo> {
+            Ok(dengjen_tts_core::AudioInfo {
+                sample_rate: 16000,
+                num_channels: 1,
+                sample_width: 2,
+            })
+        }
+        fn phonemize_text(&self, _text: &str) -> DengjenResult<dengjen_tts_core::Phonemes> {
+            Ok(dengjen_tts_core::Phonemes::from(Vec::<String>::new()))
+        }
+        fn speak_batch(
+            &self,
+            _phoneme_batches: Vec<String>,
+        ) -> DengjenResult<Vec<dengjen_tts_core::Audio>> {
+            Ok(Vec::new())
+        }
+        fn speak_one_sentence(&self, _phonemes: String) -> dengjen_tts_core::DengjenAudioResult {
+            Ok(dengjen_tts_core::Audio::new(
+                AudioSamples::from(Vec::new()),
+                16000,
+                None,
+            ))
+        }
+        fn get_default_synthesis_config(
+            &self,
+        ) -> DengjenResult<Option<dengjen_tts_core::SynthesisConfig>> {
+            Ok(None)
+        }
+        fn get_fallback_synthesis_config(
+            &self,
+        ) -> DengjenResult<Option<dengjen_tts_core::SynthesisConfig>> {
+            Ok(self.fallback_config.lock().unwrap().clone())
+        }
+        fn set_fallback_synthesis_config(
+            &self,
+            synthesis_config: &dengjen_tts_core::SynthesisConfig,
+        ) -> DengjenResult<()> {
+            *self.fallback_config.lock().unwrap() = Some(synthesis_config.clone());
+            Ok(())
+        }
+    }
+
+    fn fake_voice() -> DengjenVoice {
+        let model: Arc<dyn DengjenModel + Send + Sync> = Arc::new(FakeModel {
+            fallback_config: Mutex::new(None),
+        });
+        DengjenVoice::from(DengjenSpeechSynthesizer::new(model).unwrap())
+    }
+
+    #[test]
+    fn set_synthesis_parameter_null_key_returns_invalid_utf8_error_without_panicking() {
+        let mut voice = fake_voice();
+        let mut out_error = ExternError::default();
+        // SAFETY: constructing a null `FfiStr` is the whole point of this test — no C caller is
+        // dereferencing it, `libdengjenSetSynthesisParameter` must reject it gracefully instead.
+        let null_key = unsafe { FfiStr::from_raw(std::ptr::null()) };
+        unsafe {
+            libdengjenSetSynthesisParameter(&mut voice, null_key, 0.5, &mut out_error);
+        }
+        assert_eq!(
+            out_error.get_code().code(),
+            error_codes::INVALID_UTF8_SEQUENCE
+        );
         // SAFETY: see `get_audio_info_null_voice_returns_null_pointer_error_without_panicking`.
         unsafe { out_error.manually_release() };
     }
