@@ -134,12 +134,12 @@ impl DengjenModel for KokoroModel {
         self.synthesize_phonemes(&phonemes)
     }
 
-    fn get_default_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
-        Ok(SynthesisConfig::None)
+    fn get_default_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
+        Ok(None)
     }
 
-    fn get_fallback_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
-        Ok(SynthesisConfig::None)
+    fn get_fallback_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
+        Ok(None)
     }
 
     fn set_fallback_synthesis_config(
