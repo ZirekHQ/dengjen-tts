@@ -14,12 +14,13 @@ crate-type = ["staticlib", "cdylib"]
 [features]
 default = ["piper", "espeak"]
 piper = ["dep:dengjen-tts-piper", "dep:ort"]
-espeak = ["dengjen-tts-piper/espeak"]
+espeak = ["dengjen-tts-piper/espeak", "dengjen-tts-kokoro/espeak"]
 # Desktop GPU providers only — Android/iOS already bake in nnapi/coreml respectively via their
-# own target-specific `ort` dependency stanzas below.
-cuda = ["dengjen-tts-piper/cuda"]
-coreml = ["dengjen-tts-piper/coreml"]
-directml = ["dengjen-tts-piper/directml"]
+# own target-specific `ort` dependency stanzas below. Forwards to both model backends; ort/cuda
+# alone (the previous wiring) never reached a Session::builder() call, so enabling it did nothing.
+cuda = ["dengjen-tts-piper/cuda", "dengjen-tts-kokoro/cuda"]
+coreml = ["dengjen-tts-piper/coreml", "dengjen-tts-kokoro/coreml"]
+directml = ["dengjen-tts-piper/directml", "dengjen-tts-kokoro/directml"]
 ort-dylib = ["ort/load-dynamic"]
 
 [dependencies]
