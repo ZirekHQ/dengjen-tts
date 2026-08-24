@@ -35,6 +35,16 @@ impl std::str::FromStr for SynthesisMode {
     }
 }
 
+fn parse_param(s: &str) -> Result<(String, f32), String> {
+    let (key, value) = s
+        .split_once('=')
+        .ok_or_else(|| format!("expected KEY=VALUE, got `{s}`"))?;
+    let value: f32 = value
+        .parse()
+        .map_err(|_| format!("`{value}` is not a valid float"))?;
+    Ok((key.to_string(), value))
+}
+
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
@@ -79,6 +89,9 @@ struct Cli {
     /// Number of mel frames to use for padding current chunk (improves naturalness)
     #[arg(long)]
     chunk_padding: Option<usize>,
+    /// Named synthesis parameter, repeatable (e.g. --param custom_knob=1.25)
+    #[arg(long, value_parser = parse_param)]
+    param: Vec<(String, f32)>,
 }
 
 #[derive(Deserialize, Default)]
@@ -95,6 +108,8 @@ struct SynthesisRequest {
     appended_silence_ms: Option<u32>,
     chunk_size: Option<usize>,
     chunk_padding: Option<usize>,
+    #[serde(default)]
+    parameters: Vec<(String, f32)>,
 }
 
 impl SynthesisRequest {
@@ -147,7 +162,11 @@ fn process_synthesis_request<W: Write>(
     writer: &mut W,
 ) -> anyhow::Result<()> {
     let piper_config = req.as_piper_synth_config(default_synth_config);
-    synth.set_fallback_synthesis_config(&SynthesisConfig::Piper(piper_config))?;
+    let mut synthesis_config = SynthesisConfig::from(&piper_config);
+    for (key, value) in &req.parameters {
+        synthesis_config.parameters.insert(key.clone(), *value);
+    }
+    synth.set_fallback_synthesis_config(&synthesis_config)?;
     let output_config = Some(req.as_audio_output_config());
 
     if let Some(output_file) = &args.output_file {
@@ -210,7 +229,7 @@ mod synthesis_processing_tests {
 
     struct FakeDengjenModel {
         speakers: HashMap<i64, String>,
-        fallback_config: Mutex<SynthesisConfig>,
+        fallback_config: Mutex<PiperSynthesisConfig>,
         fail_speak: bool,
     }
 
@@ -226,12 +245,12 @@ mod synthesis_processing_tests {
         fn with_failure(fail_speak: bool) -> Self {
             Self {
                 speakers: HashMap::from([(0, "alice".to_string())]),
-                fallback_config: Mutex::new(SynthesisConfig::Piper(PiperSynthesisConfig {
+                fallback_config: Mutex::new(PiperSynthesisConfig {
                     speaker: Some(0),
                     noise_scale: 0.667,
                     length_scale: 1.0,
                     noise_w: 0.8,
-                })),
+                }),
                 fail_speak,
             }
         }
@@ -264,17 +283,21 @@ mod synthesis_processing_tests {
                 Some(1.0),
             ))
         }
-        fn get_default_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
-            Ok(self.fallback_config.lock().unwrap().clone())
+        fn get_default_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
+            Ok(Some(SynthesisConfig::from(
+                &*self.fallback_config.lock().unwrap(),
+            )))
         }
-        fn get_fallback_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
-            Ok(self.fallback_config.lock().unwrap().clone())
+        fn get_fallback_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
+            Ok(Some(SynthesisConfig::from(
+                &*self.fallback_config.lock().unwrap(),
+            )))
         }
         fn set_fallback_synthesis_config(
             &self,
             synthesis_config: &SynthesisConfig,
         ) -> DengjenResult<()> {
-            *self.fallback_config.lock().unwrap() = synthesis_config.clone();
+            *self.fallback_config.lock().unwrap() = PiperSynthesisConfig::from(synthesis_config);
             Ok(())
         }
         fn get_speakers(&self) -> DengjenResult<Option<&HashMap<i64, String>>> {
@@ -331,6 +354,7 @@ mod synthesis_processing_tests {
             silence: None,
             chunk_size: None,
             chunk_padding: None,
+            param: Vec::new(),
         }
     }
 
@@ -584,13 +608,13 @@ fn build_synthesizer(config_path: &std::path::Path) -> anyhow::Result<DengjenSpe
 fn resolve_default_synthesis_config(
     synthesizer: &DengjenSpeechSynthesizer,
 ) -> anyhow::Result<PiperSynthesisConfig> {
-    // Non-Piper backends (e.g. Kokoro) return SynthesisConfig::None here; their
+    // Non-Piper backends (e.g. Kokoro) return None here; their
     // set_fallback_synthesis_config ignores whatever default we pass, so this
     // default is inert for them.
-    Ok(match synthesizer.get_default_synthesis_config()? {
-        SynthesisConfig::Piper(cfg) => cfg,
-        SynthesisConfig::None => PiperSynthesisConfig::default(),
-    })
+    Ok(synthesizer
+        .get_default_synthesis_config()?
+        .map(|config| PiperSynthesisConfig::from(&config))
+        .unwrap_or_default())
 }
 
 fn synthesis_request_from_cli(cli: &Cli, text: String) -> SynthesisRequest {
@@ -607,6 +631,7 @@ fn synthesis_request_from_cli(cli: &Cli, text: String) -> SynthesisRequest {
         appended_silence_ms: cli.silence,
         chunk_size: cli.chunk_size,
         chunk_padding: cli.chunk_padding,
+        parameters: cli.param.clone(),
     }
 }
 
@@ -749,6 +774,22 @@ mod tests {
         let result = req.as_piper_synth_config(&default_config);
         assert_eq!(result.speaker, Some(3));
         assert_eq!(result.length_scale, 2.0);
+    }
+
+    #[test]
+    fn synthesis_request_parameters_flow_into_the_generic_synthesis_config() {
+        let default_config = PiperSynthesisConfig::default();
+        let req = SynthesisRequest {
+            text: "hello".to_string(),
+            parameters: vec![("custom_knob".to_string(), 1.25)],
+            ..Default::default()
+        };
+        let piper_config = req.as_piper_synth_config(&default_config);
+        let mut synthesis_config = SynthesisConfig::from(&piper_config);
+        for (key, value) in &req.parameters {
+            synthesis_config.parameters.insert(key.clone(), *value);
+        }
+        assert_eq!(synthesis_config.parameters.get("custom_knob"), Some(&1.25));
     }
 
     #[test]
