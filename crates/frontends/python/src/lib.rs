@@ -407,7 +407,7 @@ impl PiperModel {
         config.speaker = Some(speaker_id);
         Ok(self
             .0
-            .set_fallback_synthesis_config(&SynthesisConfig::Piper(config))?)
+            .set_fallback_synthesis_config(&SynthesisConfig::from(&config))?)
     }
 
     fn get_scales(&self) -> PyDengjenResult<PiperScales> {
@@ -426,25 +426,33 @@ impl PiperModel {
         config.noise_w = noise_w;
         Ok(self
             .0
-            .set_fallback_synthesis_config(&SynthesisConfig::Piper(config))?)
+            .set_fallback_synthesis_config(&SynthesisConfig::from(&config))?)
+    }
+
+    fn set_parameters(&self, parameters: HashMap<String, f32>) -> PyDengjenResult<()> {
+        let mut config = self.0.get_fallback_synthesis_config()?.unwrap_or_default();
+        config.parameters.extend(parameters);
+        Ok(self.0.set_fallback_synthesis_config(&config)?)
     }
 }
 
 impl PiperModel {
     fn current_speaker_id(&self) -> PyDengjenResult<Option<i64>> {
-        match self.0.get_fallback_synthesis_config()? {
-            SynthesisConfig::Piper(config) => Ok(config.speaker),
-            SynthesisConfig::None => Ok(None),
-        }
+        Ok(self
+            .0
+            .get_fallback_synthesis_config()?
+            .and_then(|config| dengjen_tts_piper::PiperSynthesisConfig::from(&config).speaker))
     }
 
-    fn piper_config_or_err(&self) -> PyDengjenResult<dengjen_tts_core::PiperSynthesisConfig> {
-        match self.0.get_fallback_synthesis_config()? {
-            SynthesisConfig::Piper(config) => Ok(config),
-            SynthesisConfig::None => Err(PyDengjenError::from(DengjenError::InvalidConfiguration(
-                "this model has no Piper synthesis config to read or update".to_string(),
-            ))),
-        }
+    fn piper_config_or_err(&self) -> PyDengjenResult<dengjen_tts_piper::PiperSynthesisConfig> {
+        self.0
+            .get_fallback_synthesis_config()?
+            .map(|config| dengjen_tts_piper::PiperSynthesisConfig::from(&config))
+            .ok_or_else(|| {
+                PyDengjenError::from(DengjenError::InvalidConfiguration(
+                    "this model has no Piper synthesis config to read or update".to_string(),
+                ))
+            })
     }
 }
 
@@ -674,15 +682,23 @@ fn pydengjen(m: &Bound<'_, PyModule>) -> PyResult<()> {
 #[cfg(test)]
 mod model_and_synthesizer_tests {
     use super::*;
-    use dengjen_tts_core::{
-        AudioSamples, DengjenAudioResult, DengjenResult, Phonemes, PiperSynthesisConfig,
-    };
+    use dengjen_tts_core::{AudioSamples, DengjenAudioResult, DengjenResult, Phonemes};
+    use dengjen_tts_piper::PiperSynthesisConfig;
     use std::collections::HashMap as StdHashMap;
     use std::sync::Mutex;
 
+    // Stored as the generic `SynthesisConfig`, not `PiperSynthesisConfig`:
+    // the latter is a closed, fixed-field struct with no room for arbitrary
+    // parameters, so round-tripping through it (as the real Piper backend
+    // does internally) would silently drop anything `set_parameters` adds
+    // beyond the three scale fields it already knows about. Building the
+    // seed values as a `PiperSynthesisConfig` literal and converting keeps
+    // this fixture's Piper-shaped states easy to read while still letting it
+    // preserve arbitrary parameters losslessly, same as a real generic
+    // backend would.
     struct FakeModel {
         speakers: StdHashMap<i64, String>,
-        fallback_config: Mutex<SynthesisConfig>,
+        fallback_config: Mutex<Option<SynthesisConfig>>,
     }
 
     impl FakeModel {
@@ -697,12 +713,12 @@ mod model_and_synthesizer_tests {
                 .collect();
             Self {
                 speakers,
-                fallback_config: Mutex::new(SynthesisConfig::Piper(PiperSynthesisConfig {
+                fallback_config: Mutex::new(Some(SynthesisConfig::from(&PiperSynthesisConfig {
                     speaker: Some(0),
                     noise_scale: 0.667,
                     length_scale: 1.0,
                     noise_w: 0.8,
-                })),
+                }))),
             }
         }
 
@@ -711,12 +727,12 @@ mod model_and_synthesizer_tests {
         fn with_speaker_unset() -> Self {
             Self {
                 speakers: StdHashMap::from([(0, "alice".to_string())]),
-                fallback_config: Mutex::new(SynthesisConfig::Piper(PiperSynthesisConfig {
+                fallback_config: Mutex::new(Some(SynthesisConfig::from(&PiperSynthesisConfig {
                     speaker: None,
                     noise_scale: 0.667,
                     length_scale: 1.0,
                     noise_w: 0.8,
-                })),
+                }))),
             }
         }
 
@@ -727,7 +743,7 @@ mod model_and_synthesizer_tests {
         fn with_no_config() -> Self {
             Self {
                 speakers: StdHashMap::from([(0, "alice".to_string())]),
-                fallback_config: Mutex::new(SynthesisConfig::None),
+                fallback_config: Mutex::new(None),
             }
         }
     }
@@ -756,17 +772,14 @@ mod model_and_synthesizer_tests {
                 Some(1.5),
             ))
         }
-        fn get_default_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
+        fn get_default_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
             Ok(self.fallback_config.lock().unwrap().clone())
         }
-        fn get_fallback_synthesis_config(&self) -> DengjenResult<SynthesisConfig> {
+        fn get_fallback_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
             Ok(self.fallback_config.lock().unwrap().clone())
         }
-        fn set_fallback_synthesis_config(
-            &self,
-            synthesis_config: &SynthesisConfig,
-        ) -> DengjenResult<()> {
-            *self.fallback_config.lock().unwrap() = synthesis_config.clone();
+        fn set_fallback_synthesis_config(&self, c: &SynthesisConfig) -> DengjenResult<()> {
+            *self.fallback_config.lock().unwrap() = Some(c.clone());
             Ok(())
         }
         fn get_language(&self) -> DengjenResult<Option<String>> {
@@ -813,6 +826,16 @@ mod model_and_synthesizer_tests {
         assert_eq!(scales.length_scale, 0.9);
         assert_eq!(scales.noise_scale, 0.5);
         assert_eq!(scales.noise_w, 0.7);
+    }
+
+    #[test]
+    fn set_parameters_merges_into_the_fallback_config() {
+        let model = PiperModel(Arc::new(FakeModel::with_one_speaker()));
+        let mut parameters = HashMap::new();
+        parameters.insert("custom_knob".to_string(), 1.25);
+        model.set_parameters(parameters).unwrap();
+        let raw = model.0.get_fallback_synthesis_config().unwrap().unwrap();
+        assert_eq!(raw.parameters.get("custom_knob"), Some(&1.25));
     }
 
     #[test]
