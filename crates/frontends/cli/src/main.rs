@@ -544,65 +544,14 @@ fn commit_onnxruntime() {
     assert!(ok, "Failed to initialize onnxruntime");
 }
 
-fn detect_model_type(config_path: &std::path::Path) -> anyhow::Result<String> {
-    let raw = std::fs::read_to_string(config_path)?;
-    let parsed: serde_json::Value = serde_json::from_str(&raw)?;
-    let model_type = parsed
-        .get("model_type")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("piper");
-    Ok(model_type.to_owned())
-}
-
 fn load_voice(
     config_path: &std::path::Path,
 ) -> anyhow::Result<std::sync::Arc<dyn dengjen_tts::DengjenModel + Send + Sync>> {
-    let model_type = detect_model_type(config_path)?;
+    let model_type = dengjen_tts::detect_model_type(config_path)?;
     if model_type == "kokoro" {
         return Ok(dengjen_tts_kokoro::from_config_path(config_path)?);
     }
     Ok(dengjen_tts_piper::from_config_path(config_path)?)
-}
-
-#[cfg(test)]
-mod dispatch_tests {
-    use super::*;
-    use std::io::Write;
-
-    fn write_temp_config(dir: &std::path::Path, name: &str, contents: &str) -> std::path::PathBuf {
-        let path = dir.join(name);
-        let mut f = std::fs::File::create(&path).unwrap();
-        f.write_all(contents.as_bytes()).unwrap();
-        path
-    }
-
-    #[test]
-    fn detect_model_type_recognizes_kokoro() {
-        let dir = std::env::temp_dir().join("dengjen_cli_dispatch_test_kokoro");
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = write_temp_config(&dir, "config.json", r#"{"model_type": "kokoro"}"#);
-        assert_eq!(detect_model_type(&path).unwrap(), "kokoro");
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn detect_model_type_defaults_to_piper_when_field_absent() {
-        // Real Piper .onnx.json configs have no model_type field at all.
-        let dir = std::env::temp_dir().join("dengjen_cli_dispatch_test_piper_default");
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = write_temp_config(&dir, "config.json", r#"{"audio": {"sample_rate": 22050}}"#);
-        assert_eq!(detect_model_type(&path).unwrap(), "piper");
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn detect_model_type_errors_on_malformed_json() {
-        let dir = std::env::temp_dir().join("dengjen_cli_dispatch_test_malformed");
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = write_temp_config(&dir, "config.json", "{ not valid");
-        assert!(detect_model_type(&path).is_err());
-        std::fs::remove_dir_all(&dir).ok();
-    }
 }
 
 fn main() -> anyhow::Result<()> {

@@ -112,7 +112,7 @@ impl DengjenGrpcService {
             return self.build_voice_info(voice_id, voice.model_ref());
         }
 
-        let model = dengjen_tts_piper::from_config_path(&config_path)?;
+        let model = load_voice(&config_path)?;
         log::info!(
             "Loaded Vits voice from: `{}`. Voice ID: {}",
             config_path.display(),
@@ -185,18 +185,36 @@ impl DengjenGrpcService {
         })
     }
 
+    /// Builds `grpc::SynthesisOptions` for a backend with no tunable synthesis
+    /// config at all (e.g. Kokoro, whose `get_default_synthesis_config`/
+    /// `get_fallback_synthesis_config` always return `Ok(None)`). The scale
+    /// fields are `None` (meaning "not applicable", not "zero"), and the
+    /// speaker is resolved via `on_unset_speaker` — the same closure the
+    /// config-bearing path uses for its own unset-speaker case.
+    fn synth_options_for_configless_backend(
+        on_unset_speaker: impl FnOnce() -> DengjenGrpcResult<Option<String>>,
+    ) -> DengjenGrpcResult<grpc::SynthesisOptions> {
+        Ok(grpc::SynthesisOptions {
+            speaker: on_unset_speaker()?,
+            length_scale: None,
+            noise_scale: None,
+            noise_w: None,
+            parameters: std::collections::HashMap::new(),
+        })
+    }
+
     fn synth_options_from_default_config(
         model: &(impl DengjenModel + ?Sized),
     ) -> DengjenGrpcResult<grpc::SynthesisOptions> {
-        let config = model.get_default_synthesis_config()?.ok_or_else(|| {
-            DengjenError::InvalidConfiguration(
-                "Invalid synthesis config for Vits model".to_string(),
-            )
-        })?;
-        let piper_config = dengjen_tts_piper::PiperSynthesisConfig::from(&config);
-        Self::synth_options_from_piper_config(model, piper_config, || {
-            Ok(Some("Default".to_string()))
-        })
+        match model.get_default_synthesis_config()? {
+            Some(config) => {
+                let piper_config = dengjen_tts_piper::PiperSynthesisConfig::from(&config);
+                Self::synth_options_from_piper_config(model, piper_config, || {
+                    Ok(Some("Default".to_string()))
+                })
+            }
+            None => Self::synth_options_for_configless_backend(|| Ok(Some("Default".to_string()))),
+        }
     }
 
     /// Reads a model's fallback synthesis config as gRPC-facing `SynthesisOptions`,
@@ -204,15 +222,17 @@ impl DengjenGrpcService {
     fn synth_options_from_model(
         model: &(impl DengjenModel + ?Sized),
     ) -> DengjenGrpcResult<grpc::SynthesisOptions> {
-        let config = model.get_fallback_synthesis_config()?.ok_or_else(|| {
-            DengjenError::InvalidConfiguration(
-                "Invalid synthesis config for Vits model".to_string(),
-            )
-        })?;
-        let piper_config = dengjen_tts_piper::PiperSynthesisConfig::from(&config);
-        Self::synth_options_from_piper_config(model, piper_config, || {
-            Ok(model.speaker_id_to_name(&0)?)
-        })
+        match model.get_fallback_synthesis_config()? {
+            Some(config) => {
+                let piper_config = dengjen_tts_piper::PiperSynthesisConfig::from(&config);
+                Self::synth_options_from_piper_config(model, piper_config, || {
+                    Ok(model.speaker_id_to_name(&0)?)
+                })
+            }
+            None => {
+                Self::synth_options_for_configless_backend(|| Ok(model.speaker_id_to_name(&0)?))
+            }
+        }
     }
 
     fn lookup_synth_options(&self, voice_id: &str) -> DengjenGrpcResult<grpc::SynthesisOptions> {
@@ -273,6 +293,14 @@ impl DengjenGrpcService {
         model.set_fallback_synthesis_config(&new_config)?;
         Self::synth_options_from_model(model)
     }
+}
+
+fn load_voice(config_path: &std::path::Path) -> DengjenResult<Arc<dyn DengjenModel + Send + Sync>> {
+    let model_type = dengjen_tts::detect_model_type(config_path)?;
+    if model_type == "kokoro" {
+        return dengjen_tts_kokoro::from_config_path(config_path);
+    }
+    dengjen_tts_piper::from_config_path(config_path)
 }
 
 /// Converts the optional proto `SpeechArgs` into synth's `AudioOutputConfig`,
@@ -677,6 +705,49 @@ mod voice_loading_tests {
 }
 
 #[cfg(test)]
+mod load_voice_dispatch_tests {
+    use super::*;
+    use std::io::Write;
+
+    fn write_temp_config(dir: &std::path::Path, name: &str, contents: &str) -> std::path::PathBuf {
+        let path = dir.join(name);
+        let mut f = std::fs::File::create(&path).unwrap();
+        f.write_all(contents.as_bytes()).unwrap();
+        path
+    }
+
+    #[test]
+    fn load_voice_errors_on_a_missing_config_path() {
+        let path = std::path::Path::new("/nonexistent-dengjen-grpc-load-voice-test.json");
+        assert!(load_voice(path).is_err());
+    }
+
+    #[test]
+    fn load_voice_routes_kokoro_model_type_toward_the_kokoro_loader() {
+        let dir = std::env::temp_dir().join("dengjen_grpc_load_voice_test_kokoro");
+        std::fs::create_dir_all(&dir).unwrap();
+        // A syntactically valid but incomplete Kokoro config: detect_model_type reads it fine,
+        // but dengjen_tts_kokoro::from_config_path's own RawKokoroVoiceConfig requires
+        // `model_path` (crates/dengjen/models/kokoro/src/config.rs:8), which this JSON omits.
+        // If this had instead fallen through to Piper's loader, the error would name a
+        // Piper-required field (`audio`) instead — so asserting on `model_path` specifically
+        // proves the Kokoro branch was actually taken, not just that some error occurred.
+        let path = write_temp_config(&dir, "config.json", r#"{"model_type": "kokoro"}"#);
+        // `Arc<dyn DengjenModel + Send + Sync>` isn't `Debug`, so `Result::unwrap_err` (which
+        // requires `T: Debug`) can't be used here; match instead.
+        let err = match load_voice(&path) {
+            Err(e) => format!("{}", e),
+            Ok(_) => panic!("expected an error for an incomplete Kokoro config"),
+        };
+        assert!(
+            err.contains("model_path"),
+            "expected a Kokoro-loader error naming the missing `model_path` field, got: {err}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+}
+
+#[cfg(test)]
 mod synth_options_tests {
     use super::*;
     use dengjen_tts_core::{Audio, AudioInfo as CoreAudioInfo, DengjenAudioResult, Phonemes};
@@ -730,6 +801,85 @@ mod synth_options_tests {
             .unwrap()
             .insert(voice_id.to_string(), voice);
         service
+    }
+
+    /// Stands in for a backend with no tunable synthesis config at all — e.g.
+    /// Kokoro, whose `get_default_synthesis_config`/`get_fallback_synthesis_config`
+    /// always return `Ok(None)` (see `crates/dengjen/models/kokoro/src/inference.rs`).
+    struct ConfiglessModel {
+        speakers: StdHashMap<i64, String>,
+    }
+
+    impl DengjenModel for ConfiglessModel {
+        fn audio_output_info(&self) -> DengjenResult<CoreAudioInfo> {
+            Ok(CoreAudioInfo {
+                sample_rate: 24000,
+                num_channels: 1,
+                sample_width: 2,
+            })
+        }
+        fn phonemize_text(&self, _text: &str) -> DengjenResult<Phonemes> {
+            Ok(Phonemes::from(vec!["fake".to_string()]))
+        }
+        fn speak_batch(&self, _phoneme_batches: Vec<String>) -> DengjenResult<Vec<Audio>> {
+            Ok(Vec::new())
+        }
+        fn speak_one_sentence(&self, _phonemes: String) -> DengjenAudioResult {
+            Ok(Audio::new(Default::default(), 24000, None))
+        }
+        fn get_default_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
+            Ok(None)
+        }
+        fn get_fallback_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
+            Ok(None)
+        }
+        fn set_fallback_synthesis_config(&self, _c: &SynthesisConfig) -> DengjenResult<()> {
+            Ok(())
+        }
+        fn get_speakers(&self) -> DengjenResult<Option<&StdHashMap<i64, String>>> {
+            Ok(Some(&self.speakers))
+        }
+    }
+
+    #[test]
+    fn synth_options_from_default_config_tolerates_a_backend_with_no_synthesis_config() {
+        let model = ConfiglessModel {
+            speakers: StdHashMap::new(),
+        };
+        let opts = DengjenGrpcService::synth_options_from_default_config(&model).unwrap();
+        assert_eq!(opts.speaker.as_deref(), Some("Default"));
+        assert_eq!(opts.length_scale, None);
+        assert_eq!(opts.noise_scale, None);
+        assert_eq!(opts.noise_w, None);
+        assert!(opts.parameters.is_empty());
+    }
+
+    #[test]
+    fn synth_options_from_model_tolerates_a_backend_with_no_synthesis_config() {
+        let mut speakers = StdHashMap::new();
+        speakers.insert(0i64, "Narrator".to_string());
+        let model = ConfiglessModel { speakers };
+        let opts = DengjenGrpcService::synth_options_from_model(&model).unwrap();
+        assert_eq!(opts.speaker.as_deref(), Some("Narrator"));
+        assert_eq!(opts.length_scale, None);
+        assert_eq!(opts.noise_scale, None);
+        assert_eq!(opts.noise_w, None);
+        assert!(opts.parameters.is_empty());
+    }
+
+    #[test]
+    fn build_voice_info_tolerates_a_backend_with_no_synthesis_config() {
+        let model = ConfiglessModel {
+            speakers: StdHashMap::new(),
+        };
+        let service = DengjenGrpcService::new();
+        let voice = Voice::new(Arc::new(model)).unwrap();
+        let info = service
+            .build_voice_info("v1".to_string(), voice.model_ref())
+            .unwrap();
+        let opts = info.synthesis_options.unwrap();
+        assert_eq!(opts.speaker.as_deref(), Some("Default"));
+        assert_eq!(opts.length_scale, None);
     }
 
     #[test]

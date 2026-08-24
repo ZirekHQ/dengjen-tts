@@ -51,14 +51,19 @@ pub struct ModelConfig {
     pub key: Option<String>,
     pub language: Option<Language>,
     pub audio: AudioConfig,
+    #[serde(default)]
     pub num_speakers: u32,
+    #[serde(default)]
     pub speaker_id_map: HashMap<String, i64>,
     pub(crate) streaming: Option<bool>,
+    #[serde(default)]
     pub(crate) espeak: ESpeakConfig,
     pub(crate) inference: InferenceConfig,
     #[allow(dead_code)]
+    #[serde(default)]
     pub(crate) num_symbols: u32,
     #[allow(dead_code)]
+    #[serde(default)]
     pub(crate) phoneme_map: HashMap<i64, String>,
     pub(crate) phoneme_id_map: HashMap<String, Vec<i64>>,
     pub(crate) phoneme_type: Option<PhonemeType>,
@@ -171,6 +176,23 @@ mod tests {
     fn model_config_parses_multi_char_phoneme_cluster_keys() {
         let config: ModelConfig = serde_json::from_str(BASE_CONFIG_JSON).unwrap();
         assert_eq!(config.phoneme_id_map.get("aɪ"), Some(&vec![5]));
+    }
+
+    #[test]
+    fn model_config_parses_a_minimal_manifest_without_espeak_or_symbol_count() {
+        let json = r#"{
+            "audio": {"sample_rate": 22050, "quality": null},
+            "inference": {"noise_scale": 0.667, "length_scale": 1.0, "noise_w": 0.8},
+            "phoneme_id_map": {"^": [1], "$": [2], "_": [3], "a": [4]},
+            "phoneme_type": "text"
+        }"#;
+        let config: ModelConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.phoneme_type, Some(PhonemeType::Text));
+        assert_eq!(config.num_speakers, 0);
+        assert!(config.speaker_id_map.is_empty());
+        assert_eq!(config.espeak.voice, "");
+        assert_eq!(config.num_symbols, 0);
+        assert!(config.phoneme_map.is_empty());
     }
 
     #[test]

@@ -9,6 +9,34 @@ use rayon::{prelude::*, ThreadPool, ThreadPoolBuilder};
 mod utils;
 pub use dengjen_tts_core::*;
 
+/// Reads the `model_type` field out of a VITS-family voice config's JSON,
+/// returning it verbatim if present. Real Piper `.onnx.json` configs never
+/// carry this field, so its absence defaults to `"piper"` rather than
+/// erroring. Pure JSON parsing — this crate has no awareness of, or
+/// dependency on, any concrete backend model crate; frontends use the
+/// returned string to pick which backend's `from_config_path` to call.
+pub fn detect_model_type(config_path: &Path) -> DengjenResult<String> {
+    let raw = std::fs::read_to_string(config_path).map_err(|why| {
+        DengjenError::FailedToLoadResource(format!(
+            "Failed to read model config: `{}`. Caused by: `{}`",
+            config_path.display(),
+            why
+        ))
+    })?;
+    let parsed: serde_json::Value = serde_json::from_str(&raw).map_err(|why| {
+        DengjenError::FailedToLoadResource(format!(
+            "Failed to parse model config from file: `{}`. Caused by: `{}`",
+            config_path.display(),
+            why
+        ))
+    })?;
+    let model_type = parsed
+        .get("model_type")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("piper");
+    Ok(model_type.to_owned())
+}
+
 /// A closed interval that one of Sonic's post-processing knobs (speed,
 /// volume, pitch) is scaled onto from a `0..=100` percentage.
 struct ParamRange {
@@ -1286,5 +1314,67 @@ mod lazy_parallel_tests {
             .collect();
         assert_eq!(results.len(), 3);
         assert_eq!(results.iter().filter(|r| r.is_err()).count(), 1);
+    }
+}
+
+#[cfg(test)]
+mod model_type_detection_tests {
+    use super::*;
+    use std::io::Write;
+
+    fn write_temp_config(dir: &Path, name: &str, contents: &str) -> std::path::PathBuf {
+        let path = dir.join(name);
+        let mut f = std::fs::File::create(&path).unwrap();
+        f.write_all(contents.as_bytes()).unwrap();
+        path
+    }
+
+    #[test]
+    fn detect_model_type_recognizes_kokoro() {
+        let dir = std::env::temp_dir().join("dengjen_synth_dispatch_test_kokoro");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = write_temp_config(&dir, "config.json", r#"{"model_type": "kokoro"}"#);
+        assert_eq!(detect_model_type(&path).unwrap(), "kokoro");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn detect_model_type_recognizes_vits() {
+        let dir = std::env::temp_dir().join("dengjen_synth_dispatch_test_vits");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = write_temp_config(&dir, "config.json", r#"{"model_type": "vits"}"#);
+        assert_eq!(detect_model_type(&path).unwrap(), "vits");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn detect_model_type_defaults_to_piper_when_field_absent() {
+        // Real Piper .onnx.json configs have no model_type field at all.
+        let dir = std::env::temp_dir().join("dengjen_synth_dispatch_test_piper_default");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = write_temp_config(&dir, "config.json", r#"{"audio": {"sample_rate": 22050}}"#);
+        assert_eq!(detect_model_type(&path).unwrap(), "piper");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn detect_model_type_errors_on_malformed_json() {
+        let dir = std::env::temp_dir().join("dengjen_synth_dispatch_test_malformed");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = write_temp_config(&dir, "config.json", "{ not valid json");
+        assert!(matches!(
+            detect_model_type(&path),
+            Err(DengjenError::FailedToLoadResource(_))
+        ));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn detect_model_type_errors_when_file_does_not_exist() {
+        let path = std::path::Path::new("/nonexistent-dengjen-synth-dispatch-test.json");
+        assert!(matches!(
+            detect_model_type(path),
+            Err(DengjenError::FailedToLoadResource(_))
+        ));
     }
 }

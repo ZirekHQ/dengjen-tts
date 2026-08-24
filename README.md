@@ -14,10 +14,9 @@ A cross-platform Rust engine for neural TTS models.
 
 Not yet supported, tracked in the issues linked below:
 
-* GPU execution providers (CUDA/CoreML/DirectML) — [#45](https://github.com/ZirekHQ/dengjen/issues/45)
 * Native Go/Java/Kotlin bindings — [#46](https://github.com/ZirekHQ/dengjen/issues/46)
 * MeloTTS model support — [#47](https://github.com/ZirekHQ/dengjen/issues/47)
-* Generic VITS/Matcha-TTS model loader — [#48](https://github.com/ZirekHQ/dengjen/issues/48)
+* Matcha-TTS model loader — [#48](https://github.com/ZirekHQ/dengjen/issues/48)
 
 Out of scope: RHVoice-style formant/statistical synthesis is a different synthesis paradigm from
 this engine's neural-ONNX pipeline and isn't planned.
@@ -69,6 +68,8 @@ On Windows you also need `espeak-ng.dll` on your `PATH` — see "A note on testi
 # Synthesizing speech
 
 Dengjen synthesizes speech from a [Piper](https://github.com/rhasspy/piper) voice. Download a voice's `.onnx` model and matching `.onnx.json` config from the [Piper voices](https://huggingface.co/rhasspy/piper-voices) repository and keep both files together, e.g. `voices/en_US-lessac-medium.onnx` and `voices/en_US-lessac-medium.onnx.json`.
+
+A voice doesn't have to come from the official Piper voices repository — any VITS-family ONNX export using the same 3/4-input tensor convention (phoneme ids, lengths, scales, optional speaker id) can be loaded by writing a matching `.onnx.json` manifest with `"model_type": "vits"`. The minimal required fields are `audio` (sample rate), `inference` (`noise_scale`/`length_scale`/`noise_w`), and `phoneme_id_map` (the symbol vocabulary); `phoneme_type` selects the phonemizer (`espeak` is the default if omitted, and needs an `espeak.voice` entry — `text`, `hebrew`, and `pinyin` don't).
 
 Synthesize text from a file to a WAV file, using the `dengjen-cli` frontend:
 

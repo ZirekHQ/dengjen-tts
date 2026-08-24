@@ -9,10 +9,12 @@ workspace = true
 
 [features]
 default = ["espeak"]
-espeak = ["dengjen-tts-piper/espeak"]
-cuda = ["dengjen-tts-piper/cuda"]
-coreml = ["dengjen-tts-piper/coreml"]
-directml = ["dengjen-tts-piper/directml"]
+espeak = ["dengjen-tts-piper/espeak", "dengjen-tts-kokoro/espeak"]
+# Forwards to both model backends; ort/cuda alone (the previous wiring) never reached a
+# Session::builder() call, so enabling it did nothing.
+cuda = ["dengjen-tts-piper/cuda", "dengjen-tts-kokoro/cuda"]
+coreml = ["dengjen-tts-piper/coreml", "dengjen-tts-kokoro/coreml"]
+directml = ["dengjen-tts-piper/directml", "dengjen-tts-kokoro/directml"]
 ort-dylib = ["ort/load-dynamic"]
 
 [dependencies]
@@ -22,6 +24,7 @@ log = "0.4.18"
 dengjen-tts-core = { version = "0.2.0", path = "../../dengjen/core" }
 dengjen-tts = { version = "0.2.0", path = "../../dengjen/synth" }
 dengjen-tts-piper = { version = "0.2.0", path = "../../dengjen/models/piper" }
+dengjen-tts-kokoro = { version = "0.1.0", path = "../../dengjen/models/kokoro", default-features = false }
 prost = "0.13.3"
 tokio = { version = "1.41.1", features = ["macros", "rt-multi-thread"] }
 tokio-stream = "0.1.16"
