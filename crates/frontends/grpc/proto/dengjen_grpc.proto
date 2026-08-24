@@ -81,6 +81,7 @@ message SynthesisOptions {
   optional float length_scale = 2;
   optional float noise_scale = 3;
   optional float noise_w = 4;
+  map<string, float> parameters = 5;
 }
 
 message VoiceSynthesisOptions{
