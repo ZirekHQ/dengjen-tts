@@ -110,6 +110,11 @@ void libdengjenSetSynthesisParameter(struct DengjenVoice *voice_ptr,
                                      float value,
                                      struct ExternError *out_error);
 
+bool libdengjenGetSynthesisParameter(struct DengjenVoice *voice_ptr,
+                                     FfiStr key_ptr,
+                                     float *out_value_ptr,
+                                     struct ExternError *out_error);
+
 void libdengjenSpeak(struct DengjenVoice *voice_ptr,
                      FfiStr text_ptr,
                      struct SynthesisParams params,
