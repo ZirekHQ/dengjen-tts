@@ -31,7 +31,7 @@ dengjen-tts-kokoro = { version = "0.1.0", path = "../../dengjen/models/kokoro", 
 once_cell = "1.18.0"
 
 [dependencies.libtashkeel_core]
-version = "1.5.0"
+version = "1.5.1"
 default-features = false
 features = ["ort", "rayon"]
 optional = true
