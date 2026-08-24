@@ -1105,7 +1105,8 @@ mod synth_options_tests {
     }
 
     #[test]
-    fn apply_synth_options_preserves_a_previously_set_generic_key_across_a_later_named_field_update() {
+    fn apply_synth_options_preserves_a_previously_set_generic_key_across_a_later_named_field_update(
+    ) {
         let speakers = StdHashMap::from([(0i64, "alice".to_string())]);
         let model = ConfigurableModel {
             speakers,
@@ -1162,11 +1163,7 @@ mod synth_options_tests {
         };
         let service = DengjenGrpcService::new();
         let voice = Voice::new(Arc::new(model)).unwrap();
-        service
-            .0
-            .write()
-            .unwrap()
-            .insert("v1".to_string(), voice);
+        service.0.write().unwrap().insert("v1".to_string(), voice);
         let result = service.apply_synth_options(
             "v1",
             grpc::SynthesisOptions {
