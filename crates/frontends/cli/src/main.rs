@@ -113,13 +113,36 @@ struct SynthesisRequest {
 }
 
 impl SynthesisRequest {
-    fn as_piper_synth_config(&self, default_config: &PiperSynthesisConfig) -> PiperSynthesisConfig {
-        PiperSynthesisConfig {
-            speaker: self.speaker_id.map(i64::from),
-            length_scale: self.length_scale.unwrap_or(default_config.length_scale),
-            noise_scale: self.noise_scale.unwrap_or(default_config.noise_scale),
-            noise_w: self.noise_w.unwrap_or(default_config.noise_w),
+    /// Merges this request onto `default_config`: the generic `parameters` are
+    /// applied first, then any explicitly-set named field (speaker/length_scale/
+    /// noise_scale/noise_w) overwrites its corresponding value, so a named field
+    /// always wins over a conflicting `parameters` key — matching gRPC's
+    /// `apply_synth_options` precedence.
+    fn as_synthesis_config(&self, default_config: &PiperSynthesisConfig) -> SynthesisConfig {
+        let mut config = SynthesisConfig::from(default_config);
+        for (key, value) in &self.parameters {
+            config.parameters.insert(key.clone(), *value);
         }
+        if let Some(length_scale) = self.length_scale {
+            config.parameters.insert(
+                dengjen_tts_piper::synth_config::LENGTH_SCALE.to_string(),
+                length_scale,
+            );
+        }
+        if let Some(noise_scale) = self.noise_scale {
+            config.parameters.insert(
+                dengjen_tts_piper::synth_config::NOISE_SCALE.to_string(),
+                noise_scale,
+            );
+        }
+        if let Some(noise_w) = self.noise_w {
+            config.parameters.insert(
+                dengjen_tts_piper::synth_config::NOISE_W.to_string(),
+                noise_w,
+            );
+        }
+        config.speaker = self.speaker_id.map(i64::from);
+        config
     }
 
     fn as_audio_output_config(&self) -> AudioOutputConfig {
@@ -161,11 +184,7 @@ fn process_synthesis_request<W: Write>(
     req: SynthesisRequest,
     writer: &mut W,
 ) -> anyhow::Result<()> {
-    let piper_config = req.as_piper_synth_config(default_synth_config);
-    let mut synthesis_config = SynthesisConfig::from(&piper_config);
-    for (key, value) in &req.parameters {
-        synthesis_config.parameters.insert(key.clone(), *value);
-    }
+    let synthesis_config = req.as_synthesis_config(default_synth_config);
     synth.set_fallback_synthesis_config(&synthesis_config)?;
     let output_config = Some(req.as_audio_output_config());
 
@@ -744,7 +763,7 @@ mod tests {
     }
 
     #[test]
-    fn as_piper_synth_config_falls_back_to_defaults_when_fields_are_none() {
+    fn as_synthesis_config_falls_back_to_defaults_when_fields_are_none() {
         let default_config = PiperSynthesisConfig {
             speaker: Some(0),
             length_scale: 1.0,
@@ -755,15 +774,15 @@ mod tests {
             text: "hello".to_string(),
             ..Default::default()
         };
-        let result = req.as_piper_synth_config(&default_config);
+        let result = req.as_synthesis_config(&default_config);
         assert_eq!(result.speaker, None);
-        assert_eq!(result.length_scale, 1.0);
-        assert_eq!(result.noise_scale, 0.667);
-        assert_eq!(result.noise_w, 0.8);
+        assert_eq!(result.parameters.get("length_scale"), Some(&1.0));
+        assert_eq!(result.parameters.get("noise_scale"), Some(&0.667));
+        assert_eq!(result.parameters.get("noise_w"), Some(&0.8));
     }
 
     #[test]
-    fn as_piper_synth_config_overrides_defaults_when_fields_are_set() {
+    fn as_synthesis_config_overrides_defaults_when_fields_are_set() {
         let default_config = PiperSynthesisConfig::default();
         let req = SynthesisRequest {
             text: "hello".to_string(),
@@ -771,9 +790,9 @@ mod tests {
             length_scale: Some(2.0),
             ..Default::default()
         };
-        let result = req.as_piper_synth_config(&default_config);
+        let result = req.as_synthesis_config(&default_config);
         assert_eq!(result.speaker, Some(3));
-        assert_eq!(result.length_scale, 2.0);
+        assert_eq!(result.parameters.get("length_scale"), Some(&2.0));
     }
 
     #[test]
@@ -784,12 +803,47 @@ mod tests {
             parameters: vec![("custom_knob".to_string(), 1.25)],
             ..Default::default()
         };
-        let piper_config = req.as_piper_synth_config(&default_config);
-        let mut synthesis_config = SynthesisConfig::from(&piper_config);
-        for (key, value) in &req.parameters {
-            synthesis_config.parameters.insert(key.clone(), *value);
-        }
+        let synthesis_config = req.as_synthesis_config(&default_config);
         assert_eq!(synthesis_config.parameters.get("custom_knob"), Some(&1.25));
+    }
+
+    #[test]
+    fn as_synthesis_config_merges_generic_parameters_the_named_fields_dont_cover() {
+        let default_config = PiperSynthesisConfig {
+            speaker: Some(0),
+            length_scale: 1.0,
+            noise_scale: 0.667,
+            noise_w: 0.8,
+        };
+        let req = SynthesisRequest {
+            text: "hello".to_string(),
+            parameters: vec![("length_scale".to_string(), 2.5)],
+            ..Default::default()
+        };
+        let result = req.as_synthesis_config(&default_config);
+        assert_eq!(result.parameters.get("length_scale"), Some(&2.5));
+    }
+
+    #[test]
+    fn as_synthesis_config_prefers_the_named_field_over_a_conflicting_parameters_key() {
+        let default_config = PiperSynthesisConfig {
+            speaker: Some(0),
+            length_scale: 1.0,
+            noise_scale: 0.667,
+            noise_w: 0.8,
+        };
+        let req = SynthesisRequest {
+            text: "hello".to_string(),
+            length_scale: Some(3.0),
+            parameters: vec![("length_scale".to_string(), 9.9)],
+            ..Default::default()
+        };
+        let result = req.as_synthesis_config(&default_config);
+        assert_eq!(
+            result.parameters.get("length_scale"),
+            Some(&3.0),
+            "named field must win over a conflicting parameters key"
+        );
     }
 
     #[test]
