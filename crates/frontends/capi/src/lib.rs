@@ -551,7 +551,8 @@ pub unsafe extern "C" fn libdengjenGetSynthesisParameter(
             }
             None => Ok(false),
         }
-    }) as u8) != 0
+    }) as u8)
+        != 0
 }
 
 /// # Safety
@@ -1032,12 +1033,7 @@ mod tests {
         let key = FfiStr::from_cstr(std::ffi::CStr::from_bytes_with_nul(b"custom_knob\0").unwrap());
         let mut value: f32 = 0.0;
         let found = unsafe {
-            libdengjenGetSynthesisParameter(
-                std::ptr::null_mut(),
-                key,
-                &mut value,
-                &mut out_error,
-            )
+            libdengjenGetSynthesisParameter(std::ptr::null_mut(), key, &mut value, &mut out_error)
         };
         assert!(!found);
         assert_eq!(out_error.get_code().code(), error_codes::NULL_POINTER);
@@ -1068,9 +1064,11 @@ mod tests {
         assert!(out_error.get_code().is_success());
 
         let mut value: f32 = 0.0;
-        let key2 = FfiStr::from_cstr(std::ffi::CStr::from_bytes_with_nul(b"custom_knob\0").unwrap());
-        let found =
-            unsafe { libdengjenGetSynthesisParameter(&mut voice, key2, &mut value, &mut out_error) };
+        let key2 =
+            FfiStr::from_cstr(std::ffi::CStr::from_bytes_with_nul(b"custom_knob\0").unwrap());
+        let found = unsafe {
+            libdengjenGetSynthesisParameter(&mut voice, key2, &mut value, &mut out_error)
+        };
         assert!(found);
         assert!(out_error.get_code().is_success());
         assert_eq!(value, 1.25);
