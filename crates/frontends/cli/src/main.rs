@@ -89,7 +89,9 @@ struct Cli {
     /// Number of mel frames to use for padding current chunk (improves naturalness)
     #[arg(long)]
     chunk_padding: Option<usize>,
-    /// Named synthesis parameter, repeatable (e.g. --param custom_knob=1.25)
+    /// Named synthesis parameter, repeatable (e.g. --param custom_knob=1.25).
+    /// A named flag (e.g. --length-scale) wins over a conflicting key here; an
+    /// unrecognized key may be silently ignored by the current backend.
     #[arg(long, value_parser = parse_param)]
     param: Vec<(String, f32)>,
 }

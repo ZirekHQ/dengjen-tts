@@ -429,6 +429,10 @@ impl PiperModel {
             .set_fallback_synthesis_config(&SynthesisConfig::from(&config))?)
     }
 
+    /// Additive escape hatch alongside the named setters (e.g. `set_scales`): a key may be
+    /// any string, but a backend that doesn't recognize it silently ignores it. Piper, the
+    /// only backend currently loadable, only recognizes `length_scale`, `noise_scale`, and
+    /// `noise_w`.
     fn set_parameters(&self, parameters: HashMap<String, f32>) -> PyDengjenResult<()> {
         let mut config = self.0.get_fallback_synthesis_config()?.unwrap_or_default();
         config.parameters.extend(parameters);
