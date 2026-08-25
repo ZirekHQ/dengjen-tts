@@ -30,19 +30,3 @@ func checkError(cErr C.struct_ExternError) error {
 	}
 	return &FFIError{Code: int32(cErr.code), Message: msg}
 }
-
-// smokeTestLoadVoiceFromConfigPath is a thin, unexported wrapper around the
-// raw C call, used only by dengjen_test.go's cgo-boundary smoke test. Go
-// does not permit "import \"C\"" inside a _test.go file (see go/build's
-// badGoFile check for isTest files), so any code that touches cgo types or
-// calls must live in a regular .go file; the test itself calls this
-// function without needing to import "C". Later tasks that add the real
-// LoadVoice/Voice API will likely subsume and remove this helper.
-func smokeTestLoadVoiceFromConfigPath(configPath string) (unsafe.Pointer, error) {
-	cPath := C.CString(configPath)
-	defer C.free(unsafe.Pointer(cPath))
-
-	var cErr C.struct_ExternError
-	ptr := C.libdengjenLoadVoiceFromConfigPath(C.FfiStr(cPath), &cErr)
-	return unsafe.Pointer(ptr), checkError(cErr)
-}
