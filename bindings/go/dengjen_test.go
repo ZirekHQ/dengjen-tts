@@ -37,7 +37,7 @@ func syntheticPiperConfigPath(t *testing.T) string {
 		"language": {"code": "en-US"},
 		"audio": {"sample_rate": 22050, "quality": null},
 		"num_speakers": 1,
-		"speaker_id_map": {},
+		"speaker_id_map": {"default": 0},
 		"streaming": false,
 		"espeak": {"voice": "en-us"},
 		"inference": {"noise_scale": 0.667, "length_scale": 1.0, "noise_w": 0.8},
@@ -75,5 +75,48 @@ func TestLoadVoiceAudioInfoAndClose(t *testing.T) {
 	// Close must be idempotent.
 	if err := v.Close(); err != nil {
 		t.Fatalf("second Close failed: %v", err)
+	}
+}
+
+func TestSynthConfigRoundTrip(t *testing.T) {
+	v, err := LoadVoice(syntheticPiperConfigPath(t))
+	if err != nil {
+		t.Fatalf("LoadVoice failed: %v", err)
+	}
+	defer v.Close()
+
+	cfg, err := v.PiperDefaultSynthConfig()
+	if err != nil {
+		t.Fatalf("PiperDefaultSynthConfig failed: %v", err)
+	}
+	if cfg.NoiseScale != 0.667 {
+		t.Errorf("expected default NoiseScale 0.667, got %v", cfg.NoiseScale)
+	}
+
+	cfg.LengthScale = 2.0
+	if err := v.SetPiperSynthConfig(cfg); err != nil {
+		t.Fatalf("SetPiperSynthConfig failed: %v", err)
+	}
+
+	if err := v.SetSynthesisParameter("noise_scale", 0.5); err != nil {
+		t.Fatalf("SetSynthesisParameter failed: %v", err)
+	}
+	value, ok, err := v.SynthesisParameter("noise_scale")
+	if err != nil {
+		t.Fatalf("SynthesisParameter failed: %v", err)
+	}
+	if !ok {
+		t.Fatalf("expected SynthesisParameter to report the key was found")
+	}
+	if value != 0.5 {
+		t.Errorf("expected noise_scale 0.5 after SetSynthesisParameter, got %v", value)
+	}
+
+	_, ok, err = v.SynthesisParameter("no_such_key")
+	if err != nil {
+		t.Fatalf("SynthesisParameter for an unset key returned an error: %v", err)
+	}
+	if ok {
+		t.Errorf("expected ok=false for a key that was never set")
 	}
 }

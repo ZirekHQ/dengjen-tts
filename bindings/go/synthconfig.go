@@ -1,0 +1,83 @@
+package dengjen
+
+/*
+#include <stdlib.h>
+#include "libdengjen.h"
+*/
+import "C"
+import "unsafe"
+
+// SynthConfig mirrors libdengjen's PiperSynthConfig: the tunable synthesis
+// parameters exposed by Piper-family voices.
+type SynthConfig struct {
+	Speaker     uint32
+	LengthScale float32
+	NoiseScale  float32
+	NoiseW      float32
+}
+
+// PiperDefaultSynthConfig returns this voice's default synthesis parameters.
+func (v *Voice) PiperDefaultSynthConfig() (SynthConfig, error) {
+	if v.ptr == nil {
+		return SynthConfig{}, &FFIError{Message: "voice is closed"}
+	}
+	var cErr C.struct_ExternError
+	cCfg := C.libdengjenGetPiperDefaultSynthConfig(v.ptr, &cErr)
+	if err := checkError(cErr); err != nil {
+		return SynthConfig{}, err
+	}
+	defer C.libdengjenFreePiperSynthConfig(cCfg)
+	return SynthConfig{
+		Speaker:     uint32(cCfg.speaker),
+		LengthScale: float32(cCfg.length_scale),
+		NoiseScale:  float32(cCfg.noise_scale),
+		NoiseW:      float32(cCfg.noise_w),
+	}, nil
+}
+
+// SetPiperSynthConfig updates this voice's fallback synthesis parameters.
+func (v *Voice) SetPiperSynthConfig(cfg SynthConfig) error {
+	if v.ptr == nil {
+		return &FFIError{Message: "voice is closed"}
+	}
+	cCfg := C.struct_PiperSynthConfig{
+		speaker:      C.uint32_t(cfg.Speaker),
+		length_scale: C.float(cfg.LengthScale),
+		noise_scale:  C.float(cfg.NoiseScale),
+		noise_w:      C.float(cfg.NoiseW),
+	}
+	var cErr C.struct_ExternError
+	C.libdengjenSetPiperSynthConfig(v.ptr, cCfg, &cErr)
+	return checkError(cErr)
+}
+
+// SetSynthesisParameter sets a single named parameter on the voice's fallback
+// synthesis config (model-agnostic — works for any backend's own parameter
+// names, e.g. Piper's "length_scale" or MeloTTS's "noise_scale_w").
+func (v *Voice) SetSynthesisParameter(key string, value float32) error {
+	if v.ptr == nil {
+		return &FFIError{Message: "voice is closed"}
+	}
+	cKey := C.CString(key)
+	defer C.free(unsafe.Pointer(cKey))
+	var cErr C.struct_ExternError
+	C.libdengjenSetSynthesisParameter(v.ptr, C.FfiStr(cKey), C.float(value), &cErr)
+	return checkError(cErr)
+}
+
+// SynthesisParameter reads a single named parameter from the voice's fallback
+// synthesis config. ok is false if the key was never set (not an error).
+func (v *Voice) SynthesisParameter(key string) (value float32, ok bool, err error) {
+	if v.ptr == nil {
+		return 0, false, &FFIError{Message: "voice is closed"}
+	}
+	cKey := C.CString(key)
+	defer C.free(unsafe.Pointer(cKey))
+	var cValue C.float
+	var cErr C.struct_ExternError
+	found := C.libdengjenGetSynthesisParameter(v.ptr, C.FfiStr(cKey), &cValue, &cErr)
+	if err := checkError(cErr); err != nil {
+		return 0, false, err
+	}
+	return float32(cValue), bool(found), nil
+}
