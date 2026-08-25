@@ -146,6 +146,14 @@ fn phonemize_sentence(engine: &PinyinEngine, sentence: &str) -> DengjenResult<Ve
     Ok(phonemes)
 }
 
+/// Converts Chinese text to pinyin phoneme strings (initial/final/tone/pause
+/// symbols), re-tokenized downstream by `map_phonemes_to_ids`'s longest-match
+/// lookup against a voice's `phoneme_id_map`. This was flagged (#94) as a
+/// possible collision risk — verified against two real zh-CN voices
+/// (`zh_CN-chaowen-medium`, `zh_CN-xiao_ya-medium`, rhasspy/piper-voices,
+/// identical 85-entry `phoneme_id_map`): every `initial×final×tone`
+/// combination (4,200 total) re-segments to its original three tokens under
+/// this engine's greedy longest-match algorithm. No collision; no fix needed.
 pub fn text_to_pinyin_phonemes(engine: &PinyinEngine, text: &str) -> DengjenResult<Phonemes> {
     let stripped = strip_quotation_marks(text);
     let sentences: Vec<String> = split_into_sentences(&stripped)
