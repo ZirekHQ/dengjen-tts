@@ -30,30 +30,15 @@ fn already_diacritized(text: &str) -> bool {
 /// Converts Hebrew text to IPA phonemes, diacritizing first (via `engine`)
 /// if `text` carries no niqqud already.
 ///
-/// # Known limitation: joined-string output vs. upstream's per-codepoint tokens
-///
-/// This returns the whole utterance's IPA as a single joined string
-/// (`Phonemes::from(vec![ipa])`). Real upstream (`HebrewPhonemizer.phonemize`
-/// in OHF-Voice/piper1-gpl) instead returns pre-tokenized single codepoints
-/// (`[list(ipa)]`) specifically so that piper's `phoneme_id_map`-based
-/// tokenizer — which does longest-match lookup — is forced into
-/// single-codepoint tokenization.
-///
-/// This engine's `map_phonemes_to_ids` (in `dengjen-tts-piper`'s
-/// `config.rs`) also does longest-match, so a real he-IL voice whose
-/// `phoneme_id_map` happens to contain a multi-codepoint key that collides
-/// with a substring of this joined IPA output could tokenize differently
-/// than upstream/the trained model expects. A live candidate: the
-/// tie-bar-stripped affricate `t͡s` becomes the two-character sequence
-/// `"ts"` here, which is exactly the kind of substring a `phoneme_id_map`
-/// could plausibly key on.
-///
-/// This is a known, open question, not a silently-accepted bug: no real
-/// he-IL voice config exists in this repo to validate against, and fixing
-/// it would mean changing `Phonemes`'s shape or `map_phonemes_to_ids`'s
-/// tokenization strategy — a shared-core decision that needs real voice
-/// data before it can be made safely. Flagged here for whoever validates
-/// this phonemizer against a real trained voice.
+/// Returns the whole utterance's IPA as a single joined string
+/// (`Phonemes::from(vec![ipa])`), re-tokenized downstream by
+/// `map_phonemes_to_ids`'s longest-match lookup against a voice's
+/// `phoneme_id_map`. This was flagged (#83) as a possible collision risk —
+/// verified against a real he-IL voice (`he_IL-saspeech-medium`,
+/// rhasspy/piper-voices): its `phoneme_id_map` has only 5 multi-codepoint
+/// keys, all Latin-script English diphthongs (`aɪ`, `aʊ`, `eɪ`, `oʊ`, `ɔɪ`)
+/// that this module's IPA output never produces, and no `"ts"` key at all.
+/// No collision; no fix needed.
 ///
 /// # Errors
 ///
