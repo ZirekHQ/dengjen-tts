@@ -5,19 +5,19 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct AudioConfig {
     pub sample_rate: u32,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct InferenceConfig {
     pub noise_scale: f32,
     pub length_scale: f32,
     pub noise_scale_w: f32,
 }
 
-#[derive(Deserialize, PartialEq, Debug)]
+#[derive(Deserialize, PartialEq, Debug, Clone)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum PhonemizerConfig {
     Espeak { voice: String },
@@ -25,17 +25,30 @@ pub enum PhonemizerConfig {
 }
 
 #[derive(Deserialize)]
+struct RawMeloVoiceConfig {
+    audio: AudioConfig,
+    phonemizer: PhonemizerConfig,
+    phone_id_map: HashMap<String, Vec<i64>>,
+    #[serde(default)]
+    tone_id_map: HashMap<String, i64>,
+    #[serde(default)]
+    speaker_id_map: HashMap<String, i64>,
+    #[serde(default)]
+    default_speaker_id: Option<i64>,
+    inference: InferenceConfig,
+    model_path: String,
+}
+
+#[derive(Clone)]
 pub struct MeloVoiceConfig {
     pub audio: AudioConfig,
     pub phonemizer: PhonemizerConfig,
     pub phone_id_map: HashMap<String, Vec<i64>>,
-    #[serde(default)]
     pub tone_id_map: HashMap<String, i64>,
-    #[serde(default)]
     pub speaker_id_map: HashMap<String, i64>,
-    #[serde(default)]
     pub default_speaker_id: Option<i64>,
     pub inference: InferenceConfig,
+    pub model_path: PathBuf,
 }
 
 pub fn load_config(path: &Path) -> DengjenResult<MeloVoiceConfig> {
@@ -45,11 +58,25 @@ pub fn load_config(path: &Path) -> DengjenResult<MeloVoiceConfig> {
             path.display()
         ))
     })?;
-    serde_json::from_str(&raw).map_err(|e| {
+    let parsed: RawMeloVoiceConfig = serde_json::from_str(&raw).map_err(|e| {
         DengjenError::InvalidConfiguration(format!(
             "Failed to parse MeloTTS voice config at `{}`: {e}",
             path.display()
         ))
+    })?;
+    let model_path = path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(&parsed.model_path);
+    Ok(MeloVoiceConfig {
+        audio: parsed.audio,
+        phonemizer: parsed.phonemizer,
+        phone_id_map: parsed.phone_id_map,
+        tone_id_map: parsed.tone_id_map,
+        speaker_id_map: parsed.speaker_id_map,
+        default_speaker_id: parsed.default_speaker_id,
+        inference: parsed.inference,
+        model_path,
     })
 }
 
@@ -123,12 +150,13 @@ mod tests {
         "audio": {"sample_rate": 44100},
         "phonemizer": {"type": "espeak", "voice": "en-us"},
         "phone_id_map": {"^": [1], "$": [2], "_": [3], "a": [4]},
-        "inference": {"noise_scale": 0.667, "length_scale": 1.0, "noise_scale_w": 0.8}
+        "inference": {"noise_scale": 0.667, "length_scale": 1.0, "noise_scale_w": 0.8},
+        "model_path": "model.onnx"
     }"#;
 
     #[test]
     fn parses_a_minimal_espeak_voice_config() {
-        let config: MeloVoiceConfig = serde_json::from_str(BASE_CONFIG_JSON).unwrap();
+        let config: RawMeloVoiceConfig = serde_json::from_str(BASE_CONFIG_JSON).unwrap();
         assert_eq!(config.audio.sample_rate, 44100);
         assert_eq!(
             config.phonemizer,
@@ -151,9 +179,10 @@ mod tests {
             "tone_id_map": {"_": 0, "1": 1, "2": 2, "3": 3, "4": 4},
             "speaker_id_map": {"default": 0},
             "default_speaker_id": 0,
-            "inference": {"noise_scale": 0.667, "length_scale": 1.0, "noise_scale_w": 0.8}
+            "inference": {"noise_scale": 0.667, "length_scale": 1.0, "noise_scale_w": 0.8},
+            "model_path": "model.onnx"
         }"#;
-        let config: MeloVoiceConfig = serde_json::from_str(json).unwrap();
+        let config: RawMeloVoiceConfig = serde_json::from_str(json).unwrap();
         assert_eq!(
             config.phonemizer,
             PhonemizerConfig::Pinyin {
@@ -171,15 +200,34 @@ mod tests {
             "audio": {"sample_rate": 44100},
             "phonemizer": {"type": "festival", "voice": "en"},
             "phone_id_map": {},
-            "inference": {"noise_scale": 0.667, "length_scale": 1.0, "noise_scale_w": 0.8}
+            "inference": {"noise_scale": 0.667, "length_scale": 1.0, "noise_scale_w": 0.8},
+            "model_path": "model.onnx"
         }"#;
-        assert!(serde_json::from_str::<MeloVoiceConfig>(json).is_err());
+        assert!(serde_json::from_str::<RawMeloVoiceConfig>(json).is_err());
     }
 
     #[test]
     fn load_config_errors_when_the_file_does_not_exist() {
         let result = load_config(Path::new("/nonexistent/config.json"));
         assert!(matches!(result, Err(DengjenError::FailedToLoadResource(_))));
+    }
+
+    #[test]
+    fn load_config_resolves_model_path_relative_to_the_config_file() {
+        let dir = std::env::temp_dir().join("dengjen_melotts_config_test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let config_path = dir.join("config.json");
+        let json = r#"{
+            "audio": {"sample_rate": 44100},
+            "phonemizer": {"type": "espeak", "voice": "en-us"},
+            "phone_id_map": {"^": [1], "$": [2], "_": [3], "a": [4]},
+            "inference": {"noise_scale": 0.667, "length_scale": 1.0, "noise_scale_w": 0.8},
+            "model_path": "model.onnx"
+        }"#;
+        std::fs::write(&config_path, json).unwrap();
+        let config = load_config(&config_path).unwrap();
+        assert_eq!(config.model_path, dir.join("model.onnx"));
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     fn test_phone_id_map() -> HashMap<String, Vec<i64>> {

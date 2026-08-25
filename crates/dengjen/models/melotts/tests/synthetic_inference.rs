@@ -1,43 +1,33 @@
-use dengjen_tts_melotts::MeloTTSModel;
-use std::collections::HashMap;
 use std::path::PathBuf;
-
-fn test_config() -> dengjen_tts_melotts::MeloVoiceConfig {
-    dengjen_tts_melotts::MeloVoiceConfig {
-        audio: dengjen_tts_melotts::AudioConfig { sample_rate: 24000 },
-        phonemizer: dengjen_tts_melotts::PhonemizerConfig::Espeak {
-            voice: "en-us".to_string(),
-        },
-        phone_id_map: HashMap::from([
-            ("^".to_string(), vec![1]),
-            ("$".to_string(), vec![2]),
-            ("_".to_string(), vec![3]),
-            ("t".to_string(), vec![4]),
-        ]),
-        tone_id_map: HashMap::from([("_".to_string(), 0)]),
-        speaker_id_map: HashMap::new(),
-        default_speaker_id: None,
-        inference: dengjen_tts_melotts::InferenceConfig {
-            noise_scale: 0.667,
-            length_scale: 1.0,
-            noise_scale_w: 0.8,
-        },
-    }
-}
 
 #[test]
 fn synthesizes_against_synthetic_fixture_without_panicking() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let model_path = manifest_dir.join("tests/fixtures/synthetic_melotts.onnx");
-    let model = MeloTTSModel::from_config_with_model_path(test_config(), &model_path)
+    let fixture_path = manifest_dir.join("tests/fixtures/synthetic_melotts.onnx");
+
+    let dir = std::env::temp_dir().join("dengjen_melotts_synthetic_inference_test");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::copy(&fixture_path, dir.join("model.onnx")).unwrap();
+    let config_json = r#"{
+        "audio": {"sample_rate": 24000},
+        "phonemizer": {"type": "espeak", "voice": "en-us"},
+        "phone_id_map": {"^": [1], "$": [2], "_": [3], "t": [4]},
+        "tone_id_map": {"_": 0},
+        "inference": {"noise_scale": 0.667, "length_scale": 1.0, "noise_scale_w": 0.8},
+        "model_path": "model.onnx"
+    }"#;
+    let config_path = dir.join("config.json");
+    std::fs::write(&config_path, config_json).unwrap();
+
+    let model = dengjen_tts_melotts::from_config_path(&config_path)
         .expect("failed to load synthetic MeloTTS model");
 
-    let pairs = vec![("t".to_string(), "_".to_string())];
     let audio = model
-        .synthesize_phone_tone_pairs(&pairs, 0)
+        .speak_one_sentence("t:_".to_string())
         .expect("synthesis against synthetic fixture failed");
 
     assert_eq!(audio.info.sample_rate, 24000);
-    let samples = audio.samples.into_vec();
-    assert_eq!(samples.len(), 16000);
+    assert_eq!(audio.samples.into_vec().len(), 16000);
+
+    std::fs::remove_dir_all(&dir).ok();
 }

@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use crate::config::PhonemizerConfig;
 use dengjen_tts_core::{DengjenError, DengjenResult};
 
 #[cfg(feature = "pinyin")]
@@ -84,9 +85,44 @@ pub(crate) fn espeak_phone_tone_pairs(
     ))
 }
 
+pub(crate) enum PhonemizerBackend {
+    Espeak { voice: String },
+    Pinyin(Box<PinyinBackend>),
+}
+
+pub(crate) fn create_backend(config: &PhonemizerConfig) -> DengjenResult<PhonemizerBackend> {
+    match config {
+        PhonemizerConfig::Espeak { voice } => Ok(PhonemizerBackend::Espeak {
+            voice: voice.clone(),
+        }),
+        PhonemizerConfig::Pinyin { model_dir } => Ok(PhonemizerBackend::Pinyin(Box::new(
+            create_pinyin_backend(model_dir)?,
+        ))),
+    }
+}
+
+pub(crate) fn phone_tone_pairs(
+    backend: &PhonemizerBackend,
+    text: &str,
+) -> DengjenResult<Vec<Vec<(String, String)>>> {
+    match backend {
+        PhonemizerBackend::Espeak { voice } => espeak_phone_tone_pairs(text, voice),
+        PhonemizerBackend::Pinyin(engine) => pinyin_phone_tone_pairs(engine, text),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn create_backend_and_dispatch_route_espeak_config_to_the_espeak_path() {
+        let config = crate::config::PhonemizerConfig::Espeak {
+            voice: "en-us".to_string(),
+        };
+        let backend = create_backend(&config).unwrap();
+        assert!(matches!(backend, PhonemizerBackend::Espeak { .. }));
+    }
 
     #[cfg(feature = "pinyin")]
     #[test]

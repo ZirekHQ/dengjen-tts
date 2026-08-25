@@ -19,13 +19,18 @@ fn execution_providers() -> Vec<ort::ep::ExecutionProviderDispatch> {
     providers
 }
 
-pub struct MeloTTSModel {
+pub(crate) struct MeloTTSModel {
     session: Mutex<Session>,
     config: MeloVoiceConfig,
 }
 
 impl MeloTTSModel {
-    pub fn from_config_with_model_path(
+    pub(crate) fn from_config(config: MeloVoiceConfig) -> DengjenResult<Self> {
+        let model_path = config.model_path.clone();
+        Self::from_config_with_model_path(config, &model_path)
+    }
+
+    fn from_config_with_model_path(
         config: MeloVoiceConfig,
         model_path: &Path,
     ) -> DengjenResult<Self> {
@@ -46,7 +51,7 @@ impl MeloTTSModel {
         })
     }
 
-    pub fn synthesize_phone_tone_pairs(
+    pub(crate) fn synthesize_phone_tone_pairs(
         &self,
         pairs: &[(String, String)],
         speaker_id: i64,
