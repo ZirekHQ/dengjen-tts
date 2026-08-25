@@ -74,9 +74,13 @@ func (v *Voice) SpeakToFile(text string, params SynthesisParams, outFilename str
 
 // Speak synthesizes text and streams the resulting audio to onEvent, one
 // event at a time. onEvent returns true to keep receiving events, false to
-// stop early. The final event delivered is always EventFinished or
-// EventError. If params.Nonblocking is true, Speak returns immediately and
-// onEvent continues firing from another goroutine until the stream ends.
+// stop early. If onEvent runs to the natural end of the stream, the last
+// event delivered is EventFinished or EventError; if onEvent instead returns
+// false, the stream stops immediately at whatever event triggered that, and
+// no further event (in particular, no EventFinished) is delivered for this
+// call. If params.Nonblocking is true, Speak returns immediately and onEvent
+// continues firing from another goroutine until the stream ends by either of
+// those means.
 func (v *Voice) Speak(text string, params SynthesisParams, onEvent func(SynthesisEvent) bool) error {
 	if v.ptr == nil {
 		return &FFIError{Message: "voice is closed"}

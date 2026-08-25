@@ -6,7 +6,9 @@ package dengjen
 
 import (
 	"os"
+	"runtime"
 	"testing"
+	"time"
 )
 
 func TestLoadVoiceReportsAnErrorForAMissingConfigPath(t *testing.T) {
@@ -199,4 +201,61 @@ func TestSpeakOnEventReturningFalseStopsEarly(t *testing.T) {
 	if calls != 1 {
 		t.Errorf("expected exactly 1 callback invocation after returning false, got %d", calls)
 	}
+}
+
+// TestSpeakOnEventReturningFalseReleasesHandle proves the cgo.Handle backing
+// onEvent is actually deleted when onEvent stops the stream early, not just
+// that the callback stopped firing. iterate_stream (Rust side) never
+// delivers a terminal (Finished/Error) event on this path, so a trampoline
+// that deletes the handle only on a terminal event leaks it (and everything
+// onEvent captures) permanently -- calls==1 alone can't distinguish "handle
+// deleted, stream stopped cleanly" from "handle leaked forever". This test
+// closes over a canary value with a finalizer: if the handle were leaked,
+// the runtime's internal handle table would keep the canary reachable
+// forever and its finalizer would never run.
+func TestSpeakOnEventReturningFalseReleasesHandle(t *testing.T) {
+	v, err := LoadVoice(syntheticPiperConfigPath(t))
+	if err != nil {
+		t.Fatalf("LoadVoice failed: %v", err)
+	}
+	defer v.Close()
+
+	// Deliberately non-zero-size: a zero-size *canary would alias the
+	// runtime's shared zerobase address with every other zero-size
+	// allocation, and per runtime.SetFinalizer's documented caveat, a
+	// finalizer set on a zero-size object is never guaranteed to run --
+	// that would make this test pass regardless of whether Speak's handle
+	// was actually released, defeating its purpose.
+	type canary struct{ n int }
+
+	released := make(chan struct{})
+	// Build the onEvent closure inside its own function scope so the canary
+	// it captures isn't also reachable from a variable in this test's frame
+	// (which would mask a real leak: the handle table isn't the only thing
+	// keeping the canary alive).
+	newOnEvent := func() func(SynthesisEvent) bool {
+		c := &canary{n: 1}
+		runtime.SetFinalizer(c, func(*canary) { close(released) })
+		return func(e SynthesisEvent) bool {
+			runtime.KeepAlive(c)
+			return false // stop immediately, like the early-stop test above
+		}
+	}
+
+	params := SynthesisParams{Mode: SynthModeLazy, Rate: 10, Volume: 100, Pitch: 50}
+	if err := v.Speak("Test.", params, newOnEvent()); err != nil {
+		t.Fatalf("Speak failed: %v", err)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		runtime.GC()
+		select {
+		case <-released:
+			return // handle (and the closure/canary it pinned) was released
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	t.Fatal("canary finalizer never ran: the cgo.Handle for an early-stopped " +
+		"Speak call was never deleted, leaking onEvent's closure")
 }

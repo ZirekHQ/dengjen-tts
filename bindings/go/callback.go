@@ -51,7 +51,15 @@ func goDengjenSpeechCallback(event C.struct_SynthesisEvent, userData unsafe.Poin
 
 	wantsMore := onEvent == nil || onEvent(goEvent)
 
-	if event.event_type == C.SYNTH_EVENT_FINISHED || event.event_type == C.SYNTH_EVENT_ERROR {
+	// A Finished/Error event is the normal end of the stream, but onEvent
+	// returning false also ends it -- iterate_stream (Rust side) stops
+	// iterating and returns without ever delivering a terminal event in that
+	// case. Either condition means this is the last time the trampoline will
+	// run for this handle, so the handle must be deleted here; the `||` (not
+	// two independent `if`s) is load-bearing, since a Finished/Error event
+	// whose onEvent call also returns false must still only delete once.
+	terminal := event.event_type == C.SYNTH_EVENT_FINISHED || event.event_type == C.SYNTH_EVENT_ERROR
+	if terminal || !wantsMore {
 		h.Delete()
 	}
 	if wantsMore {
