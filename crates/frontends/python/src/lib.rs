@@ -411,11 +411,9 @@ impl PiperModel {
                 "no speaker named '{name}'"
             ))));
         };
-        let mut config = self.piper_config_or_err()?;
+        let mut config = self.generic_config_or_err()?;
         config.speaker = Some(speaker_id);
-        Ok(self
-            .0
-            .set_fallback_synthesis_config(&SynthesisConfig::from(&config))?)
+        Ok(self.0.set_fallback_synthesis_config(&config)?)
     }
 
     fn get_scales(&self) -> PyDengjenResult<PiperScales> {
@@ -428,13 +426,20 @@ impl PiperModel {
     }
 
     fn set_scales(&self, length_scale: f32, noise_scale: f32, noise_w: f32) -> PyDengjenResult<()> {
-        let mut config = self.piper_config_or_err()?;
-        config.length_scale = length_scale;
-        config.noise_scale = noise_scale;
-        config.noise_w = noise_w;
-        Ok(self
-            .0
-            .set_fallback_synthesis_config(&SynthesisConfig::from(&config))?)
+        let mut config = self.generic_config_or_err()?;
+        config.parameters.insert(
+            dengjen_tts_piper::synth_config::LENGTH_SCALE.to_string(),
+            length_scale,
+        );
+        config.parameters.insert(
+            dengjen_tts_piper::synth_config::NOISE_SCALE.to_string(),
+            noise_scale,
+        );
+        config.parameters.insert(
+            dengjen_tts_piper::synth_config::NOISE_W.to_string(),
+            noise_w,
+        );
+        Ok(self.0.set_fallback_synthesis_config(&config)?)
     }
 
     /// Additive escape hatch alongside the named setters (e.g. `set_scales`): a key may be
@@ -468,14 +473,21 @@ impl PiperModel {
     }
 
     fn piper_config_or_err(&self) -> PyDengjenResult<dengjen_tts_piper::PiperSynthesisConfig> {
-        self.0
-            .get_fallback_synthesis_config()?
+        self.generic_config_or_err()
             .map(|config| dengjen_tts_piper::PiperSynthesisConfig::from(&config))
-            .ok_or_else(|| {
-                PyDengjenError::from(DengjenError::InvalidConfiguration(
-                    "this model has no Piper synthesis config to read or update".to_string(),
-                ))
-            })
+    }
+
+    /// Unlike `piper_config_or_err`, keeps the full generic `SynthesisConfig`
+    /// (including any keys added via `set_parameters`) rather than narrowing
+    /// it to Piper's three named scale fields. Setters must merge onto this,
+    /// not `piper_config_or_err`'s view, or they silently drop other
+    /// generic parameters on write-back (see #105).
+    fn generic_config_or_err(&self) -> PyDengjenResult<SynthesisConfig> {
+        self.0.get_fallback_synthesis_config()?.ok_or_else(|| {
+            PyDengjenError::from(DengjenError::InvalidConfiguration(
+                "this model has no Piper synthesis config to read or update".to_string(),
+            ))
+        })
     }
 }
 
@@ -895,6 +907,20 @@ mod model_and_synthesizer_tests {
     }
 
     #[test]
+    fn piper_model_set_speaker_preserves_generic_parameters_set_earlier() {
+        let model = PiperModel(Arc::new(FakeModel::with_speakers(&[
+            (0, "alice"),
+            (1, "bob"),
+        ])));
+        let mut parameters = HashMap::new();
+        parameters.insert("custom_knob".to_string(), 1.25);
+        model.set_parameters(parameters).unwrap();
+        model.set_speaker("bob".to_string()).unwrap();
+        let result = model.get_parameters().unwrap();
+        assert_eq!(result.get("custom_knob"), Some(&1.25));
+    }
+
+    #[test]
     fn piper_model_get_and_set_scales_round_trip() {
         let model = fake_piper_model();
         model.set_scales(0.9, 0.5, 0.7).unwrap();
@@ -902,6 +928,17 @@ mod model_and_synthesizer_tests {
         assert_eq!(scales.length_scale, 0.9);
         assert_eq!(scales.noise_scale, 0.5);
         assert_eq!(scales.noise_w, 0.7);
+    }
+
+    #[test]
+    fn piper_model_set_scales_preserves_generic_parameters_set_earlier() {
+        let model = PiperModel(Arc::new(FakeModel::with_one_speaker()));
+        let mut parameters = HashMap::new();
+        parameters.insert("custom_knob".to_string(), 1.25);
+        model.set_parameters(parameters).unwrap();
+        model.set_scales(0.9, 0.5, 0.7).unwrap();
+        let result = model.get_parameters().unwrap();
+        assert_eq!(result.get("custom_knob"), Some(&1.25));
     }
 
     #[test]
