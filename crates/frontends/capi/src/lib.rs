@@ -506,6 +506,55 @@ pub unsafe extern "C" fn libdengjenSetSynthesisParameter(
     })
 }
 
+/// Reads a single named entry from the voice's generic synthesis `parameters` map — the
+/// read-side counterpart to [`libdengjenSetSynthesisParameter`]. Returns `true` and writes
+/// `*out_value_ptr` if `key` is present in the voice's current generic parameters map; returns
+/// `false` (not an error) if `key` is absent, or if the loaded backend has no synthesis config
+/// at all (e.g. Kokoro).
+///
+/// # Safety
+/// If non-null, `voice_ptr` and `out_value_ptr` must each be well-aligned and point to a valid
+/// `DengjenVoice`/`f32`. `key_ptr` must be a valid, NUL-terminated UTF-8 C string for the
+/// duration of this call. Either `voice_ptr` or `out_value_ptr` being null is handled
+/// gracefully: a NULL_POINTER error is written to `out_error`, `false` is returned, and
+/// `out_value_ptr` (if non-null) is left untouched.
+#[no_mangle]
+#[allow(non_snake_case)]
+pub unsafe extern "C" fn libdengjenGetSynthesisParameter(
+    voice_ptr: *mut DengjenVoice,
+    key_ptr: FfiStr,
+    out_value_ptr: *mut f32,
+    out_error: &mut ExternError,
+) -> bool {
+    // SAFETY: `voice_ptr` carries this function's own non-null-or-valid contract.
+    let Some(voice) = (unsafe { require_ref(voice_ptr, "voice_ptr", out_error) }) else {
+        return false;
+    };
+    // SAFETY: `out_value_ptr` carries this function's own non-null-or-valid contract.
+    let Some(out_value) = (unsafe { require_mut(out_value_ptr, "out_value_ptr", out_error) })
+    else {
+        return false;
+    };
+    let mut out_value = AssertUnwindSafe(out_value);
+    (call_with_result(out_error, move || {
+        let Some(key) = key_ptr.into_opt_string() else {
+            return Err(DengjenFFIError::invalid_utf8());
+        };
+        let config = voice
+            .get_fallback_synthesis_config()
+            .map_err(DengjenFFIError::from)?
+            .unwrap_or_default();
+        match config.parameters.get(&key) {
+            Some(value) => {
+                **out_value = *value;
+                Ok::<_, DengjenFFIError>(true)
+            }
+            None => Ok(false),
+        }
+    }) as u8)
+        != 0
+}
+
 /// # Safety
 /// If non-null, `voice_ptr` must be well-aligned and point to a valid `DengjenVoice`. Passing
 /// null is handled gracefully: a NULL_POINTER error is written to `out_error`.
@@ -976,6 +1025,53 @@ mod tests {
         );
         // SAFETY: see `get_audio_info_null_voice_returns_null_pointer_error_without_panicking`.
         unsafe { out_error.manually_release() };
+    }
+
+    #[test]
+    fn get_synthesis_parameter_null_voice_returns_null_pointer_error_without_panicking() {
+        let mut out_error = ExternError::default();
+        let key = FfiStr::from_cstr(std::ffi::CStr::from_bytes_with_nul(b"custom_knob\0").unwrap());
+        let mut value: f32 = 0.0;
+        let found = unsafe {
+            libdengjenGetSynthesisParameter(std::ptr::null_mut(), key, &mut value, &mut out_error)
+        };
+        assert!(!found);
+        assert_eq!(out_error.get_code().code(), error_codes::NULL_POINTER);
+        // SAFETY: see `get_audio_info_null_voice_returns_null_pointer_error_without_panicking`.
+        unsafe { out_error.manually_release() };
+    }
+
+    #[test]
+    fn get_synthesis_parameter_returns_false_for_a_key_that_was_never_set() {
+        let mut voice = fake_voice();
+        let mut out_error = ExternError::default();
+        let key = FfiStr::from_cstr(std::ffi::CStr::from_bytes_with_nul(b"custom_knob\0").unwrap());
+        let mut value: f32 = 0.0;
+        let found =
+            unsafe { libdengjenGetSynthesisParameter(&mut voice, key, &mut value, &mut out_error) };
+        assert!(!found);
+        assert!(out_error.get_code().is_success());
+    }
+
+    #[test]
+    fn get_synthesis_parameter_round_trips_a_value_set_via_set_synthesis_parameter() {
+        let mut voice = fake_voice();
+        let mut out_error = ExternError::default();
+        let key = FfiStr::from_cstr(std::ffi::CStr::from_bytes_with_nul(b"custom_knob\0").unwrap());
+        unsafe {
+            libdengjenSetSynthesisParameter(&mut voice, key, 1.25, &mut out_error);
+        }
+        assert!(out_error.get_code().is_success());
+
+        let mut value: f32 = 0.0;
+        let key2 =
+            FfiStr::from_cstr(std::ffi::CStr::from_bytes_with_nul(b"custom_knob\0").unwrap());
+        let found = unsafe {
+            libdengjenGetSynthesisParameter(&mut voice, key2, &mut value, &mut out_error)
+        };
+        assert!(found);
+        assert!(out_error.get_code().is_success());
+        assert_eq!(value, 1.25);
     }
 
     #[test]

@@ -5,6 +5,7 @@ use dengjen_tts::{
     AudioOutputConfig, AudioSamples, CancellationToken, DengjenModel, DengjenResult,
     DengjenSpeechSynthesizer, SynthesisConfig,
 };
+#[cfg(test)]
 use dengjen_tts_piper::PiperSynthesisConfig;
 use serde::Deserialize;
 use std::fs::File;
@@ -120,8 +121,8 @@ impl SynthesisRequest {
     /// noise_scale/noise_w) overwrites its corresponding value, so a named field
     /// always wins over a conflicting `parameters` key — matching gRPC's
     /// `apply_synth_options` precedence.
-    fn as_synthesis_config(&self, default_config: &PiperSynthesisConfig) -> SynthesisConfig {
-        let mut config = SynthesisConfig::from(default_config);
+    fn as_synthesis_config(&self, default_config: &SynthesisConfig) -> SynthesisConfig {
+        let mut config = default_config.clone();
         for (key, value) in &self.parameters {
             config.parameters.insert(key.clone(), *value);
         }
@@ -182,7 +183,7 @@ fn get_synthesis_request_from_stdin() -> anyhow::Result<Option<SynthesisRequest>
 fn process_synthesis_request<W: Write>(
     args: &Cli,
     synth: &DengjenSpeechSynthesizer,
-    default_synth_config: &PiperSynthesisConfig,
+    default_synth_config: &SynthesisConfig,
     req: SynthesisRequest,
     writer: &mut W,
 ) -> anyhow::Result<()> {
@@ -355,8 +356,8 @@ mod synthesis_processing_tests {
         DengjenSpeechSynthesizer::new(std::sync::Arc::new(FakeDengjenModel::failing())).unwrap()
     }
 
-    fn default_config() -> PiperSynthesisConfig {
-        PiperSynthesisConfig::default()
+    fn default_config() -> SynthesisConfig {
+        SynthesisConfig::default()
     }
 
     fn cli_with_output_file(path: Option<std::path::PathBuf>) -> Cli {
@@ -512,6 +513,23 @@ mod synthesis_processing_tests {
     }
 
     #[test]
+    fn a_default_parameter_not_covered_by_any_named_field_survives_into_the_synthesized_request() {
+        // Simulates a future non-Piper backend whose default config carries a
+        // parameter with no CLI flag of its own — `resolve_default_synthesis_config`
+        // must not truncate it away before `as_synthesis_config` ever sees it.
+        let mut default_config = SynthesisConfig::default();
+        default_config
+            .parameters
+            .insert("custom_knob".to_string(), 4.5);
+        let req = SynthesisRequest {
+            text: "hello".to_string(),
+            ..Default::default()
+        };
+        let result = req.as_synthesis_config(&default_config);
+        assert_eq!(result.parameters.get("custom_knob"), Some(&4.5));
+    }
+
+    #[test]
     fn consume_stream_stops_at_the_first_error_without_writing_further_chunks() {
         let stream: Vec<DengjenResult<AudioSamples>> = vec![
             Ok(AudioSamples::new(vec![0.0, 0.5])),
@@ -577,13 +595,12 @@ fn build_synthesizer(config_path: &std::path::Path) -> anyhow::Result<DengjenSpe
 
 fn resolve_default_synthesis_config(
     synthesizer: &DengjenSpeechSynthesizer,
-) -> anyhow::Result<PiperSynthesisConfig> {
+) -> anyhow::Result<SynthesisConfig> {
     // Non-Piper backends (e.g. Kokoro) return None here; their
     // set_fallback_synthesis_config ignores whatever default we pass, so this
     // default is inert for them.
     Ok(synthesizer
         .get_default_synthesis_config()?
-        .map(|config| PiperSynthesisConfig::from(&config))
         .unwrap_or_default())
 }
 
@@ -609,7 +626,7 @@ fn synthesize_from_file(
     cli: &Cli,
     input_path: &std::path::Path,
     synthesizer: &DengjenSpeechSynthesizer,
-    default_synth_config: &PiperSynthesisConfig,
+    default_synth_config: &SynthesisConfig,
 ) -> anyhow::Result<()> {
     let mut file = File::open(input_path)?;
     let mut text = String::new();
@@ -627,7 +644,7 @@ fn synthesize_from_file(
 fn synthesize_from_stdin_forever(
     mut cli: Cli,
     synthesizer: &DengjenSpeechSynthesizer,
-    default_synth_config: &PiperSynthesisConfig,
+    default_synth_config: &SynthesisConfig,
 ) -> anyhow::Result<()> {
     let mut request_count: u64 = 0;
     loop {
@@ -715,12 +732,12 @@ mod tests {
 
     #[test]
     fn as_synthesis_config_falls_back_to_defaults_when_fields_are_none() {
-        let default_config = PiperSynthesisConfig {
+        let default_config = SynthesisConfig::from(&PiperSynthesisConfig {
             speaker: Some(0),
             length_scale: 1.0,
             noise_scale: 0.667,
             noise_w: 0.8,
-        };
+        });
         let req = SynthesisRequest {
             text: "hello".to_string(),
             ..Default::default()
@@ -734,7 +751,7 @@ mod tests {
 
     #[test]
     fn as_synthesis_config_overrides_defaults_when_fields_are_set() {
-        let default_config = PiperSynthesisConfig::default();
+        let default_config = SynthesisConfig::from(&PiperSynthesisConfig::default());
         let req = SynthesisRequest {
             text: "hello".to_string(),
             speaker_id: Some(3),
@@ -748,7 +765,7 @@ mod tests {
 
     #[test]
     fn synthesis_request_parameters_flow_into_the_generic_synthesis_config() {
-        let default_config = PiperSynthesisConfig::default();
+        let default_config = SynthesisConfig::from(&PiperSynthesisConfig::default());
         let req = SynthesisRequest {
             text: "hello".to_string(),
             parameters: vec![("custom_knob".to_string(), 1.25)],
@@ -760,12 +777,12 @@ mod tests {
 
     #[test]
     fn as_synthesis_config_merges_generic_parameters_the_named_fields_dont_cover() {
-        let default_config = PiperSynthesisConfig {
+        let default_config = SynthesisConfig::from(&PiperSynthesisConfig {
             speaker: Some(0),
             length_scale: 1.0,
             noise_scale: 0.667,
             noise_w: 0.8,
-        };
+        });
         let req = SynthesisRequest {
             text: "hello".to_string(),
             parameters: vec![("length_scale".to_string(), 2.5)],
@@ -777,12 +794,12 @@ mod tests {
 
     #[test]
     fn as_synthesis_config_prefers_the_named_field_over_a_conflicting_parameters_key() {
-        let default_config = PiperSynthesisConfig {
+        let default_config = SynthesisConfig::from(&PiperSynthesisConfig {
             speaker: Some(0),
             length_scale: 1.0,
             noise_scale: 0.667,
             noise_w: 0.8,
-        };
+        });
         let req = SynthesisRequest {
             text: "hello".to_string(),
             length_scale: Some(3.0),
