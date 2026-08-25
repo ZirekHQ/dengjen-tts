@@ -610,6 +610,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "dengjen-tts-melotts"
+version = "0.1.0"
+dependencies = [
+ "dengjen-tts-core",
+ "espeak-phonemizer",
+ "ndarray",
+ "ort",
+ "pinyin-phonemizer",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "dengjen-tts-piper"
 version = "0.2.0"
 dependencies = [
