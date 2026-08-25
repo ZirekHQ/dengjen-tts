@@ -3,9 +3,21 @@ package dengjen
 /*
 #include <stdlib.h>
 #include "libdengjen.h"
+
+// cgo generates the extern declaration for the //export'd
+// goDengjenSpeechCallback (defined in callback.go) into _cgo_export.h, but
+// that header is itself a product of cgo processing every preamble in this
+// package -- including this one -- so #include-ing it here is a chicken-and-
+// egg problem (cgo fails with "_cgo_export.h: No such file or directory").
+// Declare the same prototype directly instead; it must match the signature
+// of goDengjenSpeechCallback exactly.
+extern uint8_t goDengjenSpeechCallback(struct SynthesisEvent event, void *userData);
 */
 import "C"
-import "unsafe"
+import (
+	"runtime/cgo"
+	"unsafe"
+)
 
 // Synthesis mode constants, matching SYNTH_MODE_* in libdengjen.h.
 const (
@@ -58,4 +70,41 @@ func (v *Voice) SpeakToFile(text string, params SynthesisParams, outFilename str
 		return false, err
 	}
 	return wrote != 0, nil
+}
+
+// Speak synthesizes text and streams the resulting audio to onEvent, one
+// event at a time. onEvent returns true to keep receiving events, false to
+// stop early. The final event delivered is always EventFinished or
+// EventError. If params.Nonblocking is true, Speak returns immediately and
+// onEvent continues firing from another goroutine until the stream ends.
+func (v *Voice) Speak(text string, params SynthesisParams, onEvent func(SynthesisEvent) bool) error {
+	if v.ptr == nil {
+		return &FFIError{Message: "voice is closed"}
+	}
+	cText := C.CString(text)
+	defer C.free(unsafe.Pointer(cText))
+
+	h := cgo.NewHandle(onEvent)
+
+	cParams := C.struct_SynthesisParams{
+		mode:                C.int32_t(params.Mode),
+		rate:                C.uint8_t(params.Rate),
+		volume:              C.uint8_t(params.Volume),
+		pitch:               C.uint8_t(params.Pitch),
+		appended_silence_ms: C.uint32_t(params.AppendedSilenceMs),
+		callback:            C.SpeechSynthesisCallback(C.goDengjenSpeechCallback),
+		nonblocking:         boolToUint8(params.Nonblocking),
+		user_data:           unsafe.Pointer(h),
+	}
+
+	var cErr C.struct_ExternError
+	C.libdengjenSpeak(v.ptr, C.FfiStr(cText), cParams, &cErr)
+	if err := checkError(cErr); err != nil {
+		// The callback is guaranteed to never fire for a call that reports an
+		// error here (traced in the design spec, §"Streaming"), so this call
+		// site — not the trampoline — owns deleting the handle.
+		h.Delete()
+		return err
+	}
+	return nil
 }

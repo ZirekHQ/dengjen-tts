@@ -150,3 +150,53 @@ func TestSpeakToFileWritesAWavFile(t *testing.T) {
 		t.Errorf("expected a %d-byte WAV file, got %d bytes", expectedLen, len(data))
 	}
 }
+
+func TestSpeakLazyModeDeliversSpeechThenFinished(t *testing.T) {
+	v, err := LoadVoice(syntheticPiperConfigPath(t))
+	if err != nil {
+		t.Fatalf("LoadVoice failed: %v", err)
+	}
+	defer v.Close()
+
+	var events []EventType
+	var totalBytes int
+	params := SynthesisParams{Mode: SynthModeLazy, Rate: 10, Volume: 100, Pitch: 50}
+	err = v.Speak("Test.", params, func(e SynthesisEvent) bool {
+		events = append(events, e.Type)
+		totalBytes += len(e.Data)
+		if e.Err != nil {
+			t.Errorf("unexpected event error: %v", e.Err)
+		}
+		return true
+	})
+	if err != nil {
+		t.Fatalf("Speak failed: %v", err)
+	}
+	if len(events) == 0 || events[len(events)-1] != EventFinished {
+		t.Fatalf("expected the last event to be EventFinished, got %v", events)
+	}
+	if totalBytes != 8000*2 {
+		t.Errorf("expected 16000 total PCM bytes (8000 i16 samples), got %d", totalBytes)
+	}
+}
+
+func TestSpeakOnEventReturningFalseStopsEarly(t *testing.T) {
+	v, err := LoadVoice(syntheticPiperConfigPath(t))
+	if err != nil {
+		t.Fatalf("LoadVoice failed: %v", err)
+	}
+	defer v.Close()
+
+	calls := 0
+	params := SynthesisParams{Mode: SynthModeLazy, Rate: 10, Volume: 100, Pitch: 50}
+	err = v.Speak("Test.", params, func(e SynthesisEvent) bool {
+		calls++
+		return false // stop immediately
+	})
+	if err != nil {
+		t.Fatalf("Speak failed: %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("expected exactly 1 callback invocation after returning false, got %d", calls)
+	}
+}
