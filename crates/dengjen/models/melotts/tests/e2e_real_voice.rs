@@ -5,8 +5,13 @@ fn synthesizes_against_a_real_downloaded_melotts_voice() {
         return;
     };
     let model = dengjen_tts_melotts::from_config_path(std::path::Path::new(&config_path)).unwrap();
-    let audio = model
-        .speak_one_sentence("Hello, this is a test.".to_string())
-        .unwrap();
-    assert!(!audio.samples.into_vec().is_empty());
+    let phonemes = model
+        .phonemize_text("Hello, this is a test.")
+        .expect("phonemization failed");
+    for sentence in phonemes.sentences() {
+        let audio = model
+            .speak_one_sentence(sentence.clone())
+            .expect("synthesis failed");
+        assert!(!audio.samples.into_vec().is_empty());
+    }
 }

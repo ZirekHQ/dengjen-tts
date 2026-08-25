@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use crate::config::PhonemizerConfig;
 use dengjen_tts_core::{DengjenError, DengjenResult};
 

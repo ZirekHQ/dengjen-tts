@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use dengjen_tts_core::{DengjenError, DengjenResult};
 use serde::Deserialize;
 use std::collections::HashMap;

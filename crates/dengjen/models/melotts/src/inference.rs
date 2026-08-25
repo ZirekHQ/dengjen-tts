@@ -54,7 +54,7 @@ impl MeloTTSModel {
     pub(crate) fn synthesize_phone_tone_pairs(
         &self,
         pairs: &[(String, String)],
-        speaker_id: i64,
+        synth: &crate::synth_config::MeloSynthesisConfig,
     ) -> DengjenAudioResult {
         let (phone_ids, tone_ids) =
             map_phone_tone_pairs_to_ids(&self.config.phone_id_map, &self.config.tone_id_map, pairs);
@@ -65,10 +65,10 @@ impl MeloTTSModel {
         let x_lengths = Array1::<i64>::from_iter([seq_len as i64]);
         let tones = Array2::<i64>::from_shape_vec((1, seq_len), tone_ids)
             .map_err(|e| DengjenError::with_message(e.to_string()))?;
-        let sid = Array1::<i64>::from_iter([speaker_id]);
-        let noise_scale = Array1::<f32>::from_iter([self.config.inference.noise_scale]);
-        let length_scale = Array1::<f32>::from_iter([self.config.inference.length_scale]);
-        let noise_scale_w = Array1::<f32>::from_iter([self.config.inference.noise_scale_w]);
+        let sid = Array1::<i64>::from_iter([synth.speaker.unwrap_or(0)]);
+        let noise_scale = Array1::<f32>::from_iter([synth.noise_scale]);
+        let length_scale = Array1::<f32>::from_iter([synth.length_scale]);
+        let noise_scale_w = Array1::<f32>::from_iter([synth.noise_scale_w]);
 
         let mut session = self.session.lock().unwrap();
         let outputs = session
@@ -83,9 +83,15 @@ impl MeloTTSModel {
             ])
             .map_err(|e| DengjenError::InferenceError(format!("MeloTTS inference failed: {e}")))?;
 
-        let (_, data) = outputs["y"].try_extract_tensor::<f32>().map_err(|e| {
-            DengjenError::InferenceError(format!("Failed to extract MeloTTS output: {e}"))
-        })?;
+        let (_, data) = outputs
+            .get("y")
+            .ok_or_else(|| {
+                DengjenError::InferenceError("MeloTTS model has no output named `y`".to_string())
+            })?
+            .try_extract_tensor::<f32>()
+            .map_err(|e| {
+                DengjenError::InferenceError(format!("Failed to extract MeloTTS output: {e}"))
+            })?;
         Ok(Audio::new(
             data.to_vec().into(),
             self.config.audio.sample_rate as usize,

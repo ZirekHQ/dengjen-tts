@@ -1,9 +1,9 @@
 use dengjen_tts_core::SynthesisConfig;
 use std::collections::HashMap;
 
-const NOISE_SCALE: &str = "noise_scale";
-const LENGTH_SCALE: &str = "length_scale";
-const NOISE_SCALE_W: &str = "noise_scale_w";
+pub(crate) const NOISE_SCALE: &str = "noise_scale";
+pub(crate) const LENGTH_SCALE: &str = "length_scale";
+pub(crate) const NOISE_SCALE_W: &str = "noise_scale_w";
 
 pub struct MeloSynthesisConfig {
     pub speaker: Option<i64>,

@@ -75,15 +75,28 @@ impl DengjenModel for MeloTTSModel {
                     .unwrap_or_else(|| (token.to_string(), "_".to_string()))
             })
             .collect();
-        let speaker_id = self
-            .fallback_config
-            .lock()
-            .unwrap()
+        let fallback = self.fallback_config.lock().unwrap();
+        let speaker = fallback
             .as_ref()
             .and_then(|c| c.speaker)
-            .or(self.config.default_speaker_id)
-            .unwrap_or(0);
-        self.inner.synthesize_phone_tone_pairs(&pairs, speaker_id)
+            .or(self.config.default_speaker_id);
+        let synth = MeloSynthesisConfig {
+            speaker,
+            noise_scale: fallback
+                .as_ref()
+                .and_then(|c| c.parameters.get(synth_config::NOISE_SCALE).copied())
+                .unwrap_or(self.config.inference.noise_scale),
+            length_scale: fallback
+                .as_ref()
+                .and_then(|c| c.parameters.get(synth_config::LENGTH_SCALE).copied())
+                .unwrap_or(self.config.inference.length_scale),
+            noise_scale_w: fallback
+                .as_ref()
+                .and_then(|c| c.parameters.get(synth_config::NOISE_SCALE_W).copied())
+                .unwrap_or(self.config.inference.noise_scale_w),
+        };
+        drop(fallback);
+        self.inner.synthesize_phone_tone_pairs(&pairs, &synth)
     }
 
     fn get_default_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
