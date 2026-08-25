@@ -53,6 +53,68 @@ pub fn load_config(path: &Path) -> DengjenResult<MeloVoiceConfig> {
     })
 }
 
+pub(crate) fn map_phone_tone_pairs_to_ids(
+    phone_id_map: &HashMap<String, Vec<i64>>,
+    tone_id_map: &HashMap<String, i64>,
+    pairs: &[(String, String)],
+) -> (Vec<i64>, Vec<i64>) {
+    let bos_id = phone_id_map
+        .get("^")
+        .and_then(|v| v.first())
+        .copied()
+        .unwrap_or(0);
+    let eos_id = phone_id_map
+        .get("$")
+        .and_then(|v| v.first())
+        .copied()
+        .unwrap_or(0);
+    let blank_id = phone_id_map
+        .get("_")
+        .and_then(|v| v.first())
+        .copied()
+        .unwrap_or(0);
+    let blank_tone = tone_id_map.get("_").copied().unwrap_or(0);
+
+    let longest_entry = phone_id_map
+        .keys()
+        .map(|entry| entry.chars().count())
+        .max()
+        .unwrap_or(1)
+        .max(1);
+
+    let mut phone_ids = vec![bos_id];
+    let mut tone_ids = vec![blank_tone];
+
+    for (chunk, tone_symbol) in pairs {
+        let tone_id = tone_id_map.get(tone_symbol).copied().unwrap_or(blank_tone);
+        let chars: Vec<char> = chunk.chars().collect();
+        let mut cursor = 0;
+        while cursor < chars.len() {
+            let widest = longest_entry.min(chars.len() - cursor);
+            let matched = (1..=widest).rev().find_map(|width| {
+                let candidate: String = chars[cursor..cursor + width].iter().collect();
+                phone_id_map
+                    .get(&candidate)
+                    .and_then(|ids| ids.first().map(|&id| (width, id)))
+            });
+            match matched {
+                Some((width, id)) => {
+                    phone_ids.push(id);
+                    phone_ids.push(blank_id);
+                    tone_ids.push(tone_id);
+                    tone_ids.push(blank_tone);
+                    cursor += width;
+                }
+                None => cursor += 1,
+            }
+        }
+    }
+
+    phone_ids.push(eos_id);
+    tone_ids.push(blank_tone);
+    (phone_ids, tone_ids)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -118,5 +180,50 @@ mod tests {
     fn load_config_errors_when_the_file_does_not_exist() {
         let result = load_config(Path::new("/nonexistent/config.json"));
         assert!(matches!(result, Err(DengjenError::FailedToLoadResource(_))));
+    }
+
+    fn test_phone_id_map() -> HashMap<String, Vec<i64>> {
+        HashMap::from([
+            ("^".to_string(), vec![1]),
+            ("$".to_string(), vec![2]),
+            ("_".to_string(), vec![3]),
+            ("zh".to_string(), vec![4]),
+            ("ang".to_string(), vec![5]),
+            ("a".to_string(), vec![6]),
+        ])
+    }
+
+    fn test_tone_id_map() -> HashMap<String, i64> {
+        HashMap::from([
+            ("_".to_string(), 0),
+            ("1".to_string(), 1),
+            ("2".to_string(), 2),
+        ])
+    }
+
+    #[test]
+    fn map_phone_tone_pairs_to_ids_wraps_output_in_bos_eos_with_blank_interleaving() {
+        let pairs = vec![("a".to_string(), "_".to_string())];
+        let (phone_ids, tone_ids) =
+            map_phone_tone_pairs_to_ids(&test_phone_id_map(), &test_tone_id_map(), &pairs);
+        assert_eq!(phone_ids, vec![1, 6, 3, 2]); // bos, 'a', blank, eos
+        assert_eq!(tone_ids, vec![0, 0, 0, 0]); // blank tone throughout, since pair's tone is "_"
+    }
+
+    #[test]
+    fn map_phone_tone_pairs_to_ids_assigns_a_syllables_tone_to_both_its_initial_and_finale() {
+        let pairs = vec![("zhang".to_string(), "2".to_string())]; // longest-match splits into "zh" + "ang"
+        let (phone_ids, tone_ids) =
+            map_phone_tone_pairs_to_ids(&test_phone_id_map(), &test_tone_id_map(), &pairs);
+        assert_eq!(phone_ids, vec![1, 4, 3, 5, 3, 2]); // bos, zh, blank, ang, blank, eos
+        assert_eq!(tone_ids, vec![0, 2, 0, 2, 0, 0]); // both zh and ang carry tone 2; bos/eos/blanks carry 0
+    }
+
+    #[test]
+    fn map_phone_tone_pairs_to_ids_drops_characters_with_no_matching_phone_id() {
+        let pairs = vec![("a!a".to_string(), "_".to_string())]; // '!' isn't in phone_id_map
+        let (phone_ids, _) =
+            map_phone_tone_pairs_to_ids(&test_phone_id_map(), &test_tone_id_map(), &pairs);
+        assert_eq!(phone_ids, vec![1, 6, 3, 6, 3, 2]); // bos, a, blank, a, blank, eos -- '!' silently skipped
     }
 }
