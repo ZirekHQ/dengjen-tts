@@ -11,19 +11,25 @@ use std::sync::{Arc, Mutex, Once};
 
 /// Opaque user data pointer wrapper that is safe to send across threads.
 /// Rust never dereferences this pointer; its safety is the FFI caller's responsibility.
+/// This wrapper is necessary because extracting `*mut c_void` fields and moving them into
+/// closures requires the extracted value itself to be Send, not just the containing struct.
 #[repr(transparent)]
 struct UserDataPtr(*mut c_void);
 // SAFETY: UserDataPtr wraps an opaque pointer that Rust never dereferences; thread-safety is
 // the FFI caller's responsibility, the same as every other raw-pointer FFI parameter.
 unsafe impl Send for UserDataPtr {}
-// SAFETY: Same as Send — the pointer is opaque and never dereferenced by Rust.
-unsafe impl Sync for UserDataPtr {}
 
 /// `user_data` is the same opaque pointer supplied via `SynthesisParams::user_data` for this
 /// call, threaded through unchanged to every invocation (including the terminal
 /// `SYNTH_EVENT_FINISHED`/`SYNTH_EVENT_ERROR` event) — lets an FFI consumer correlate an
 /// incoming event with the specific `Speak` call it belongs to without a global lookup.
 pub type SpeechSynthesisCallback = extern "C" fn(SynthesisEvent, *mut c_void) -> u8;
+
+/// Helper to invoke callbacks with user_data without exposing the raw pointer to thread checks.
+#[inline]
+fn invoke_callback(cb: SpeechSynthesisCallback, event: SynthesisEvent, user_data: UserDataPtr) {
+    cb(event, user_data.0);
+}
 
 define_string_destructor!(_internal_libdengjenFreeString);
 ffi_support::implement_into_ffi_by_pointer!(DengjenVoice);
@@ -249,9 +255,6 @@ pub struct SynthesisParams {
 // Rust never dereferences — its cross-thread-safety is the FFI caller's contract to uphold, the
 // same as every other raw-pointer FFI parameter this crate accepts.
 unsafe impl Send for SynthesisParams {}
-// SAFETY: Same as Send — `user_data` is opaque and never dereferenced, so cross-thread
-// accesses are the FFI caller's responsibility.
-unsafe impl Sync for SynthesisParams {}
 
 impl SynthesisParams {
     fn as_synth_output_config(&self) -> AudioOutputConfig {
@@ -738,12 +741,6 @@ impl Drop for CancelSlotGuard {
     }
 }
 
-/// Helper to invoke callbacks with user_data without exposing the raw pointer to thread checks.
-#[inline]
-fn invoke_callback(cb: SpeechSynthesisCallback, event: SynthesisEvent, user_data: UserDataPtr) {
-    cb(event, user_data.0);
-}
-
 fn _synthesize(
     synth: AssertUnwindSafe<Arc<DengjenSpeechSynthesizer>>,
     cancel_slot: Arc<Mutex<Option<CancellationToken>>>,
@@ -760,14 +757,7 @@ fn _synthesize(
     // a synthesis error has nowhere to go but through the callback the caller is still holding.
     let report_to_caller = params.callback;
     let report_user_data = UserDataPtr(params.user_data);
-    // Wrap params in a transparent Send-asserting newtype to help the compiler move it.
-    struct SendParams(SynthesisParams);
-    // SAFETY: SynthesisParams is Send (declared above); this newtype wrapper makes that
-    // explicit to the compiler so it can verify the closure is Send.
-    unsafe impl Send for SendParams {}
-    let params_send = SendParams(params);
     SYNTHESIS_THREAD_POOL.spawn(move || {
-        let params = params_send.0;
         if let Err(error) = _do_synthesize(synth, cancel_slot, text, params) {
             invoke_callback(
                 report_to_caller,
@@ -948,13 +938,15 @@ mod tests {
 
     #[test]
     fn user_data_round_trips_unchanged_through_every_callback_invocation() {
-        use std::sync::atomic::{AtomicPtr, Ordering};
+        use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
         use std::sync::OnceLock;
 
         static LAST_USER_DATA: OnceLock<AtomicPtr<u8>> = OnceLock::new();
         static MISMATCH: OnceLock<AtomicPtr<u8>> = OnceLock::new();
+        static SAW_FINISHED: OnceLock<AtomicBool> = OnceLock::new();
         LAST_USER_DATA.get_or_init(|| AtomicPtr::new(std::ptr::null_mut()));
         MISMATCH.get_or_init(|| AtomicPtr::new(std::ptr::null_mut()));
+        SAW_FINISHED.get_or_init(|| AtomicBool::new(false));
 
         extern "C" fn recording_callback(event: SynthesisEvent, user_data: *mut c_void) -> u8 {
             let expected = LAST_USER_DATA.get().unwrap().load(Ordering::SeqCst);
@@ -964,9 +956,13 @@ mod tests {
                     .unwrap()
                     .store(user_data as *mut u8, Ordering::SeqCst);
             }
+            // Track if we saw the terminal FINISHED event
+            if event.event_type == synth_event::SYNTH_EVENT_FINISHED {
+                SAW_FINISHED.get().unwrap().store(true, Ordering::SeqCst);
+            }
             // SAFETY: test-only reclaim of an event this test's own call produced.
             unsafe { libdengjenFreeSynthesisEvent(event) };
-            1
+            0 // Return 0 to continue processing, letting stream reach FINISHED event
         }
 
         let mut sentinel: u8 = 0;
@@ -991,6 +987,13 @@ mod tests {
             mismatch.is_null(),
             "callback received a user_data pointer ({mismatch:?}) that didn't match the one \
              passed into libdengjenSpeak ({token:?})"
+        );
+
+        // Verify we actually reached the terminal FINISHED event with correct user_data
+        assert!(
+            SAW_FINISHED.get().unwrap().load(Ordering::SeqCst),
+            "callback never received SYNTH_EVENT_FINISHED; test did not exercise the \
+             terminal event path"
         );
 
         // SAFETY: voice_ptr is a valid handle owned by this test, not used again after this.
