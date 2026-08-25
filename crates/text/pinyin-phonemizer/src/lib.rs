@@ -169,14 +169,6 @@ fn phonemize_sentence_tokens(
     Ok(tokens)
 }
 
-#[allow(dead_code)]
-fn phonemize_sentence(engine: &PinyinEngine, sentence: &str) -> DengjenResult<Vec<String>> {
-    Ok(phonemize_sentence_tokens(engine, sentence)?
-        .iter()
-        .flat_map(flatten_token)
-        .collect())
-}
-
 /// Structure-preserving variant of `text_to_pinyin_phonemes`: returns each sentence's
 /// syllables/punctuation as individual `PinyinToken`s instead of a flattened string,
 /// for callers (e.g. `dengjen-tts-melotts`) that need per-syllable tone information kept
