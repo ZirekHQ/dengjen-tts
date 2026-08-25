@@ -1,7 +1,6 @@
 package dengjen
 
 /*
-#include <stdlib.h>
 #include "libdengjen.h"
 */
 import "C"

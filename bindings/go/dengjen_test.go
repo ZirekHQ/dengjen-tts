@@ -1,8 +1,8 @@
 package dengjen
 
-// Go does not permit "import \"C\"" inside a _test.go file, so this test
-// exercises the cgo boundary through smokeTestLoadVoiceFromConfigPath (see
-// error.go), a thin unexported wrapper around the raw C call.
+// Go does not permit "import \"C\"" inside a _test.go file. The tests here
+// exercise the cgo boundary by calling LoadVoice (defined in voice.go), which
+// handles all necessary cgo interactions.
 
 import (
 	"os"
