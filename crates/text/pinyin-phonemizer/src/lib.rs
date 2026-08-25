@@ -85,18 +85,39 @@ fn split_into_sentences(text: &str) -> Vec<String> {
     sentences
 }
 
-fn assemble_syllable_phonemes(initial: &str, finale: &str, tone: char) -> Vec<String> {
-    let ini = if initial.is_empty() {
-        "\u{00D8}"
-    } else {
-        initial
-    };
-    vec![ini.to_string(), finale.to_string(), tone.to_string()]
+pub enum PinyinToken {
+    Syllable {
+        initial: String,
+        finale: String,
+        tone: char,
+    },
+    Passthrough(String),
 }
 
-fn phonemize_sentence(engine: &PinyinEngine, sentence: &str) -> DengjenResult<Vec<String>> {
+fn flatten_token(token: &PinyinToken) -> Vec<String> {
+    match token {
+        PinyinToken::Syllable {
+            initial,
+            finale,
+            tone,
+        } => {
+            let ini = if initial.is_empty() {
+                "\u{00D8}"
+            } else {
+                initial
+            };
+            vec![ini.to_string(), finale.clone(), tone.to_string()]
+        }
+        PinyinToken::Passthrough(s) => vec![s.clone()],
+    }
+}
+
+fn phonemize_sentence_tokens(
+    engine: &PinyinEngine,
+    sentence: &str,
+) -> DengjenResult<Vec<PinyinToken>> {
     let chars: Vec<char> = sentence.chars().collect();
-    let mut phonemes = Vec::new();
+    let mut tokens = Vec::new();
     for (i, &c) in chars.iter().enumerate() {
         let bopomofo = resolve_char(
             &engine.dictionaries,
@@ -106,8 +127,6 @@ fn phonemize_sentence(engine: &PinyinEngine, sentence: &str) -> DengjenResult<Ve
             i,
         )?;
         let Some(bopomofo) = bopomofo else {
-            // Not resolvable via any dictionary or the model -- treat as punctuation:
-            // pass through if it's a recognized pause/terminal character, drop otherwise.
             if matches!(
                 c,
                 '\u{3002}'
@@ -127,23 +146,55 @@ fn phonemize_sentence(engine: &PinyinEngine, sentence: &str) -> DengjenResult<Ve
                     | ';'
                     | ' '
             ) {
-                phonemes.push(c.to_string());
+                tokens.push(PinyinToken::Passthrough(c.to_string()));
             }
             continue;
         };
         let Some(pinyin) =
             syllable::convert_bopomofo_to_pinyin(&bopomofo, &engine.bopomofo_to_pinyin)
         else {
-            phonemes.push(bopomofo);
+            tokens.push(PinyinToken::Passthrough(bopomofo));
             continue;
         };
         let Some((initial, finale, tone)) = syllable::split_initial_final_tone(&pinyin) else {
-            phonemes.push(pinyin);
+            tokens.push(PinyinToken::Passthrough(pinyin));
             continue;
         };
-        phonemes.extend(assemble_syllable_phonemes(&initial, &finale, tone));
+        tokens.push(PinyinToken::Syllable {
+            initial,
+            finale,
+            tone,
+        });
     }
-    Ok(phonemes)
+    Ok(tokens)
+}
+
+#[allow(dead_code)]
+fn phonemize_sentence(engine: &PinyinEngine, sentence: &str) -> DengjenResult<Vec<String>> {
+    Ok(phonemize_sentence_tokens(engine, sentence)?
+        .iter()
+        .flat_map(flatten_token)
+        .collect())
+}
+
+/// Structure-preserving variant of `text_to_pinyin_phonemes`: returns each sentence's
+/// syllables/punctuation as individual `PinyinToken`s instead of a flattened string,
+/// for callers (e.g. `dengjen-tts-melotts`) that need per-syllable tone information kept
+/// separate from phone symbols rather than folded into one opaque string.
+pub fn text_to_pinyin_tokens(
+    engine: &PinyinEngine,
+    text: &str,
+) -> DengjenResult<Vec<Vec<PinyinToken>>> {
+    let stripped = strip_quotation_marks(text);
+    let sentences: Vec<String> = split_into_sentences(&stripped)
+        .into_iter()
+        .map(|s| numbers::normalize_numbers(&s))
+        .collect();
+
+    sentences
+        .iter()
+        .map(|sentence| phonemize_sentence_tokens(engine, sentence))
+        .collect()
 }
 
 /// Converts Chinese text to pinyin phoneme strings (initial/final/tone/pause
@@ -155,18 +206,13 @@ fn phonemize_sentence(engine: &PinyinEngine, sentence: &str) -> DengjenResult<Ve
 /// combination (4,200 total) re-segments to its original three tokens under
 /// this engine's greedy longest-match algorithm. No collision; no fix needed.
 pub fn text_to_pinyin_phonemes(engine: &PinyinEngine, text: &str) -> DengjenResult<Phonemes> {
-    let stripped = strip_quotation_marks(text);
-    let sentences: Vec<String> = split_into_sentences(&stripped)
-        .into_iter()
-        .map(|s| numbers::normalize_numbers(&s))
-        .collect();
-
-    let mut out = Vec::with_capacity(sentences.len());
-    for sentence in &sentences {
-        let phonemes = phonemize_sentence(engine, sentence)?;
-        out.push(phonemes.concat());
-    }
-    Ok(Phonemes::from(out))
+    let token_sentences = text_to_pinyin_tokens(engine, text)?;
+    Ok(Phonemes::from(
+        token_sentences
+            .iter()
+            .map(|tokens| tokens.iter().flat_map(flatten_token).collect::<String>())
+            .collect::<Vec<String>>(),
+    ))
 }
 
 #[cfg(test)]
@@ -197,21 +243,35 @@ mod tests {
     }
 
     #[test]
-    fn assemble_syllable_phonemes_emits_zero_initial_marker_for_a_zero_initial_syllable() {
-        let phonemes = super::assemble_syllable_phonemes("", "ai", '3');
+    fn flatten_token_emits_zero_initial_marker_for_a_zero_initial_syllable() {
+        let token = super::PinyinToken::Syllable {
+            initial: String::new(),
+            finale: "ai".to_string(),
+            tone: '3',
+        };
         assert_eq!(
-            phonemes,
+            super::flatten_token(&token),
             vec!["\u{00D8}".to_string(), "ai".to_string(), "3".to_string()]
         );
     }
 
     #[test]
-    fn assemble_syllable_phonemes_emits_a_real_initial_when_present() {
-        let phonemes = super::assemble_syllable_phonemes("zh", "ang", '2');
+    fn flatten_token_emits_a_real_initial_when_present() {
+        let token = super::PinyinToken::Syllable {
+            initial: "zh".to_string(),
+            finale: "ang".to_string(),
+            tone: '2',
+        };
         assert_eq!(
-            phonemes,
+            super::flatten_token(&token),
             vec!["zh".to_string(), "ang".to_string(), "2".to_string()]
         );
+    }
+
+    #[test]
+    fn flatten_token_passes_through_punctuation_unchanged() {
+        let token = super::PinyinToken::Passthrough("\u{3002}".to_string());
+        assert_eq!(super::flatten_token(&token), vec!["\u{3002}".to_string()]);
     }
 
     #[test]
@@ -224,5 +284,26 @@ mod tests {
         let phonemes = super::text_to_pinyin_phonemes(&engine, "你好").unwrap();
         assert_eq!(phonemes.num_sentences(), 1);
         assert!(!phonemes.sentences()[0].is_empty());
+    }
+
+    #[test]
+    fn text_to_pinyin_tokens_flattens_to_the_same_string_as_text_to_pinyin_phonemes() {
+        let Ok(model_dir) = std::env::var("DENGJEN_PINYIN_TEST_MODEL_DIR") else {
+            eprintln!("skipping: DENGJEN_PINYIN_TEST_MODEL_DIR not set");
+            return;
+        };
+        let engine = super::create_pinyin_engine(std::path::Path::new(&model_dir)).unwrap();
+        let via_tokens = super::text_to_pinyin_tokens(&engine, "你好").unwrap();
+        let flattened: Vec<String> = via_tokens
+            .iter()
+            .map(|tokens| {
+                tokens
+                    .iter()
+                    .flat_map(super::flatten_token)
+                    .collect::<String>()
+            })
+            .collect();
+        let via_phonemes = super::text_to_pinyin_phonemes(&engine, "你好").unwrap();
+        assert_eq!(flattened, *via_phonemes.sentences());
     }
 }
