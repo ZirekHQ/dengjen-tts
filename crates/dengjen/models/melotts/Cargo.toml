@@ -1,0 +1,29 @@
+[package]
+name = "dengjen-tts-melotts"
+version = "0.1.0"
+edition = "2021"
+license.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = ["espeak"]
+espeak = ["dep:espeak-phonemizer"]
+pinyin = ["dep:pinyin-phonemizer"]
+cuda = ["ort/cuda"]
+coreml = ["ort/coreml"]
+directml = ["ort/directml"]
+
+[dependencies]
+dengjen-tts-core = { path = "../../core" }
+espeak-phonemizer = { path = "../../../text/espeak-phonemizer", optional = true }
+pinyin-phonemizer = { path = "../../../text/pinyin-phonemizer", optional = true }
+serde = { version = "1.0.160", features = ["derive"] }
+serde_json = "1.0.89"
+ndarray = "0.17"
+
+[dependencies.ort]
+version = "2.0.0-rc.13"
+default-features = false
+features = ["std", "ndarray", "tracing", "download-binaries", "tls-rustls", "copy-dylibs", "api-27"]

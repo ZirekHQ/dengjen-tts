@@ -6,6 +6,7 @@ members = [
     "crates/dengjen/synth",
     "crates/dengjen/models/piper",
     "crates/dengjen/models/kokoro",
+    "crates/dengjen/models/melotts",
     "crates/frontends/grpc",
     "crates/frontends/python",
     "crates/frontends/capi",
