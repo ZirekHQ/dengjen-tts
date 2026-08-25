@@ -569,6 +569,9 @@ fn load_voice(
     if model_type == "kokoro" {
         return Ok(dengjen_tts_kokoro::from_config_path(config_path)?);
     }
+    if model_type == "melotts" {
+        return Ok(dengjen_tts_melotts::from_config_path(config_path)?);
+    }
     Ok(dengjen_tts_piper::from_config_path(config_path)?)
 }
 

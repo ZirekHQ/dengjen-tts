@@ -13,18 +13,19 @@ path = "src/main.rs"
 
 [features]
 default = ["espeak"]
-espeak = ["dengjen-tts-piper/espeak", "dengjen-tts-kokoro/espeak"]
+espeak = ["dengjen-tts-piper/espeak", "dengjen-tts-kokoro/espeak", "dengjen-tts-melotts/espeak"]
 # Forwards to both model backends; ort/cuda alone (the previous wiring) never reached a
 # Session::builder() call, so enabling it did nothing.
-cuda = ["dengjen-tts-piper/cuda", "dengjen-tts-kokoro/cuda"]
-coreml = ["dengjen-tts-piper/coreml", "dengjen-tts-kokoro/coreml"]
-directml = ["dengjen-tts-piper/directml", "dengjen-tts-kokoro/directml"]
+cuda = ["dengjen-tts-piper/cuda", "dengjen-tts-kokoro/cuda", "dengjen-tts-melotts/cuda"]
+coreml = ["dengjen-tts-piper/coreml", "dengjen-tts-kokoro/coreml", "dengjen-tts-melotts/coreml"]
+directml = ["dengjen-tts-piper/directml", "dengjen-tts-kokoro/directml", "dengjen-tts-melotts/directml"]
 ort-dylib = ["ort/load-dynamic"]
 
 [dependencies]
 dengjen-tts = { version = "0.2.0", path = "../../dengjen/synth" }
 dengjen-tts-piper = { version = "0.2.0", path = "../../dengjen/models/piper" }
 dengjen-tts-kokoro = { version = "0.1.0", path = "../../dengjen/models/kokoro", default-features = false }
+dengjen-tts-melotts = { version = "0.1.0", path = "../../dengjen/models/melotts", default-features = false }
 anyhow = "1.0.79"
 env_logger = "0.10.0"
 log = "0.4.18"

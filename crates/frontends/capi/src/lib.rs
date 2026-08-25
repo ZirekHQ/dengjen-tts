@@ -665,6 +665,9 @@ fn load_voice(config_path: &std::path::Path) -> DengjenResult<Arc<dyn DengjenMod
     if model_type == "kokoro" {
         return dengjen_tts_kokoro::from_config_path(config_path);
     }
+    if model_type == "melotts" {
+        return dengjen_tts_melotts::from_config_path(config_path);
+    }
     dengjen_tts_piper::from_config_path(config_path)
 }
 
@@ -928,6 +931,32 @@ mod tests {
         assert!(
             err.contains("model_path"),
             "expected a Kokoro-loader error naming the missing `model_path` field, got: {err}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn load_voice_routes_melotts_model_type_toward_the_melotts_loader() {
+        let dir = std::env::temp_dir().join("dengjen_capi_load_voice_test_melotts");
+        std::fs::create_dir_all(&dir).unwrap();
+        // A syntactically valid but incomplete MeloTTS config: `audio` is supplied (so a
+        // wrongful fallthrough to Piper's loader would get past its own `audio` requirement),
+        // but `phonemizer` is omitted, which only MeloTTS's RawMeloVoiceConfig requires
+        // (crates/dengjen/models/melotts/src/config.rs:28) — Piper has no such field. Asserting
+        // on `phonemizer` specifically proves the MeloTTS branch was actually taken, not a
+        // fallthrough to Piper.
+        let path = write_temp_config(
+            &dir,
+            "config.json",
+            r#"{"model_type": "melotts", "audio": {"sample_rate": 24000}}"#,
+        );
+        let err = match load_voice(&path) {
+            Err(e) => format!("{}", e),
+            Ok(_) => panic!("expected an error for an incomplete MeloTTS config"),
+        };
+        assert!(
+            err.contains("phonemizer"),
+            "expected a MeloTTS-loader error naming the missing `phonemizer` field, got: {err}"
         );
         std::fs::remove_dir_all(&dir).ok();
     }

@@ -4,7 +4,7 @@ A cross-platform Rust engine for neural TTS models.
 
 ## Features
 
-* **Models**: [Piper](https://github.com/rhasspy/piper) and [Kokoro](https://github.com/hexgrad/kokoro) ONNX voices, including Kokoro per-voice style embeddings
+* **Models**: [Piper](https://github.com/rhasspy/piper), [Kokoro](https://github.com/hexgrad/kokoro), and [MeloTTS](https://github.com/myshell-ai/MeloTTS) ONNX voices, including Kokoro per-voice style embeddings
 * **Phonemization**: eSpeak-ng (100+ languages, IPA output) and Arabic diacritization via `libtashkeel`
 * **Multi-speaker voices**: select by `speaker_id`
 * **Streaming synthesis**: chunked output (`chunk_size`/`chunk_padding`) and a realtime gRPC stream
@@ -70,6 +70,8 @@ On Windows you also need `espeak-ng.dll` on your `PATH` — see "A note on testi
 Dengjen synthesizes speech from a [Piper](https://github.com/rhasspy/piper) voice. Download a voice's `.onnx` model and matching `.onnx.json` config from the [Piper voices](https://huggingface.co/rhasspy/piper-voices) repository and keep both files together, e.g. `voices/en_US-lessac-medium.onnx` and `voices/en_US-lessac-medium.onnx.json`.
 
 A voice doesn't have to come from the official Piper voices repository — any VITS-family ONNX export using the same 3/4-input tensor convention (phoneme ids, lengths, scales, optional speaker id) can be loaded by writing a matching `.onnx.json` manifest with `"model_type": "vits"`. The minimal required fields are `audio` (sample rate), `inference` (`noise_scale`/`length_scale`/`noise_w`), and `phoneme_id_map` (the symbol vocabulary); `phoneme_type` selects the phonemizer (`espeak` is the default if omitted, and needs an `espeak.voice` entry — `text`, `hebrew`, and `pinyin` don't).
+
+A [MeloTTS](https://github.com/myshell-ai/MeloTTS) voice — its own VITS-derived ONNX export, with a `tones` tensor alongside phone ids — is loaded with `"model_type": "melotts"`. The required fields are `audio` (sample rate), `inference` (`noise_scale`/`length_scale`/`noise_scale_w`), `phone_id_map` and `tone_id_map` (the phone and tone symbol vocabularies), and `model_path`; `phonemizer` selects the phonemization backend and must be one of `{"type": "espeak", "voice": "<espeak-ng voice name>"}` (covers English, Spanish, French, Japanese, Korean) or `{"type": "pinyin", "model_dir": "<g2pW model directory>"}` (Chinese, with real tone extraction — requires building with the `pinyin` feature).
 
 Synthesize text from a file to a WAV file, using the `dengjen-cli` frontend:
 

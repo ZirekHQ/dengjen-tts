@@ -15,12 +15,12 @@ crate-type = ["cdylib"]
 default = ["tashkeel", "espeak"]
 ort-dylib = ["ort/load-dynamic"]
 tashkeel = ["dep:libtashkeel_core", "dengjen-tts-piper/tashkeel"]
-espeak = ["dep:espeak-phonemizer", "dengjen-tts-piper/espeak", "dengjen-tts-kokoro/espeak"]
+espeak = ["dep:espeak-phonemizer", "dengjen-tts-piper/espeak", "dengjen-tts-kokoro/espeak", "dengjen-tts-melotts/espeak"]
 # Forwards to both model backends; ort/cuda alone (the previous wiring) never reached a
 # Session::builder() call, so enabling it did nothing.
-cuda = ["dengjen-tts-piper/cuda", "dengjen-tts-kokoro/cuda"]
-coreml = ["dengjen-tts-piper/coreml", "dengjen-tts-kokoro/coreml"]
-directml = ["dengjen-tts-piper/directml", "dengjen-tts-kokoro/directml"]
+cuda = ["dengjen-tts-piper/cuda", "dengjen-tts-kokoro/cuda", "dengjen-tts-melotts/cuda"]
+coreml = ["dengjen-tts-piper/coreml", "dengjen-tts-kokoro/coreml", "dengjen-tts-melotts/coreml"]
+directml = ["dengjen-tts-piper/directml", "dengjen-tts-kokoro/directml", "dengjen-tts-melotts/directml"]
 
 [dependencies]
 espeak-phonemizer = { path = "../../text/espeak-phonemizer", optional = true }
@@ -28,6 +28,7 @@ dengjen-tts-core = { path = "../../dengjen/core" }
 dengjen-tts = { path = "../../dengjen/synth" }
 dengjen-tts-piper = { path = "../../dengjen/models/piper", default-features = false }
 dengjen-tts-kokoro = { version = "0.1.0", path = "../../dengjen/models/kokoro", default-features = false }
+dengjen-tts-melotts = { version = "0.1.0", path = "../../dengjen/models/melotts", default-features = false }
 once_cell = "1.18.0"
 
 [dependencies.libtashkeel_core]
