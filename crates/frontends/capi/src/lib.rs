@@ -886,13 +886,8 @@ mod tests {
         }
     }
 
-    fn c_str(s: &str) -> FfiStr {
-        // Leaks intentionally; test-only, process exits shortly after.
-        let cstring = std::ffi::CString::new(s).unwrap();
-        let ptr = cstring.as_ptr();
-        std::mem::forget(cstring);
-        // SAFETY: ptr is from a valid CString that we just leaked; FfiStr consumes it.
-        unsafe { FfiStr::from_raw(ptr) }
+    fn c_str(s: &str) -> std::ffi::CString {
+        std::ffi::CString::new(s).unwrap()
     }
 
     fn new_test_piper_voice() -> *mut DengjenVoice {
@@ -928,12 +923,16 @@ mod tests {
             }"#,
         )
         .unwrap();
-        let cstring = std::ffi::CString::new(config_path.to_str().unwrap()).unwrap();
-        let ptr = cstring.as_ptr();
-        std::mem::forget(cstring);
+        let config_cstring = c_str(config_path.to_str().unwrap());
         let mut out_error = ExternError::default();
-        // SAFETY: config_path points at a file this function just wrote.
-        unsafe { libdengjenLoadVoiceFromConfigPath(FfiStr::from_raw(ptr), &mut out_error) }
+        // SAFETY: config_path points at a file this function just wrote; config_cstring
+        // stays alive (not dropped) for the full duration of this call.
+        unsafe {
+            libdengjenLoadVoiceFromConfigPath(
+                FfiStr::from_raw(config_cstring.as_ptr()),
+                &mut out_error,
+            )
+        }
     }
 
     #[test]
@@ -978,8 +977,17 @@ mod tests {
         params.callback = recording_callback;
         params.user_data = token;
         let mut out_error = ExternError::default();
-        // SAFETY: voice_ptr is a valid handle just loaded above.
-        unsafe { libdengjenSpeak(voice_ptr, c_str("t:_"), params, &mut out_error) };
+        let text = c_str("t:_");
+        // SAFETY: voice_ptr is a valid handle just loaded above; text stays alive (not
+        // dropped) for the full duration of this call.
+        unsafe {
+            libdengjenSpeak(
+                voice_ptr,
+                FfiStr::from_raw(text.as_ptr()),
+                params,
+                &mut out_error,
+            )
+        };
         assert_eq!(out_error.get_code(), ffi_support::ErrorCode::SUCCESS);
 
         let mismatch = MISMATCH.get().unwrap().load(Ordering::SeqCst);
