@@ -115,3 +115,21 @@ func (v *Voice) Speak(text string, params SynthesisParams, onEvent func(Synthesi
 	}
 	return nil
 }
+
+// Cancel interrupts the most recently started realtime-mode Speak call on
+// this voice, if one is currently running; it has no effect otherwise (lazy
+// and parallel-mode syntheses cannot be interrupted this way). The onEvent
+// callback still receives a final EventFinished after a successful
+// cancellation — there is no separate "cancelled" event.
+//
+// Callers must not call Cancel concurrently with Close on the same voice —
+// that races a use-after-free that only the caller can avoid, mirroring
+// libdengjenCancel's own documented contract.
+func (v *Voice) Cancel() error {
+	if v.ptr == nil {
+		return &FFIError{Message: "voice is closed"}
+	}
+	var cErr C.struct_ExternError
+	C.libdengjenCancel(v.ptr, &cErr)
+	return checkError(cErr)
+}

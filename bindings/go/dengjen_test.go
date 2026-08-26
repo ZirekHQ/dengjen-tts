@@ -7,6 +7,7 @@ package dengjen
 import (
 	"os"
 	"testing"
+	"time"
 )
 
 func TestLoadVoiceReportsAnErrorForAMissingConfigPath(t *testing.T) {
@@ -251,5 +252,45 @@ func TestSpeakOnEventReturningFalseReleasesHandle(t *testing.T) {
 	if !deleted {
 		t.Fatal("the cgo.Handle for an early-stopped Speak call was never " +
 			"deleted (testHandleDeleted hook never fired), leaking onEvent's closure")
+	}
+}
+
+func TestCancelOnAVoiceWithNoActiveRealtimeStreamIsANoop(t *testing.T) {
+	v, err := LoadVoice(syntheticPiperConfigPath(t))
+	if err != nil {
+		t.Fatalf("LoadVoice failed: %v", err)
+	}
+	defer v.Close()
+
+	// No realtime-mode Speak call is in flight; Cancel must not error or panic.
+	if err := v.Cancel(); err != nil {
+		t.Fatalf("Cancel on an idle voice failed: %v", err)
+	}
+}
+
+func TestSpeakRealtimeModeThenCancelDoesNotPanicOrDeadlock(t *testing.T) {
+	v, err := LoadVoice(syntheticPiperConfigPath(t))
+	if err != nil {
+		t.Fatalf("LoadVoice failed: %v", err)
+	}
+	defer v.Close()
+
+	done := make(chan error, 1)
+	params := SynthesisParams{Mode: SynthModeRealtime, Rate: 10, Volume: 100, Pitch: 50, Nonblocking: true}
+	err = v.Speak("Test.", params, func(e SynthesisEvent) bool {
+		return true
+	})
+	if err != nil {
+		t.Fatalf("Speak (nonblocking realtime) failed: %v", err)
+	}
+	go func() { done <- v.Cancel() }()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Cancel failed: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Cancel did not return within 5s — possible deadlock")
 	}
 }
