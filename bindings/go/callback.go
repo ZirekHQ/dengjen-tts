@@ -25,6 +25,20 @@ type SynthesisEvent struct {
 	Err  error  // populated for EventError
 }
 
+// testHandleDeleted, when non-nil, is invoked synchronously immediately
+// after a cgo.Handle backing a Speak call's onEvent is deleted (from either
+// this trampoline or Speak's own synchronous-error path in speak.go). It
+// exists solely so tests can assert deterministically that Delete() was
+// actually called. A GC-finalizer-based test was tried first and proved
+// unreliable in practice: whether the underlying native synthesis library's
+// background threads let the deleted handle's closure become collectible
+// promptly turned out to depend on native thread-pool scheduling outside
+// Go's control, not on whether Delete() ran -- so observing Delete() via
+// this hook, rather than inferring it through the garbage collector, is the
+// only way to test this deterministically. Nil in production; only ever
+// set from a _test.go file.
+var testHandleDeleted func()
+
 //export goDengjenSpeechCallback
 func goDengjenSpeechCallback(event C.struct_SynthesisEvent, userData unsafe.Pointer) C.uint8_t {
 	h := cgo.Handle(uintptr(userData))
@@ -61,6 +75,9 @@ func goDengjenSpeechCallback(event C.struct_SynthesisEvent, userData unsafe.Poin
 	terminal := event.event_type == C.SYNTH_EVENT_FINISHED || event.event_type == C.SYNTH_EVENT_ERROR
 	if terminal || !wantsMore {
 		h.Delete()
+		if testHandleDeleted != nil {
+			testHandleDeleted()
+		}
 	}
 	if wantsMore {
 		return 0

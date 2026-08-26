@@ -108,6 +108,9 @@ func (v *Voice) Speak(text string, params SynthesisParams, onEvent func(Synthesi
 		// error here (traced in the design spec, §"Streaming"), so this call
 		// site — not the trampoline — owns deleting the handle.
 		h.Delete()
+		if testHandleDeleted != nil {
+			testHandleDeleted()
+		}
 		return err
 	}
 	return nil
