@@ -4,12 +4,32 @@ use dengjen_tts_core::{
 };
 use ffi_support::{call_with_result, define_string_destructor, ErrorCode, ExternError, FfiStr};
 use std::ops::Deref;
+use std::os::raw::c_void;
 use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, Once};
 
-/// The C function-pointer signature every streaming synthesis callback must match.
-pub type SpeechSynthesisCallback = extern "C" fn(SynthesisEvent) -> u8;
+/// Opaque user data pointer wrapper that is safe to send across threads.
+/// Rust never dereferences this pointer; its safety is the FFI caller's responsibility.
+/// This wrapper is necessary because extracting `*mut c_void` fields and moving them into
+/// closures requires the extracted value itself to be Send, not just the containing struct.
+#[repr(transparent)]
+struct UserDataPtr(*mut c_void);
+// SAFETY: UserDataPtr wraps an opaque pointer that Rust never dereferences; thread-safety is
+// the FFI caller's responsibility, the same as every other raw-pointer FFI parameter.
+unsafe impl Send for UserDataPtr {}
+
+/// `user_data` is the same opaque pointer supplied via `SynthesisParams::user_data` for this
+/// call, threaded through unchanged to every invocation (including the terminal
+/// `SYNTH_EVENT_FINISHED`/`SYNTH_EVENT_ERROR` event) — lets an FFI consumer correlate an
+/// incoming event with the specific `Speak` call it belongs to without a global lookup.
+pub type SpeechSynthesisCallback = extern "C" fn(SynthesisEvent, *mut c_void) -> u8;
+
+/// Helper to invoke callbacks with user_data without exposing the raw pointer to thread checks.
+#[inline]
+fn invoke_callback(cb: SpeechSynthesisCallback, event: SynthesisEvent, user_data: UserDataPtr) {
+    cb(event, user_data.0);
+}
 
 define_string_destructor!(_internal_libdengjenFreeString);
 ffi_support::implement_into_ffi_by_pointer!(DengjenVoice);
@@ -224,7 +244,17 @@ pub struct SynthesisParams {
     appended_silence_ms: u32,
     callback: SpeechSynthesisCallback,
     nonblocking: u8,
+    /// Opaque pointer passed through unchanged to every `callback` invocation for this call.
+    /// Rust never dereferences it; safety is entirely the FFI caller's responsibility.
+    user_data: *mut c_void,
 }
+
+// SAFETY: `SynthesisParams` is moved by value across the SYNTHESIS_THREAD_POOL boundary in
+// nonblocking mode (see `_synthesize`). Every field but `user_data` is plain data or a bare
+// `extern "C" fn` pointer (already Send); `user_data` is an opaque caller-supplied pointer that
+// Rust never dereferences — its cross-thread-safety is the FFI caller's contract to uphold, the
+// same as every other raw-pointer FFI parameter this crate accepts.
+unsafe impl Send for SynthesisParams {}
 
 impl SynthesisParams {
     fn as_synth_output_config(&self) -> AudioOutputConfig {
@@ -726,9 +756,14 @@ fn _synthesize(
     // Control has already returned to the caller by the time this runs on the pool thread, so
     // a synthesis error has nowhere to go but through the callback the caller is still holding.
     let report_to_caller = params.callback;
+    let report_user_data = UserDataPtr(params.user_data);
     SYNTHESIS_THREAD_POOL.spawn(move || {
         if let Err(error) = _do_synthesize(synth, cancel_slot, text, params) {
-            report_to_caller(SynthesisEvent::with_error(error));
+            invoke_callback(
+                report_to_caller,
+                SynthesisEvent::with_error(error),
+                report_user_data,
+            );
         }
     });
     Ok(())
@@ -746,18 +781,19 @@ fn _do_synthesize(
 
     let output_config = Some(params.as_synth_output_config());
     let callback = params.callback;
+    let user_data = params.user_data;
     match params.mode {
         synth_mode::SYNTH_MODE_LAZY => {
             let stream = synth
                 .synthesize_lazy(text, output_config)?
                 .map(|item| item.map(|audio| audio.samples));
-            iterate_stream(stream, callback)
+            iterate_stream(stream, callback, user_data)
         }
         synth_mode::SYNTH_MODE_PARALLEL => {
             let stream = synth
                 .synthesize_parallel(text, output_config)?
                 .map(|item| item.map(|audio| audio.samples));
-            iterate_stream(stream, callback)
+            iterate_stream(stream, callback, user_data)
         }
         synth_mode::SYNTH_MODE_REALTIME => {
             let cancel_token = CancellationToken::new();
@@ -773,31 +809,37 @@ fn _do_synthesize(
                 REALTIME_CHUNK_PADDING,
                 cancel_token,
             )?;
-            iterate_stream(stream, callback)
+            iterate_stream(stream, callback, user_data)
         }
         _ => Err(DengjenFFIError::invalid_synthesis_mode()),
     }
 }
 
-#[inline(always)]
 fn iterate_stream(
     stream: impl Iterator<Item = DengjenResult<AudioSamples>> + Send + Sync + 'static,
     callback: SpeechSynthesisCallback,
+    user_data: *mut c_void,
 ) -> DengjenFFIResult<()> {
     for item in stream {
         let audio = match item {
             Ok(audio) => audio,
             Err(error) => {
-                callback(SynthesisEvent::with_error(DengjenFFIError::from(error)));
+                callback(
+                    SynthesisEvent::with_error(DengjenFFIError::from(error)),
+                    user_data,
+                );
                 return Ok(());
             }
         };
-        let caller_wants_more = callback(SynthesisEvent::with_speech(audio.as_wave_bytes())) == 0;
+        let caller_wants_more = callback(
+            SynthesisEvent::with_speech(audio.as_wave_bytes()),
+            user_data,
+        ) == 0;
         if !caller_wants_more {
             return Ok(());
         }
     }
-    callback(SynthesisEvent::with_finished());
+    callback(SynthesisEvent::with_finished(), user_data);
     Ok(())
 }
 
@@ -827,7 +869,7 @@ mod tests {
     use super::*;
     use ffi_support::ExternError;
 
-    extern "C" fn noop_callback(_event: SynthesisEvent) -> u8 {
+    extern "C" fn noop_callback(_event: SynthesisEvent, _user_data: *mut c_void) -> u8 {
         1
     }
 
@@ -840,7 +882,130 @@ mod tests {
             appended_silence_ms: 0,
             callback: noop_callback,
             nonblocking: 0,
+            user_data: std::ptr::null_mut(),
         }
+    }
+
+    fn c_str(s: &str) -> std::ffi::CString {
+        std::ffi::CString::new(s).unwrap()
+    }
+
+    fn new_test_piper_voice() -> *mut DengjenVoice {
+        let dir = std::env::temp_dir().join("dengjen_capi_user_data_test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../dengjen/models/piper/tests/fixtures/synthetic_piper_batch.onnx");
+        // Ensure the model path exists before trying to copy it
+        assert!(
+            model_path.exists(),
+            "Model path does not exist: {:?}",
+            model_path
+        );
+        // Copy model file and create config file with matching base name (pattern: model.onnx.json)
+        std::fs::copy(&model_path, dir.join("piper_test.onnx")).unwrap();
+        let config_path = dir.join("piper_test.onnx.json");
+        std::fs::write(
+            &config_path,
+            r#"{
+                "key": null,
+                "language": {"code": "en-US"},
+                "audio": {"sample_rate": 22050, "quality": null},
+                "num_speakers": 1,
+                "speaker_id_map": {},
+                "streaming": false,
+                "espeak": {"voice": "en-us"},
+                "inference": {"noise_scale": 0.667, "length_scale": 1.0, "noise_w": 0.8},
+                "num_symbols": 8,
+                "phoneme_map": {},
+                "phoneme_id_map": {"^": [1], "$": [2], "_": [3], "t": [4]},
+                "phoneme_type": "text",
+                "hop_length": 256
+            }"#,
+        )
+        .unwrap();
+        let config_cstring = c_str(config_path.to_str().unwrap());
+        let mut out_error = ExternError::default();
+        // SAFETY: config_path points at a file this function just wrote; config_cstring
+        // stays alive (not dropped) for the full duration of this call.
+        unsafe {
+            libdengjenLoadVoiceFromConfigPath(
+                FfiStr::from_raw(config_cstring.as_ptr()),
+                &mut out_error,
+            )
+        }
+    }
+
+    #[test]
+    fn user_data_round_trips_unchanged_through_every_callback_invocation() {
+        use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
+        use std::sync::OnceLock;
+
+        static LAST_USER_DATA: OnceLock<AtomicPtr<u8>> = OnceLock::new();
+        static MISMATCH: OnceLock<AtomicPtr<u8>> = OnceLock::new();
+        static SAW_FINISHED: OnceLock<AtomicBool> = OnceLock::new();
+        LAST_USER_DATA.get_or_init(|| AtomicPtr::new(std::ptr::null_mut()));
+        MISMATCH.get_or_init(|| AtomicPtr::new(std::ptr::null_mut()));
+        SAW_FINISHED.get_or_init(|| AtomicBool::new(false));
+
+        extern "C" fn recording_callback(event: SynthesisEvent, user_data: *mut c_void) -> u8 {
+            let expected = LAST_USER_DATA.get().unwrap().load(Ordering::SeqCst);
+            if user_data as *mut u8 != expected {
+                MISMATCH
+                    .get()
+                    .unwrap()
+                    .store(user_data as *mut u8, Ordering::SeqCst);
+            }
+            // Track if we saw the terminal FINISHED event
+            if event.event_type == synth_event::SYNTH_EVENT_FINISHED {
+                SAW_FINISHED.get().unwrap().store(true, Ordering::SeqCst);
+            }
+            // SAFETY: test-only reclaim of an event this test's own call produced.
+            unsafe { libdengjenFreeSynthesisEvent(event) };
+            0 // Return 0 to continue processing, letting stream reach FINISHED event
+        }
+
+        let mut sentinel: u8 = 0;
+        let token: *mut c_void = std::ptr::addr_of_mut!(sentinel).cast();
+        LAST_USER_DATA
+            .get()
+            .unwrap()
+            .store(token as *mut u8, Ordering::SeqCst);
+
+        let voice_ptr = new_test_piper_voice();
+        assert!(!voice_ptr.is_null(), "Failed to load test piper voice");
+        let mut params = synth_params();
+        params.callback = recording_callback;
+        params.user_data = token;
+        let mut out_error = ExternError::default();
+        let text = c_str("t:_");
+        // SAFETY: voice_ptr is a valid handle just loaded above; text stays alive (not
+        // dropped) for the full duration of this call.
+        unsafe {
+            libdengjenSpeak(
+                voice_ptr,
+                FfiStr::from_raw(text.as_ptr()),
+                params,
+                &mut out_error,
+            )
+        };
+        assert_eq!(out_error.get_code(), ffi_support::ErrorCode::SUCCESS);
+
+        let mismatch = MISMATCH.get().unwrap().load(Ordering::SeqCst);
+        assert!(
+            mismatch.is_null(),
+            "callback received a user_data pointer ({mismatch:?}) that didn't match the one \
+             passed into libdengjenSpeak ({token:?})"
+        );
+
+        // Verify we actually reached the terminal FINISHED event with correct user_data
+        assert!(
+            SAW_FINISHED.get().unwrap().load(Ordering::SeqCst),
+            "callback never received SYNTH_EVENT_FINISHED; test did not exercise the \
+             terminal event path"
+        );
+
+        // SAFETY: voice_ptr is a valid handle owned by this test, not used again after this.
+        unsafe { libdengjenUnloadDengjenVoice(voice_ptr) };
     }
 
     #[test]
@@ -1304,7 +1469,7 @@ mod abi_struct_tests {
         unsafe { libdengjenFreeSynthesisEvent(event) };
     }
 
-    extern "C" fn noop_callback(_event: SynthesisEvent) -> u8 {
+    extern "C" fn noop_callback(_event: SynthesisEvent, _user_data: *mut c_void) -> u8 {
         0
     }
 
@@ -1318,6 +1483,7 @@ mod abi_struct_tests {
             appended_silence_ms: 250,
             callback: noop_callback,
             nonblocking: 0,
+            user_data: std::ptr::null_mut(),
         };
 
         let config = params.as_synth_output_config();
