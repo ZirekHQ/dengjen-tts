@@ -15,6 +15,7 @@ extern uint8_t goDengjenSpeechCallback(struct SynthesisEvent event, void *userDa
 */
 import "C"
 import (
+	"runtime"
 	"runtime/cgo"
 	"unsafe"
 )
@@ -47,6 +48,9 @@ func boolToUint8(b bool) C.uint8_t {
 // SpeakToFile synthesizes text and writes it as a WAV file at outFilename.
 // The bool return reports whether the file was written, independent of err
 // (mirrors libdengjenSpeakToFile's own two-part success signal).
+//
+// params.Nonblocking has no effect here -- SpeakToFile is always
+// synchronous; it only applies to Speak.
 func (v *Voice) SpeakToFile(text string, params SynthesisParams, outFilename string) (bool, error) {
 	if v.ptr == nil {
 		return false, &FFIError{Message: "voice is closed"}
@@ -57,18 +61,19 @@ func (v *Voice) SpeakToFile(text string, params SynthesisParams, outFilename str
 	defer C.free(unsafe.Pointer(cOutFilename))
 
 	cParams := C.struct_SynthesisParams{
-		mode:                 C.int32_t(params.Mode),
-		rate:                 C.uint8_t(params.Rate),
-		volume:               C.uint8_t(params.Volume),
-		pitch:                C.uint8_t(params.Pitch),
-		appended_silence_ms:  C.uint32_t(params.AppendedSilenceMs),
-		nonblocking:          boolToUint8(params.Nonblocking),
+		mode:                C.int32_t(params.Mode),
+		rate:                C.uint8_t(params.Rate),
+		volume:              C.uint8_t(params.Volume),
+		pitch:               C.uint8_t(params.Pitch),
+		appended_silence_ms: C.uint32_t(params.AppendedSilenceMs),
+		nonblocking:         boolToUint8(params.Nonblocking),
 	}
 	var cErr C.struct_ExternError
 	wrote := C.libdengjenSpeakToFile(v.ptr, C.FfiStr(cText), cParams, C.FfiStr(cOutFilename), &cErr)
 	if err := checkError(cErr); err != nil {
 		return false, err
 	}
+	runtime.KeepAlive(v)
 	return wrote != 0, nil
 }
 
@@ -81,6 +86,11 @@ func (v *Voice) SpeakToFile(text string, params SynthesisParams, outFilename str
 // call. If params.Nonblocking is true, Speak returns immediately and onEvent
 // continues firing from another goroutine until the stream ends by either of
 // those means.
+//
+// onEvent must not panic and must not call runtime.Goexit (for example, via
+// t.Fatal in a test) -- either would unwind across the C/Rust call frames
+// that invoke it, which is undefined behavior at this FFI boundary. Recover
+// from any panics inside onEvent yourself if there's a chance it might.
 func (v *Voice) Speak(text string, params SynthesisParams, onEvent func(SynthesisEvent) bool) error {
 	if v.ptr == nil {
 		return &FFIError{Message: "voice is closed"}
@@ -113,6 +123,7 @@ func (v *Voice) Speak(text string, params SynthesisParams, onEvent func(Synthesi
 		}
 		return err
 	}
+	runtime.KeepAlive(v)
 	return nil
 }
 
@@ -131,5 +142,6 @@ func (v *Voice) Cancel() error {
 	}
 	var cErr C.struct_ExternError
 	C.libdengjenCancel(v.ptr, &cErr)
+	runtime.KeepAlive(v)
 	return checkError(cErr)
 }

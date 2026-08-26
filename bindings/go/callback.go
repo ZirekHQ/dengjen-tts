@@ -56,6 +56,9 @@ func goDengjenSpeechCallback(event C.struct_SynthesisEvent, userData unsafe.Poin
 				Code:    int32(event.error_ptr.code),
 				Message: C.GoString(event.error_ptr.message),
 			}
+			if event.error_ptr.message != nil {
+				C.libdengjenFreeString((*C.int8_t)(unsafe.Pointer(event.error_ptr.message)))
+			}
 		}
 	}
 	// SAFETY (Go side): event was produced by exactly one SpeechSynthesisCallback

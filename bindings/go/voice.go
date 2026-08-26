@@ -66,6 +66,7 @@ func (v *Voice) AudioInfo() (AudioInfo, error) {
 	if err := checkError(cErr); err != nil {
 		return AudioInfo{}, err
 	}
+	runtime.KeepAlive(v)
 	return AudioInfo{
 		SampleRate:  uint32(cInfo.sample_rate),
 		NumChannels: uint32(cInfo.num_channels),
