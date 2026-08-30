@@ -4,7 +4,7 @@ plugins {
     alias(libs.plugins.spotless)
 }
 
-group = "dev.dengjen"
+group = "io.github.zirekhq.dengjen"
 version = "0.1.0"
 
 java {
