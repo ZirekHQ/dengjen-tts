@@ -4,6 +4,7 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.lang.ref.Reference;
+import java.util.Optional;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
@@ -92,6 +93,93 @@ public final class Voice implements AutoCloseable {
             // The Java analog of bindings/go's runtime.KeepAlive(v): ensures
             // this Voice (and so its ptr field) isn't treated as unreachable
             // until the native call above has returned.
+            Reference.reachabilityFence(this);
+        }
+    }
+
+    /** Returns this voice's default synthesis parameters (Piper-family voices). */
+    public PiperSynthConfig getDefaultSynthConfig() {
+        MemorySegment voicePtr = requireOpenPtr();
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment outError = arena.allocate(DengjenLayouts.EXTERN_ERROR);
+            MemorySegment cfgPtr;
+            try {
+                cfgPtr = (MemorySegment) DengjenLib.GET_PIPER_DEFAULT_SYNTH_CONFIG.invokeExact(voicePtr, outError);
+            } catch (Throwable t) {
+                throw new IllegalStateException("libdengjenGetPiperDefaultSynthConfig downcall failed", t);
+            }
+            ErrorChecks.checkAndThrow(outError);
+            MemorySegment cfg = cfgPtr.reinterpret(DengjenLayouts.PIPER_SYNTH_CONFIG.byteSize());
+            PiperSynthConfig result = new PiperSynthConfig(
+                    cfg.get(ValueLayout.JAVA_INT, DengjenLayouts.PIPER_SYNTH_CONFIG_SPEAKER_OFFSET),
+                    cfg.get(ValueLayout.JAVA_FLOAT, DengjenLayouts.PIPER_SYNTH_CONFIG_LENGTH_SCALE_OFFSET),
+                    cfg.get(ValueLayout.JAVA_FLOAT, DengjenLayouts.PIPER_SYNTH_CONFIG_NOISE_SCALE_OFFSET),
+                    cfg.get(ValueLayout.JAVA_FLOAT, DengjenLayouts.PIPER_SYNTH_CONFIG_NOISE_W_OFFSET));
+            try {
+                DengjenLib.FREE_PIPER_SYNTH_CONFIG.invokeExact(cfgPtr);
+            } catch (Throwable t) {
+                throw new IllegalStateException("libdengjenFreePiperSynthConfig downcall failed", t);
+            }
+            return result;
+        } finally {
+            Reference.reachabilityFence(this);
+        }
+    }
+
+    /** Updates this voice's fallback synthesis parameters. */
+    public void setSynthConfig(PiperSynthConfig config) {
+        MemorySegment voicePtr = requireOpenPtr();
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment cfg = arena.allocate(DengjenLayouts.PIPER_SYNTH_CONFIG);
+            cfg.set(ValueLayout.JAVA_INT, DengjenLayouts.PIPER_SYNTH_CONFIG_SPEAKER_OFFSET, config.speaker());
+            cfg.set(ValueLayout.JAVA_FLOAT, DengjenLayouts.PIPER_SYNTH_CONFIG_LENGTH_SCALE_OFFSET, config.lengthScale());
+            cfg.set(ValueLayout.JAVA_FLOAT, DengjenLayouts.PIPER_SYNTH_CONFIG_NOISE_SCALE_OFFSET, config.noiseScale());
+            cfg.set(ValueLayout.JAVA_FLOAT, DengjenLayouts.PIPER_SYNTH_CONFIG_NOISE_W_OFFSET, config.noiseW());
+            MemorySegment outError = arena.allocate(DengjenLayouts.EXTERN_ERROR);
+            try {
+                DengjenLib.SET_PIPER_SYNTH_CONFIG.invokeExact(voicePtr, cfg, outError);
+            } catch (Throwable t) {
+                throw new IllegalStateException("libdengjenSetPiperSynthConfig downcall failed", t);
+            }
+            ErrorChecks.checkAndThrow(outError);
+        } finally {
+            Reference.reachabilityFence(this);
+        }
+    }
+
+    /** Sets a single named parameter on the voice's fallback synthesis config (model-agnostic -- works for any backend's own parameter names). */
+    public void setSynthesisParameter(String key, float value) {
+        MemorySegment voicePtr = requireOpenPtr();
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment cKey = arena.allocateFrom(key);
+            MemorySegment outError = arena.allocate(DengjenLayouts.EXTERN_ERROR);
+            try {
+                DengjenLib.SET_SYNTHESIS_PARAMETER.invokeExact(voicePtr, cKey, value, outError);
+            } catch (Throwable t) {
+                throw new IllegalStateException("libdengjenSetSynthesisParameter downcall failed", t);
+            }
+            ErrorChecks.checkAndThrow(outError);
+        } finally {
+            Reference.reachabilityFence(this);
+        }
+    }
+
+    /** Reads a single named parameter from the voice's fallback synthesis config. Empty if the key was never set (not an error). */
+    public Optional<Float> getSynthesisParameter(String key) {
+        MemorySegment voicePtr = requireOpenPtr();
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment cKey = arena.allocateFrom(key);
+            MemorySegment outValue = arena.allocate(ValueLayout.JAVA_FLOAT);
+            MemorySegment outError = arena.allocate(DengjenLayouts.EXTERN_ERROR);
+            boolean found;
+            try {
+                found = (boolean) DengjenLib.GET_SYNTHESIS_PARAMETER.invokeExact(voicePtr, cKey, outValue, outError);
+            } catch (Throwable t) {
+                throw new IllegalStateException("libdengjenGetSynthesisParameter downcall failed", t);
+            }
+            ErrorChecks.checkAndThrow(outError);
+            return found ? Optional.of(outValue.get(ValueLayout.JAVA_FLOAT, 0)) : Optional.empty();
+        } finally {
             Reference.reachabilityFence(this);
         }
     }
