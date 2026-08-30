@@ -16,7 +16,6 @@ extern uint8_t goDengjenSpeechCallback(struct SynthesisEvent event, void *userDa
 import "C"
 import (
 	"runtime"
-	"runtime/cgo"
 	"unsafe"
 )
 
@@ -98,7 +97,7 @@ func (v *Voice) Speak(text string, params SynthesisParams, onEvent func(Synthesi
 	cText := C.CString(text)
 	defer C.free(unsafe.Pointer(cText))
 
-	h := cgo.NewHandle(onEvent)
+	token := registerCallback(onEvent)
 
 	cParams := C.struct_SynthesisParams{
 		mode:                C.int32_t(params.Mode),
@@ -108,7 +107,7 @@ func (v *Voice) Speak(text string, params SynthesisParams, onEvent func(Synthesi
 		appended_silence_ms: C.uint32_t(params.AppendedSilenceMs),
 		callback:            C.SpeechSynthesisCallback(C.goDengjenSpeechCallback),
 		nonblocking:         boolToUint8(params.Nonblocking),
-		user_data:           unsafe.Pointer(h),
+		user_data:           unsafe.Pointer(token),
 	}
 
 	var cErr C.struct_ExternError
@@ -116,11 +115,8 @@ func (v *Voice) Speak(text string, params SynthesisParams, onEvent func(Synthesi
 	if err := checkError(cErr); err != nil {
 		// The callback is guaranteed to never fire for a call that reports an
 		// error here (traced in the design spec, §"Streaming"), so this call
-		// site — not the trampoline — owns deleting the handle.
-		h.Delete()
-		if testHandleDeleted != nil {
-			testHandleDeleted()
-		}
+		// site — not the trampoline — owns releasing token.
+		releaseCallback(token)
 		return err
 	}
 	runtime.KeepAlive(v)

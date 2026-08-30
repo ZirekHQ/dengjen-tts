@@ -202,39 +202,39 @@ func TestSpeakOnEventReturningFalseStopsEarly(t *testing.T) {
 	}
 }
 
-// TestSpeakOnEventReturningFalseReleasesHandle proves the cgo.Handle backing
-// onEvent is actually deleted when onEvent stops the stream early, not just
-// that the callback stopped firing. iterate_stream (Rust side) never
-// delivers a terminal (Finished/Error) event on this path, so a trampoline
-// that deletes the handle only on a terminal event leaks it (and everything
-// onEvent captures) permanently -- calls==1 alone can't distinguish "handle
-// deleted, stream stopped cleanly" from "handle leaked forever".
+// TestSpeakOnEventReturningFalseReleasesCallbackData proves the callbackData
+// backing onEvent is actually unpinned when onEvent stops the stream early,
+// not just that the callback stopped firing. iterate_stream (Rust side)
+// never delivers a terminal (Finished/Error) event on this path, so a
+// trampoline that unpins only on a terminal event leaks it (and everything
+// onEvent captures) permanently -- calls==1 alone can't distinguish
+// "unpinned, stream stopped cleanly" from "leaked forever".
 //
 // An earlier version of this test tried to observe the leak indirectly via
 // a GC finalizer on a canary value captured by onEvent's closure. That
 // approach turned out to be unreliable in practice: run repeatedly in the
 // same process (go test -count=N), it failed on every other run even with a
-// 90-second timeout, while an equivalent finalizer test using cgo.Handle
-// alone (no Speak, no native library call) passed 10/10 instantly. The
-// difference traces to the native synthesis library's own background
+// 90-second timeout, while an equivalent finalizer test using a pinned
+// struct alone (no Speak, no native library call) passed 10/10 instantly.
+// The difference traces to the native synthesis library's own background
 // threads, which apparently affect how promptly Go's GC can prove the
-// closure unreachable -- unrelated to whether Delete() actually ran. Rather
-// than infer Delete() indirectly through the garbage collector, this test
-// observes it directly via testHandleDeleted (callback.go), a hook invoked
-// synchronously at the same place Delete() is called. That makes the test
-// deterministic: no GC, no timeout, no possibility of native-library thread
-// scheduling causing a false failure.
-func TestSpeakOnEventReturningFalseReleasesHandle(t *testing.T) {
+// closure unreachable -- unrelated to whether Unpin() actually ran. Rather
+// than infer Unpin() indirectly through the garbage collector, this test
+// observes it directly via testCallbackDataReleased (callback.go), a hook
+// invoked synchronously at the same place Unpin() is called. That makes the
+// test deterministic: no GC, no timeout, no possibility of native-library
+// thread scheduling causing a false failure.
+func TestSpeakOnEventReturningFalseReleasesCallbackData(t *testing.T) {
 	v, err := LoadVoice(syntheticPiperConfigPath(t))
 	if err != nil {
 		t.Fatalf("LoadVoice failed: %v", err)
 	}
 	defer v.Close()
 
-	deleted := false
-	prevHook := testHandleDeleted
-	testHandleDeleted = func() { deleted = true }
-	defer func() { testHandleDeleted = prevHook }()
+	released := false
+	prevHook := testCallbackDataReleased
+	testCallbackDataReleased = func() { released = true }
+	defer func() { testCallbackDataReleased = prevHook }()
 
 	params := SynthesisParams{Mode: SynthModeLazy, Rate: 10, Volume: 100, Pitch: 50}
 	err = v.Speak("Test.", params, func(e SynthesisEvent) bool {
@@ -246,12 +246,12 @@ func TestSpeakOnEventReturningFalseReleasesHandle(t *testing.T) {
 
 	// SynthModeLazy makes libdengjenSpeak (and so C.libdengjenSpeak, and so
 	// Speak itself) block until the stream ends, so by the time Speak has
-	// returned above, the trampoline -- and any Delete()+hook call it was
+	// returned above, the trampoline -- and any Unpin()+hook call it was
 	// going to make -- has already run synchronously on this goroutine; no
 	// wait is needed here.
-	if !deleted {
-		t.Fatal("the cgo.Handle for an early-stopped Speak call was never " +
-			"deleted (testHandleDeleted hook never fired), leaking onEvent's closure")
+	if !released {
+		t.Fatal("the callbackData for an early-stopped Speak call was never " +
+			"released (testCallbackDataReleased hook never fired), leaking onEvent's closure")
 	}
 }
 
