@@ -1,6 +1,7 @@
 plugins {
     java
     `jvm-test-suite`
+    id("com.diffplug.spotless") version "8.10.1"
 }
 
 group = "dev.dengjen"
@@ -55,6 +56,17 @@ testing {
 
 tasks.withType<Test>().configureEach {
     jvmArgs("--enable-native-access=ALL-UNNAMED")
+}
+
+spotless {
+    java {
+        target("src/*/java/**/*.java")
+        // Pinned to 1.28.0: later releases (confirmed as of 1.36.1) ship
+        // class files requiring JDK 21+ to run, but Spotless runs the
+        // formatter in the Gradle daemon's own JVM, which may be JDK 17 --
+        // 1.28.0 is confirmed to run there.
+        googleJavaFormat("1.28.0")
+    }
 }
 
 tasks.named("check") {
