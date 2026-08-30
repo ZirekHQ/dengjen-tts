@@ -20,8 +20,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * concurrent traffic: blocking calls releasing on their own thread while
  * nonblocking streams are mid-upcall on libdengjen's pool threads. This test
  * manufactures exactly that. Under the per-call-stub design it crashed the JVM
- * (SIGSEGV in vframeStreamCommon::next, via CloseScopedMemoryClosure) on about
- * one run in two; under the current design it passes.
+ * (SIGSEGV in vframeStreamCommon::next, via CloseScopedMemoryClosure) reliably
+ * across isolated runs; under the current design it passes.
  *
  * What it demonstrates, precisely: under real concurrent load, every one of the
  * calls below releases its registry entry exactly once, and no upcall stub is
@@ -73,8 +73,11 @@ class SpeakConcurrencyIntegrationTest {
                 assertEquals(expected, releases.get(),
                         "every speak() call must release its registration exactly once");
             } finally {
-                // Let any straggling pool thread finish its upcall before the
-                // hook it may still call is unset.
+                // A pool thread from a just-completed speak() call may still be
+                // in-flight when the test method returns. If it invokes the hook
+                // after another test has reset or reused it, that stale call could
+                // corrupt the concurrent-test counters. This sleep is an imperfect
+                // but necessary guard against that narrow window.
                 Thread.sleep(500);
                 SpeakTrampoline.testCallReleased = null;
             }

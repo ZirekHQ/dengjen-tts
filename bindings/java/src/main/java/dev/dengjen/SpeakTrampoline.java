@@ -43,7 +43,7 @@ final class SpeakTrampoline {
      * assert the *specific* code path actually ran, not just that events
      * stopped arriving.
      */
-    static Runnable testCallReleased;
+    static volatile Runnable testCallReleased;
 
     private static final Map<Long, SpeakTrampoline> REGISTRY = new ConcurrentHashMap<>();
     // Starts at 1: id 0 would marshal to a NULL user_data, which is what a
