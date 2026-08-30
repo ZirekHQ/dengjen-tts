@@ -135,4 +135,24 @@ class VoiceIntegrationTest {
                     "a speak() call that threw before reaching the downcall left its handler pinned in the registry");
         }
     }
+
+    @Test
+    void cancelOnAnIdleVoiceIsANoop(@TempDir Path tempDir) {
+        try (Voice voice = Voice.load(TestFixtures.syntheticPiperConfigPath(tempDir).toString())) {
+            assertDoesNotThrow(voice::cancel);
+        }
+    }
+
+    @Test
+    void speakRealtimeModeThenCancelDoesNotDeadlock(@TempDir Path tempDir) throws InterruptedException {
+        try (Voice voice = Voice.load(TestFixtures.syntheticPiperConfigPath(tempDir).toString())) {
+            SynthesisParams params = new SynthesisParams(SynthesisMode.REALTIME, 10, 100, 50, 0, true);
+            voice.speak("Test.", params, event -> true);
+
+            Thread canceller = new Thread(voice::cancel);
+            canceller.start();
+            canceller.join(5000);
+            assertFalse(canceller.isAlive(), "cancel() did not return within 5s -- possible deadlock");
+        }
+    }
 }

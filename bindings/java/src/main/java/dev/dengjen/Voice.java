@@ -262,4 +262,30 @@ public final class Voice implements AutoCloseable {
             Reference.reachabilityFence(this);
         }
     }
+
+    /**
+     * Interrupts the most recently started realtime-mode speak() call on
+     * this voice, if one is currently running; has no effect otherwise
+     * (lazy and parallel-mode syntheses cannot be interrupted this way).
+     * The handler still receives a final FINISHED event after a successful
+     * cancellation -- there is no separate "cancelled" event.
+     *
+     * Callers must not call cancel() concurrently with close() on the same
+     * voice -- that races a use-after-free that only the caller can avoid,
+     * mirroring libdengjenCancel's own documented contract.
+     */
+    public void cancel() {
+        MemorySegment voicePtr = requireOpenPtr();
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment outError = arena.allocate(DengjenLayouts.EXTERN_ERROR);
+            try {
+                DengjenLib.CANCEL.invokeExact(voicePtr, outError);
+            } catch (Throwable t) {
+                throw new IllegalStateException("libdengjenCancel downcall failed", t);
+            }
+            ErrorChecks.checkAndThrow(outError);
+        } finally {
+            Reference.reachabilityFence(this);
+        }
+    }
 }
