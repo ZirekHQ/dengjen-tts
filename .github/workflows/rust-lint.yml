@@ -229,6 +229,9 @@ jobs:
       - name: make test
         working-directory: bindings/java
         run: make test
+      - name: make fmt-check
+        working-directory: bindings/java
+        run: make fmt-check
 
   bindings-go:
     runs-on: ubuntu-latest
