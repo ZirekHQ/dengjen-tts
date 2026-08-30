@@ -73,3 +73,6 @@ docs/_build/
 .python-version
 /.envrc
 .superpowers/
+
+# Gradle (bindings/java)
+.gradle/
