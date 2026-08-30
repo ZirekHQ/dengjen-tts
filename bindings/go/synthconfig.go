@@ -22,7 +22,7 @@ type SynthConfig struct {
 // PiperDefaultSynthConfig returns this voice's default synthesis parameters.
 func (v *Voice) PiperDefaultSynthConfig() (SynthConfig, error) {
 	if v.ptr == nil {
-		return SynthConfig{}, &FFIError{Message: "voice is closed"}
+		return SynthConfig{}, ErrVoiceClosed
 	}
 	var cErr C.struct_ExternError
 	cCfg := C.libdengjenGetPiperDefaultSynthConfig(v.ptr, &cErr)
@@ -42,7 +42,7 @@ func (v *Voice) PiperDefaultSynthConfig() (SynthConfig, error) {
 // SetPiperSynthConfig updates this voice's fallback synthesis parameters.
 func (v *Voice) SetPiperSynthConfig(cfg SynthConfig) error {
 	if v.ptr == nil {
-		return &FFIError{Message: "voice is closed"}
+		return ErrVoiceClosed
 	}
 	cCfg := C.struct_PiperSynthConfig{
 		speaker:      C.uint32_t(cfg.Speaker),
@@ -61,7 +61,7 @@ func (v *Voice) SetPiperSynthConfig(cfg SynthConfig) error {
 // names, e.g. Piper's "length_scale" or MeloTTS's "noise_scale_w").
 func (v *Voice) SetSynthesisParameter(key string, value float32) error {
 	if v.ptr == nil {
-		return &FFIError{Message: "voice is closed"}
+		return ErrVoiceClosed
 	}
 	cKey := C.CString(key)
 	defer C.free(unsafe.Pointer(cKey))
@@ -75,7 +75,7 @@ func (v *Voice) SetSynthesisParameter(key string, value float32) error {
 // synthesis config. ok is false if the key was never set (not an error).
 func (v *Voice) SynthesisParameter(key string) (value float32, ok bool, err error) {
 	if v.ptr == nil {
-		return 0, false, &FFIError{Message: "voice is closed"}
+		return 0, false, ErrVoiceClosed
 	}
 	cKey := C.CString(key)
 	defer C.free(unsafe.Pointer(cKey))

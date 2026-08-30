@@ -57,7 +57,7 @@ func (v *Voice) Close() error {
 
 func (v *Voice) AudioInfo() (AudioInfo, error) {
 	if v.ptr == nil {
-		return AudioInfo{}, &FFIError{Message: "voice is closed"}
+		return AudioInfo{}, ErrVoiceClosed
 	}
 	var cInfo C.struct_AudioInfo
 	var cErr C.struct_ExternError
