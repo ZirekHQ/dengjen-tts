@@ -1,0 +1,7 @@
+[versions]
+junit-jupiter = "6.1.3"
+spotless = "8.10.1"
+foojay-resolver = "1.0.0"
+
+[plugins]
+spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }

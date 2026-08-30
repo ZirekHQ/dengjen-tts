@@ -6,7 +6,8 @@ Java bindings for [`libdengjen`](../../crates/frontends/capi), the C API for
 
 ## Prerequisites
 
-- JDK 22+ (the FFM API is stable, non-preview, from Java 22 onward)
+- JDK 25 (the Gradle toolchain pins 25, the LTS release where the FFM API is
+  stable and non-preview; FFM has been stable since Java 22)
 - A Rust toolchain (to build `libdengjen` from source — see the parent
   repository's own build prerequisites)
 
