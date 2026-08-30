@@ -71,18 +71,18 @@ typedef struct AudioInfo {
   uint32_t sample_width;
 } AudioInfo;
 
-typedef uint8_t (*SpeechSynthesisCallback)(struct SynthesisEvent, void*);
-
 typedef struct SynthesisParams {
   int32_t mode;
   uint8_t rate;
   uint8_t volume;
   uint8_t pitch;
   uint32_t appended_silence_ms;
-  SpeechSynthesisCallback callback;
+  uint8_t (*callback)(struct SynthesisEvent, void*);
   uint8_t nonblocking;
   void *user_data;
 } SynthesisParams;
+
+typedef uint8_t (*SpeechSynthesisCallback)(struct SynthesisEvent, void*);
 
 void libdengjenFreeString(int8_t *string_ptr);
 
