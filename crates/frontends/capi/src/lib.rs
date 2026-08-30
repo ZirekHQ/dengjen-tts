@@ -711,7 +711,12 @@ fn _load_voice(config_path_ptr: FfiStr) -> DengjenFFIResult<DengjenVoice> {
 }
 
 fn _cancel(cancel_slot: &Arc<Mutex<Option<CancellationToken>>>) -> DengjenFFIResult<()> {
-    let held_token = cancel_slot.lock().unwrap();
+    // Every write to this slot is a single whole-value assignment (see call sites below), so a
+    // panic elsewhere while the lock is held can never leave it torn -- recovering from poison is
+    // sound, and avoids turning an unrelated panic into a spurious error on a successful synthesis.
+    let held_token = cancel_slot
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     if let Some(active_token) = held_token.as_ref() {
         active_token.cancel();
     }
@@ -730,7 +735,10 @@ struct CancelSlotGuard {
 
 impl Drop for CancelSlotGuard {
     fn drop(&mut self) {
-        let mut held_token = self.slot.lock().unwrap();
+        let mut held_token = self
+            .slot
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let still_owns_slot = held_token
             .as_ref()
             .is_some_and(|current| current.points_to_same_flag(&self.token));
@@ -796,7 +804,9 @@ fn _do_synthesize(
         }
         synth_mode::SYNTH_MODE_REALTIME => {
             let cancel_token = CancellationToken::new();
-            *cancel_slot.lock().unwrap() = Some(cancel_token.clone());
+            *cancel_slot
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(cancel_token.clone());
             let _release_slot_on_drop = CancelSlotGuard {
                 slot: cancel_slot,
                 token: cancel_token.clone(),
