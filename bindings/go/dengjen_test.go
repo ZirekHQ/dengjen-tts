@@ -275,9 +275,12 @@ func TestSpeakRealtimeModeThenCancelDoesNotPanicOrDeadlock(t *testing.T) {
 	}
 	defer v.Close()
 
+	// Buffered so the callback (invoked from the Rust thread pool) never blocks on this channel.
+	events := make(chan SynthesisEvent, 64)
 	done := make(chan error, 1)
 	params := SynthesisParams{Mode: SynthModeRealtime, Rate: 10, Volume: 100, Pitch: 50, Nonblocking: true}
 	err = v.Speak("Test.", params, func(e SynthesisEvent) bool {
+		events <- e
 		return true
 	})
 	if err != nil {
@@ -292,5 +295,20 @@ func TestSpeakRealtimeModeThenCancelDoesNotPanicOrDeadlock(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Cancel did not return within 5s — possible deadlock")
+	}
+
+	// Cancel succeeding only proves the FFI call returned, not that the stream it interrupted
+	// ever delivered its terminal event -- wait for that explicitly so this test actually
+	// exercises the nonblocking event-delivery path instead of degrading into a no-op.
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case e := <-events:
+			if e.Type == EventFinished || e.Type == EventError {
+				return
+			}
+		case <-deadline:
+			t.Fatal("no terminal event delivered within 5s after Cancel")
+		}
 	}
 }
