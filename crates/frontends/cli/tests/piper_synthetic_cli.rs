@@ -2,12 +2,10 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 
-// Safety net for the Piper clean-room rewrite (Task 11 of the model-backends
-// rewrite plan): drives the real `dengjen` binary against synthetic
-// batch and streaming ("realtime") Piper voices, so a behavior regression in
-// the rewritten inference/chunking internals shows up as a CLI-level failure,
-// not just a unit-test failure whose surface area the rewrite might also
-// have changed.
+// Drives the real `dengjen` binary against synthetic batch and streaming
+// ("realtime") Piper voices, so a behavior regression in the inference/chunking
+// internals shows up as a CLI-level failure, not just a unit-test failure whose
+// surface area a rewrite might also have changed.
 //
 // The realtime test deliberately does NOT pass `-o`/`--output-file`: the CLI's
 // `process_synthesis_request` (crates/frontends/cli/src/main.rs) takes an early
@@ -212,7 +210,7 @@ fn cli_streams_realtime_synthesis_from_a_synthetic_piper_voice() {
     // ramps, each restarting at 0 for its own chunk, then crossfaded) are
     // therefore byte-distinguishable on stdout. This is deliberately exercised
     // below by running both chunk sizes against the same input and asserting
-    // the outputs differ - if Task 11's rewrite ever collapses streaming into
+    // the outputs differ - if a future rewrite ever collapses streaming into
     // one-shot, or the decoder stops reacting to its input's time dimension,
     // these two runs would become byte-identical and this assertion would catch it.
     let dir = std::env::temp_dir().join("dengjen_cli_piper_synthetic_streaming_test");

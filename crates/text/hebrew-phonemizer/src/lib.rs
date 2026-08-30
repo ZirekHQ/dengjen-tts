@@ -64,13 +64,6 @@ mod tests {
 
     #[test]
     fn text_to_hebrew_phonemes_skips_diacritization_when_already_pointed() {
-        // Pre-pointed input never touches the ONNX engine, so this test needs
-        // no model file — construct a real engine only if one is available,
-        // otherwise this path must still work by short-circuiting before use.
-        // A real `&NakdimonEngine` can't be constructed without an ONNX model
-        // file (see the model-gated end-to-end test below), so this exercises
-        // the actual short-circuit decision (`already_diacritized`) directly,
-        // rather than only the ipa module beneath it.
         let pointed = "\u{05E9}\u{05B8}\u{05DC}\u{05D5}\u{05DD}"; // shalom, pointed
         assert!(already_diacritized(pointed));
         let ipa = hebrew_to_ipa_or_error(pointed).unwrap();

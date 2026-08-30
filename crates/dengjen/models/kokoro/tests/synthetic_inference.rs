@@ -4,9 +4,9 @@ use std::io::Write;
 use std::path::PathBuf;
 
 // This test exercises the real inference plumbing (tensor construction, session.run,
-// output extraction) against the checked-in synthetic fixture from Task 5 Step 1 - it
-// does not assert anything about real speech quality, only that the pipeline runs and
-// produces the expected shape/type of output.
+// output extraction) against the checked-in synthetic fixture - it does not assert
+// anything about real speech quality, only that the pipeline runs and produces the
+// expected shape/type of output.
 
 const STYLE_DIM: usize = 256;
 const MAX_TOKEN_LEN: usize = 510;
@@ -59,9 +59,8 @@ fn synthesizes_against_synthetic_fixture_without_panicking() {
     assert_eq!(audio.info.sample_rate, 24000);
     let samples = audio.samples.into_vec();
     assert!(!samples.is_empty(), "expected non-empty output samples");
-    // The synthetic graph always outputs exactly 16000 samples (see Task 5 Step 1's
-    // generator script) - not asserting sample VALUES, since they're an arbitrary
-    // placeholder computation, not real audio.
+    // The synthetic graph always outputs exactly 16000 samples - not asserting sample
+    // VALUES, since they're an arbitrary placeholder computation, not real audio.
     assert_eq!(samples.len(), 16000);
 
     std::fs::remove_dir_all(&dir).ok();

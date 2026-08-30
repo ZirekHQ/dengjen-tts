@@ -55,7 +55,6 @@ func (v *Voice) Close() error {
 	return nil
 }
 
-// AudioInfo returns this voice's output audio format.
 func (v *Voice) AudioInfo() (AudioInfo, error) {
 	if v.ptr == nil {
 		return AudioInfo{}, &FFIError{Message: "voice is closed"}

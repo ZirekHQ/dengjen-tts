@@ -43,11 +43,11 @@ fn synthesizes_against_synthetic_fixture_without_panicking() {
 
 #[test]
 fn set_fallback_synthesis_config_changes_inference_output_values() {
-    // Regression guard for the #101/#105/#108 bug class: a noise_scale set via
-    // set_fallback_synthesis_config must actually reach inference, not be silently
-    // dropped in favor of the static voice-manifest default. The synthetic fixture's
-    // output is deterministically `seq_len * noise_scale` tiled to 16000 samples, so
-    // two different noise_scale values must produce two different sample buffers.
+    // A noise_scale set via set_fallback_synthesis_config must actually reach
+    // inference, not be silently dropped in favor of the static voice-manifest
+    // default. The synthetic fixture's output is deterministically
+    // `seq_len * noise_scale` tiled to 16000 samples, so two different noise_scale
+    // values must produce two different sample buffers.
     let model = load_synthetic_model("dengjen_melotts_synthetic_inference_fallback_test");
 
     let default_audio = model

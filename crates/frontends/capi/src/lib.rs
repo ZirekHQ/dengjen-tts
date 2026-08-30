@@ -122,7 +122,6 @@ impl DengjenFFIError {
         Self(code, message.into())
     }
 
-    /// A string argument from C was not valid UTF-8.
     fn invalid_utf8() -> Self {
         Self::with_code(
             error_codes::INVALID_UTF8_SEQUENCE,
@@ -895,7 +894,6 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../dengjen/models/piper/tests/fixtures/synthetic_piper_batch.onnx");
-        // Ensure the model path exists before trying to copy it
         assert!(
             model_path.exists(),
             "Model path does not exist: {:?}",
@@ -955,7 +953,6 @@ mod tests {
                     .unwrap()
                     .store(user_data as *mut u8, Ordering::SeqCst);
             }
-            // Track if we saw the terminal FINISHED event
             if event.event_type == synth_event::SYNTH_EVENT_FINISHED {
                 SAW_FINISHED.get().unwrap().store(true, Ordering::SeqCst);
             }
@@ -997,7 +994,6 @@ mod tests {
              passed into libdengjenSpeak ({token:?})"
         );
 
-        // Verify we actually reached the terminal FINISHED event with correct user_data
         assert!(
             SAW_FINISHED.get().unwrap().load(Ordering::SeqCst),
             "callback never received SYNTH_EVENT_FINISHED; test did not exercise the \

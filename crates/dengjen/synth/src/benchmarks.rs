@@ -2,7 +2,7 @@ fn main() {
     // Voice fixtures are lazily built; force that setup to finish before
     // divan starts scheduling iterations against them.
     dev_utils::init();
-    divan::main(); // hand control to divan's own benchmark runner
+    divan::main();
 }
 
 mod dev_utils;

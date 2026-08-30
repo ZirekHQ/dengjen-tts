@@ -298,8 +298,8 @@ mod tests {
 
     #[test]
     fn map_phonemes_to_ids_skips_an_entry_with_an_empty_id_list_instead_of_panicking() {
-        // Regression test for a fuzz-found panic: a config where a key maps to `[]` (valid
-        // JSON, invalid in practice) must not crash the whole utterance.
+        // A config where a key maps to `[]` (valid JSON, invalid in practice) must not
+        // crash the whole utterance.
         let mut map = single_char_phoneme_map();
         map.insert("z".to_string(), vec![]);
         let ids = map_phonemes_to_ids(&map, "azb", 3, 1, 2);

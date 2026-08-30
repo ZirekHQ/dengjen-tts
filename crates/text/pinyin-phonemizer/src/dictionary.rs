@@ -13,7 +13,6 @@ use std::path::Path;
 pub(crate) struct Dictionaries {
     pub monophonic: HashMap<char, String>,
     pub char_bopomofo: HashMap<char, String>,
-    // read once lib.rs's orchestration (a later task) builds a real config from it
     pub polyphonic_chars: Vec<(char, String)>,
 }
 

@@ -434,9 +434,7 @@ impl RealtimeSpeechStream {
     /// to the fixed `base_chunk_size`, never to a value this function
     /// previously returned, so calling it repeatedly across a stream can
     /// only ramp up and plateau — never compound past the cap and never
-    /// fall back down between sentences. Issue #28 was a regression where an
-    /// earlier version violated that and let the size oscillate; keep this
-    /// additive, non-resetting shape when touching this function.
+    /// fall back down between sentences.
     fn next_chunk_size(base_chunk_size: usize, sentences_seen: usize) -> usize {
         let extra_multiples = sentences_seen.min(4);
         let growth = base_chunk_size.saturating_mul(extra_multiples);
@@ -593,12 +591,8 @@ mod chunk_size_growth_tests {
 
     #[test]
     fn growth_never_decreases_across_a_multi_sentence_stream_issue_28_regression() {
-        // Regression guard for issue #28: the old formula derived each sentence's
-        // chunk_size from the *previous* sentence's chunk count, which tended to
-        // synthesize a whole sentence in ~1 chunk and then reset back near `base`
-        // for the next one, alternating small/large/small chunk sizes. The new
-        // formula is keyed on how many sentences have been seen, not on chunk
-        // counts, so it must never step backwards.
+        // chunk_size is keyed on how many sentences have been seen, not on chunk
+        // counts, so it must never step backwards between sentences.
         let sizes: Vec<usize> = (0..20)
             .map(|sentences_seen| RealtimeSpeechStream::next_chunk_size(72, sentences_seen))
             .collect();
@@ -766,9 +760,8 @@ mod cancellation_tests {
 
     #[test]
     fn chunk_size_growth_stays_bounded_and_never_oscillates_across_many_sentences() {
-        // Regression test for both the overflow in issue #24 (growth must stay
-        // bounded across a long stream) and the oscillation in issue #28 (growth
-        // must ramp up and plateau, never drop back toward `base` mid-stream).
+        // Growth must stay bounded across a long stream, and must ramp up and
+        // plateau, never dropping back toward `base` mid-stream.
         let produced = Arc::new(AtomicUsize::new(0));
         let chunk_sizes_seen = Arc::new(Mutex::new(Vec::new()));
         let model: Arc<dyn DengjenModel + Send + Sync> = Arc::new(CountingStreamModel {

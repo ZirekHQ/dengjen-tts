@@ -159,7 +159,6 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = write_temp_vocab(&dir, SAMPLE_VOCAB_JSON);
         let vocab = Vocab::load(&path).unwrap();
-        // "test" phoneme string using single-char vocab entries: t, ɛ, s, t
         assert_eq!(vocab.tokenize("tɛst"), vec![1, 2, 3, 1]);
         std::fs::remove_dir_all(&dir).ok();
     }

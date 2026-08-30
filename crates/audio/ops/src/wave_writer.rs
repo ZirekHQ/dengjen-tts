@@ -74,7 +74,7 @@ where
         ))
     })?;
 
-    // write_all (not write) avoids silently truncating on a short write — see #34/#37
+    // write_all (not write) avoids silently truncating on a short write.
     file.write_all(&encoded).map_err(|source| {
         let _ = std::fs::remove_file(path);
         WaveWriterError::new(format!(
