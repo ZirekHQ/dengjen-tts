@@ -115,4 +115,24 @@ class VoiceIntegrationTest {
                     "the registry entry for an early-stopped speak() call was never released, leaking the handler");
         }
     }
+
+    @Test
+    void speakReleasesTheCallRegistrationWhenMarshallingThrows(@TempDir Path tempDir) {
+        try (Voice voice = Voice.load(TestFixtures.syntheticPiperConfigPath(tempDir).toString())) {
+            int[] releases = {0};
+            Runnable prevHook = SpeakTrampoline.testCallReleased;
+            SpeakTrampoline.testCallReleased = () -> releases[0]++;
+            try {
+                SynthesisParams params = new SynthesisParams(SynthesisMode.LAZY, 10, 100, 50, 0);
+                // Throws inside allocateFrom, i.e. after the call is registered
+                // but before the downcall -- so the trampoline never runs and
+                // can never release its own entry.
+                assertThrows(NullPointerException.class, () -> voice.speak(null, params, event -> true));
+            } finally {
+                SpeakTrampoline.testCallReleased = prevHook;
+            }
+            assertEquals(1, releases[0],
+                    "a speak() call that threw before reaching the downcall left its handler pinned in the registry");
+        }
+    }
 }

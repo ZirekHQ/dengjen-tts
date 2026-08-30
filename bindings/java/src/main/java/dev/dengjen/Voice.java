@@ -240,20 +240,24 @@ public final class Voice implements AutoCloseable {
             try {
                 DengjenLib.SPEAK.invokeExact(voicePtr, cText, cParams, outError);
             } catch (Throwable t) {
-                trampoline.release();
                 throw new IllegalStateException("libdengjenSpeak downcall failed", t);
             }
-            try {
-                ErrorChecks.checkAndThrow(outError);
-            } catch (DengjenException e) {
-                // The trampoline is guaranteed to never fire for a call
-                // that reports an error here (mirrors bindings/go's
-                // speak.go: the callback never runs if libdengjenSpeak
-                // itself reports an error), so this call site -- not the
-                // trampoline -- owns releasing the registration in that case.
-                trampoline.release();
-                throw e;
-            }
+            ErrorChecks.checkAndThrow(outError);
+        } catch (RuntimeException | Error t) {
+            // Every throw reaching here leaves the stream never started, so
+            // the trampoline will never fire and release its own
+            // registration -- this call site owns it. That covers marshalling
+            // failing before the downcall (which would otherwise pin the
+            // handler in the static registry forever), the downcall itself
+            // failing, and libdengjenSpeak reporting an error: it only reports
+            // one when it failed before entering the synthesis loop, so no
+            // event can have been delivered (mirrors bindings/go's speak.go).
+            // One wide catch rather than one per throw site, so no future
+            // statement added above can slip through unreleased; release() is
+            // idempotent, so overlapping with the trampoline's own release
+            // would still only release once.
+            trampoline.release();
+            throw t;
         } finally {
             Reference.reachabilityFence(this);
         }

@@ -22,6 +22,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * manufactures exactly that. Under the per-call-stub design it crashed the JVM
  * (SIGSEGV in vframeStreamCommon::next, via CloseScopedMemoryClosure) on about
  * one run in two; under the current design it passes.
+ *
+ * What it demonstrates, precisely: under real concurrent load, every one of the
+ * calls below releases its registry entry exactly once, and no upcall stub is
+ * ever freed while a frame of it is live (the latter shows up as the VM staying
+ * up at all, not as an assertion). It does not distinguish invoke()'s
+ * `terminal || !wantsMore` from two independent ifs -- release() is idempotent
+ * either way, so that condition is load-bearing for intent, not for anything
+ * this test can observe.
  */
 class SpeakConcurrencyIntegrationTest {
     private static final int THREADS = 6;
@@ -43,11 +51,10 @@ class SpeakConcurrencyIntegrationTest {
                     threads[t] = new Thread(() -> {
                         for (int i = 0; i < CALLS_PER_THREAD; i++) {
                             // True for the fixture's 16000-byte SPEECH event,
-                            // false for the zero-length FINISHED one -- so every
+                            // false for the zero-length FINISHED one, so every
                             // call ends on a terminal event whose handler also
-                            // returned false, the case where releasing under two
-                            // independent ifs instead of `terminal || !wantsMore`
-                            // would release twice.
+                            // returned false -- the release path where both of
+                            // invoke()'s two end-of-stream reasons fire at once.
                             voice.speak("Test.", params, event -> event.data().length % 3 != 0);
                         }
                     });
