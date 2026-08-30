@@ -6,7 +6,7 @@ native:
 	cargo build --release --manifest-path $(CARGO_MANIFEST) -p libdengjen
 
 test: native
-	./gradlew test integrationTest
+	./gradlew test integrationTest e2e
 
 clean:
 	./gradlew clean
