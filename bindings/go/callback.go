@@ -5,7 +5,8 @@ package dengjen
 */
 import "C"
 import (
-	"runtime/cgo"
+	"runtime"
+	"sync"
 	"unsafe"
 )
 
@@ -25,24 +26,67 @@ type SynthesisEvent struct {
 	Err  error  // populated for EventError
 }
 
-// testHandleDeleted, when non-nil, is invoked synchronously immediately
-// after a cgo.Handle backing a Speak call's onEvent is deleted (from either
-// this trampoline or Speak's own synchronous-error path in speak.go). It
-// exists solely so tests can assert deterministically that Delete() was
-// actually called. A GC-finalizer-based test was tried first and proved
-// unreliable in practice: whether the underlying native synthesis library's
-// background threads let the deleted handle's closure become collectible
-// promptly turned out to depend on native thread-pool scheduling outside
-// Go's control, not on whether Delete() ran -- so observing Delete() via
-// this hook, rather than inferring it through the garbage collector, is the
-// only way to test this deterministically. Nil in production; only ever
-// set from a _test.go file.
-var testHandleDeleted func()
+// callbackToken is deliberately field-free: Pinner.Pin pins only the object
+// directly addressed, not pointers nested inside it, so a closure embedded
+// in the pinned struct itself panics at runtime ("cgo argument has Go
+// pointer to unpinned Go pointer"). The closure lives in callbackRegistry
+// instead, which never crosses into C memory.
+type callbackToken struct{}
+
+type callbackEntry struct {
+	fn     func(SynthesisEvent) bool
+	pinner runtime.Pinner
+}
+
+var (
+	callbackRegistryMu sync.Mutex
+	callbackRegistry   = map[*callbackToken]*callbackEntry{}
+)
+
+func registerCallback(fn func(SynthesisEvent) bool) *callbackToken {
+	token := &callbackToken{}
+	entry := &callbackEntry{fn: fn}
+	entry.pinner.Pin(token)
+
+	callbackRegistryMu.Lock()
+	callbackRegistry[token] = entry
+	callbackRegistryMu.Unlock()
+	return token
+}
+
+// releaseCallback is idempotent: a no-op if token was already released.
+func releaseCallback(token *callbackToken) {
+	callbackRegistryMu.Lock()
+	entry, ok := callbackRegistry[token]
+	delete(callbackRegistry, token)
+	callbackRegistryMu.Unlock()
+	if !ok {
+		return
+	}
+	entry.pinner.Unpin()
+	if testCallbackDataReleased != nil {
+		testCallbackDataReleased()
+	}
+}
+
+// testCallbackDataReleased, when non-nil, fires synchronously right after a
+// release. A GC-finalizer-based test was tried first and was flaky -- the
+// native library's background threads affect how promptly the released
+// closure becomes collectible, unrelated to whether release actually ran --
+// so tests observe release directly via this hook instead. Nil in
+// production; only ever set from a _test.go file.
+var testCallbackDataReleased func()
 
 //export goDengjenSpeechCallback
 func goDengjenSpeechCallback(event C.struct_SynthesisEvent, userData unsafe.Pointer) C.uint8_t {
-	h := cgo.Handle(uintptr(userData))
-	onEvent, _ := h.Value().(func(SynthesisEvent) bool)
+	token := (*callbackToken)(userData)
+	callbackRegistryMu.Lock()
+	entry := callbackRegistry[token]
+	callbackRegistryMu.Unlock()
+	var onEvent func(SynthesisEvent) bool
+	if entry != nil {
+		onEvent = entry.fn
+	}
 
 	goEvent := SynthesisEvent{Type: EventType(event.event_type)}
 	switch event.event_type {
@@ -68,19 +112,13 @@ func goDengjenSpeechCallback(event C.struct_SynthesisEvent, userData unsafe.Poin
 
 	wantsMore := onEvent == nil || onEvent(goEvent)
 
-	// A Finished/Error event is the normal end of the stream, but onEvent
-	// returning false also ends it -- iterate_stream (Rust side) stops
-	// iterating and returns without ever delivering a terminal event in that
-	// case. Either condition means this is the last time the trampoline will
-	// run for this handle, so the handle must be deleted here; the `||` (not
-	// two independent `if`s) is load-bearing, since a Finished/Error event
-	// whose onEvent call also returns false must still only delete once.
+	// onEvent returning false also ends the stream (iterate_stream never
+	// delivers a terminal event in that case), so the `||` is load-bearing:
+	// a Finished/Error event whose onEvent call also returns false must
+	// still only release once.
 	terminal := event.event_type == C.SYNTH_EVENT_FINISHED || event.event_type == C.SYNTH_EVENT_ERROR
 	if terminal || !wantsMore {
-		h.Delete()
-		if testHandleDeleted != nil {
-			testHandleDeleted()
-		}
+		releaseCallback(token)
 	}
 	if wantsMore {
 		return 0
