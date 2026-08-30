@@ -1,7 +1,7 @@
 plugins {
     java
     `jvm-test-suite`
-    id("com.diffplug.spotless") version "8.10.1"
+    alias(libs.plugins.spotless)
 }
 
 group = "dev.dengjen"
@@ -9,7 +9,7 @@ version = "0.1.0"
 
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(22)
+        languageVersion = JavaLanguageVersion.of(25)
     }
 }
 
@@ -20,13 +20,13 @@ repositories {
 testing {
     suites {
         val test by getting(JvmTestSuite::class) {
-            useJUnitJupiter("5.11.4")
+            useJUnitJupiter(libs.versions.junit.jupiter.get())
         }
         val integrationTest by registering(JvmTestSuite::class) {
             dependencies {
                 implementation(project())
             }
-            useJUnitJupiter("5.11.4")
+            useJUnitJupiter(libs.versions.junit.jupiter.get())
             targets {
                 all {
                     testTask.configure {
@@ -42,7 +42,7 @@ testing {
             dependencies {
                 implementation(project())
             }
-            useJUnitJupiter("5.11.4")
+            useJUnitJupiter(libs.versions.junit.jupiter.get())
             targets {
                 all {
                     testTask.configure {
@@ -60,12 +60,7 @@ tasks.withType<Test>().configureEach {
 
 spotless {
     java {
-        target("src/*/java/**/*.java")
-        // Pinned to 1.28.0: later releases (confirmed as of 1.36.1) ship
-        // class files requiring JDK 21+ to run, but Spotless runs the
-        // formatter in the Gradle daemon's own JVM, which may be JDK 17 --
-        // 1.28.0 is confirmed to run there.
-        googleJavaFormat("1.28.0")
+        googleJavaFormat()
     }
 }
 
