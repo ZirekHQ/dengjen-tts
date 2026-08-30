@@ -210,4 +210,52 @@ public final class Voice implements AutoCloseable {
             Reference.reachabilityFence(this);
         }
     }
+
+    /**
+     * Synthesizes text and streams the resulting audio to handler, one
+     * event at a time. handler returns true to keep receiving events, false
+     * to stop early. If handler runs to the natural end of the stream, the
+     * last event delivered has type FINISHED or ERROR; if handler instead
+     * returns false, the stream stops immediately at whatever event
+     * triggered that, and no further event (in particular, no FINISHED) is
+     * delivered for this call. If params.nonblocking() is true, speak()
+     * returns immediately and handler continues firing from a
+     * native-managed thread until the stream ends by either of those means.
+     *
+     * handler must not throw and must return promptly -- an exception
+     * thrown from handler is caught here, treated as "stop early", and
+     * never propagated back across this FFI boundary, since letting one
+     * unwind across the native call frames that invoke it would be
+     * undefined behavior. If handler needs to fail the caller, record the
+     * failure itself and check for it after speak() returns.
+     */
+    public void speak(String text, SynthesisParams params, SynthesisEventHandler handler) {
+        MemorySegment voicePtr = requireOpenPtr();
+        SpeakTrampoline trampoline = SpeakTrampoline.create(handler);
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment cText = arena.allocateFrom(text);
+            MemorySegment cParams = SynthesisParamsMarshaller.allocate(
+                    arena, params, SpeakTrampoline.stubPointer(), trampoline.userData());
+            MemorySegment outError = arena.allocate(DengjenLayouts.EXTERN_ERROR);
+            try {
+                DengjenLib.SPEAK.invokeExact(voicePtr, cText, cParams, outError);
+            } catch (Throwable t) {
+                trampoline.release();
+                throw new IllegalStateException("libdengjenSpeak downcall failed", t);
+            }
+            try {
+                ErrorChecks.checkAndThrow(outError);
+            } catch (DengjenException e) {
+                // The trampoline is guaranteed to never fire for a call
+                // that reports an error here (mirrors bindings/go's
+                // speak.go: the callback never runs if libdengjenSpeak
+                // itself reports an error), so this call site -- not the
+                // trampoline -- owns releasing the registration in that case.
+                trampoline.release();
+                throw e;
+            }
+        } finally {
+            Reference.reachabilityFence(this);
+        }
+    }
 }

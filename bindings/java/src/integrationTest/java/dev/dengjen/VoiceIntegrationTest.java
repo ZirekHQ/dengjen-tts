@@ -6,10 +6,14 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -61,6 +65,54 @@ class VoiceIntegrationTest {
             // 44-byte RIFF/WAVE header plus 8000 mono i16 samples. Matches
             // bindings/go's equivalent assertion.
             assertEquals(44 + 8000 * 2, data.length);
+        }
+    }
+
+    @Test
+    void speakLazyModeDeliversSpeechThenFinished(@TempDir Path tempDir) {
+        try (Voice voice = Voice.load(TestFixtures.syntheticPiperConfigPath(tempDir).toString())) {
+            List<EventType> events = new ArrayList<>();
+            int[] totalBytes = {0};
+            SynthesisParams params = new SynthesisParams(SynthesisMode.LAZY, 10, 100, 50, 0);
+            voice.speak("Test.", params, event -> {
+                events.add(event.type());
+                totalBytes[0] += event.data().length;
+                assertNull(event.error());
+                return true;
+            });
+            assertFalse(events.isEmpty());
+            assertEquals(EventType.FINISHED, events.get(events.size() - 1));
+            assertEquals(8000 * 2, totalBytes[0]);
+        }
+    }
+
+    @Test
+    void speakHandlerReturningFalseStopsEarly(@TempDir Path tempDir) {
+        try (Voice voice = Voice.load(TestFixtures.syntheticPiperConfigPath(tempDir).toString())) {
+            int[] calls = {0};
+            SynthesisParams params = new SynthesisParams(SynthesisMode.LAZY, 10, 100, 50, 0);
+            voice.speak("Test.", params, event -> {
+                calls[0]++;
+                return false;
+            });
+            assertEquals(1, calls[0]);
+        }
+    }
+
+    @Test
+    void speakHandlerReturningFalseReleasesTheCallRegistration(@TempDir Path tempDir) {
+        try (Voice voice = Voice.load(TestFixtures.syntheticPiperConfigPath(tempDir).toString())) {
+            boolean[] released = {false};
+            Runnable prevHook = SpeakTrampoline.testCallReleased;
+            SpeakTrampoline.testCallReleased = () -> released[0] = true;
+            try {
+                SynthesisParams params = new SynthesisParams(SynthesisMode.LAZY, 10, 100, 50, 0);
+                voice.speak("Test.", params, event -> false);
+            } finally {
+                SpeakTrampoline.testCallReleased = prevHook;
+            }
+            assertTrue(released[0],
+                    "the registry entry for an early-stopped speak() call was never released, leaking the handler");
         }
     }
 }
