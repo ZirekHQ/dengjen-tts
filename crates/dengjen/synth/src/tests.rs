@@ -81,8 +81,8 @@ fn build_synthetic_kokoro_model() -> dengjen_tts_kokoro::KokoroModel {
     model
 }
 
-// Regression guard: Kokoro used to scale chunk_size as a raw sample count instead of a
-// mel-frame count, so capi's default of 72 fragmented every sentence into ~223 tiny chunks.
+// Regression guard: chunk_size must be interpreted as a mel-frame count, not a raw
+// sample count, so capi's default of 72 doesn't fragment every sentence into tiny chunks.
 #[test]
 fn kokoro_realtime_stream_uses_realistic_chunk_duration_for_capi_default_chunk_size() {
     let model = build_synthetic_kokoro_model();

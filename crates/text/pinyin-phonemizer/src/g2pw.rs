@@ -249,10 +249,9 @@ mod tests {
             );
             return;
         };
-        // Building a real G2pwConfig needs the full dictionary-loading code this
-        // crate's later modules add (POLYPHONIC_CHARS.txt parsing) — this test is
-        // a documented placeholder until that loader exists, not a real assertion
-        // yet. Tracked explicitly so it isn't silently forgotten.
+        // Building a real G2pwConfig needs `dictionary.rs`'s loader wired in here;
+        // this test is a documented placeholder without that wiring, not a real
+        // assertion yet, kept explicit so it isn't silently forgotten.
         eprintln!(
             "resolve_polyphonic_disambiguates_a_known_polyphonic_character_with_a_real_model \
              requires the crate's dictionary loader to be wired up before it can run for real: \

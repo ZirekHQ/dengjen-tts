@@ -118,7 +118,7 @@ impl DengjenModel for KokoroModel {
     }
 
     fn phonemize_text(&self, text: &str) -> DengjenResult<Phonemes> {
-        let language = "en-US"; // Task 6 revisits per-voice language selection if needed.
+        let language = "en-US";
         let sentences = text_to_kokoro_phonemes(text, language)?;
         Ok(Phonemes::from(sentences))
     }

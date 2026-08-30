@@ -737,13 +737,10 @@ mod tests {
 
     #[test]
     fn hebrew_word_to_ipa_word_initial_sheva_is_realized_as_e() {
-        // bet+sheva, resh+patah, kaf-final (no dagesh anywhere).
-        // Fixed vs. the task brief: the brief asserted `starts_with('b')`, but
-        // bet has no dagesh here, so real upstream's `_map_consonant` maps it
-        // to "v" (begadkefat spirantization), not "b". Traced through
-        // `_word_to_segments` + `_resolve_sheva_and_qamats` this word yields
-        // "vˈeʁaχ": the word-initial sheva resolves to "e" per the `na`
-        // (i == 0) rule, and the onset consonant is "v".
+        // bet+sheva, resh+patah, kaf-final (no dagesh anywhere). Bet has no
+        // dagesh, so `map_consonant` maps it to "v" (begadkefat
+        // spirantization), not "b": this word yields "vˈeʁaχ", with the
+        // word-initial sheva resolving to "e" per the `na` (i == 0) rule.
         let ipa = hebrew_word_to_ipa("\u{05D1}\u{05B0}\u{05E8}\u{05B7}\u{05DA}");
         assert!(ipa.starts_with('v'));
         assert!(
@@ -754,18 +751,12 @@ mod tests {
 
     #[test]
     fn hebrew_word_to_ipa_stresses_the_final_syllable_by_default() {
-        // Fixed vs. the task brief: the brief's word "shalom" was
-        // שָלום (missing the cholam mark on vav
-        // entirely), which collapses to a single degenerate syllable and
-        // fails the test's own "stress on the final syllable" assumption.
-        // Even with the cholam mark restored, real "shalom" is exactly two
-        // syllables with a closed (consonant-final) last syllable, which
-        // trips upstream's `_syllabify_to_ipa` segholate-style exception
-        // (len(syls) == 2 and the last syllable has a coda -> stress the
-        // *first* syllable instead). That exception only fires at exactly
-        // two syllables, so this test uses "shamayim" (three open/closed
-        // syllables: sha-ma-yim) to exercise the actual default rule the
-        // test name describes, without tripping the two-syllable exception.
+        // "shalom" is exactly two syllables with a closed (consonant-final)
+        // last syllable, which trips `syllabify_to_ipa`'s segholate-style
+        // exception (stress the *first* syllable instead) rather than
+        // exercising the default rule this test names. That exception only
+        // fires at exactly two syllables, so "shamayim" (three syllables:
+        // sha-ma-yim) is used here instead.
         let ipa = hebrew_word_to_ipa(
             "\u{05E9}\u{05B8}\u{05DE}\u{05B7}\u{05D9}\u{05B4}\u{05DD}", // shamayim
         );
@@ -813,11 +804,6 @@ mod tests {
 
     #[test]
     fn hebrew_to_ipa_joins_multiple_words_with_a_space() {
-        // Fixed vs. the task brief: both source words were missing the
-        // cholam mark on their vav (ֹ), so "shalom" and "olam" are
-        // spelled out fully here to match real Hebrew orthography. The
-        // assertions themselves (space-joining, word count) were already
-        // correct and unaffected either way.
         let ipa = hebrew_to_ipa(
             "\u{05E9}\u{05B8}\u{05DC}\u{05D5}\u{05B9}\u{05DD} \u{05E2}\u{05D5}\u{05B9}\u{05DC}\u{05B8}\u{05DD}",
         );

@@ -234,8 +234,6 @@ fn strip_matches(enabled: bool, sentences: Vec<String>, pattern: &Regex) -> Vec<
         .collect()
 }
 
-// ==============================
-
 #[cfg(test)]
 mod tests {
     use super::*;

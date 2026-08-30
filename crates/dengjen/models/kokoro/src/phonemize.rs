@@ -49,9 +49,6 @@ pub fn text_to_kokoro_phonemes(_text: &str, _language: &str) -> DengjenResult<Ve
 mod tests {
     use super::*;
 
-    // Expected raw IPA values below were captured by actually running this repo's
-    // vendored espeak-ng (via espeak_phonemizer::text_to_phonemes) during planning,
-    // not invented - see plan Task 3 for how to reproduce.
     #[test]
     fn espeak_ipa_to_kokoro_composes_ai_diphthong() {
         // espeak IPA for "time" is "tˈaɪm" (verified against real espeak-ng)
@@ -116,8 +113,6 @@ mod tests {
     #[test]
     fn text_to_kokoro_phonemes_returns_error_for_unset_voice() {
         let _guard = lock_espeak();
-        // An unrecognized espeak-ng language code should surface as a
-        // PhonemizationError, not panic.
         let result = text_to_kokoro_phonemes("hello", "not-a-real-language-code");
         assert!(matches!(result, Err(DengjenError::PhonemizationError(_))));
     }
@@ -126,7 +121,7 @@ mod tests {
     #[test]
     fn text_to_kokoro_phonemes_returns_one_entry_per_sentence() {
         let _guard = lock_espeak();
-        // Real espeak-ng output for this input, observed while writing the test:
+        // Real espeak-ng output for this input:
         // ["həlˈO ðˈɛɹ.", "ʤˈɛnəɹɹəl kɛnˈObI."] - two entries, one per sentence.
         let Some(result) = phonemize_or_skip("Hello there. General Kenobi.", "en-US") else {
             return;
