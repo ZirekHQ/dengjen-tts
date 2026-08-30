@@ -183,4 +183,31 @@ public final class Voice implements AutoCloseable {
             Reference.reachabilityFence(this);
         }
     }
+
+    /**
+     * Synthesizes text and writes it as a WAV file at outFilename. The
+     * boolean return reports whether the file was written, independent of
+     * any thrown exception (mirrors libdengjenSpeakToFile's own two-part
+     * success signal). params.nonblocking() has no effect here --
+     * speakToFile is always synchronous; it only applies to speak().
+     */
+    public boolean speakToFile(String text, SynthesisParams params, String outFilename) {
+        MemorySegment voicePtr = requireOpenPtr();
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment cText = arena.allocateFrom(text);
+            MemorySegment cOutFilename = arena.allocateFrom(outFilename);
+            MemorySegment cParams = SynthesisParamsMarshaller.allocate(arena, params, MemorySegment.NULL, MemorySegment.NULL);
+            MemorySegment outError = arena.allocate(DengjenLayouts.EXTERN_ERROR);
+            byte wrote;
+            try {
+                wrote = (byte) DengjenLib.SPEAK_TO_FILE.invokeExact(voicePtr, cText, cParams, cOutFilename, outError);
+            } catch (Throwable t) {
+                throw new IllegalStateException("libdengjenSpeakToFile downcall failed", t);
+            }
+            ErrorChecks.checkAndThrow(outError);
+            return wrote != 0;
+        } finally {
+            Reference.reachabilityFence(this);
+        }
+    }
 }

@@ -3,6 +3,8 @@ package dev.dengjen;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Optional;
 
@@ -43,6 +45,22 @@ class VoiceIntegrationTest {
             assertEquals(0.5f, value.get(), 0.0001f);
 
             assertTrue(voice.getSynthesisParameter("no_such_key").isEmpty());
+        }
+    }
+
+    @Test
+    void speakToFileWritesAWavFile(@TempDir Path tempDir) throws IOException {
+        try (Voice voice = Voice.load(TestFixtures.syntheticPiperConfigPath(tempDir).toString())) {
+            Path outPath = tempDir.resolve("output.wav");
+            SynthesisParams params = new SynthesisParams(SynthesisMode.LAZY, 10, 100, 50, 0);
+            boolean wrote = voice.speakToFile("Test.", params, outPath.toString());
+            assertTrue(wrote);
+
+            byte[] data = Files.readAllBytes(outPath);
+            // BATCH_OUTPUT_SAMPLES=8000 in generate_synthetic_piper.py: a
+            // 44-byte RIFF/WAVE header plus 8000 mono i16 samples. Matches
+            // bindings/go's equivalent assertion.
+            assertEquals(44 + 8000 * 2, data.length);
         }
     }
 }
