@@ -241,7 +241,7 @@ pub struct SynthesisParams {
     volume: u8,
     pitch: u8,
     appended_silence_ms: u32,
-    callback: SpeechSynthesisCallback,
+    callback: Option<extern "C" fn(SynthesisEvent, *mut c_void) -> u8>,
     nonblocking: u8,
     /// Opaque pointer passed through unchanged to every `callback` invocation for this call.
     /// Rust never dereferences it; safety is entirely the FFI caller's responsibility.
@@ -586,7 +586,8 @@ pub unsafe extern "C" fn libdengjenGetSynthesisParameter(
 
 /// # Safety
 /// If non-null, `voice_ptr` must be well-aligned and point to a valid `DengjenVoice`. Passing
-/// null is handled gracefully: a NULL_POINTER error is written to `out_error`.
+/// null is handled gracefully: a NULL_POINTER error is written to `out_error`. A null
+/// `params.callback` is handled the same way — this call has no other way to report results.
 #[no_mangle]
 #[allow(non_snake_case)]
 pub unsafe extern "C" fn libdengjenSpeak(
@@ -757,15 +758,18 @@ fn _synthesize(
     let Some(text) = text_ptr.into_opt_string() else {
         return Err(DengjenFFIError::invalid_utf8());
     };
+    let Some(callback) = params.callback else {
+        return Err(DengjenFFIError::null_pointer("params.callback"));
+    };
     if params.nonblocking == 0 {
-        return _do_synthesize(synth, cancel_slot, text, params);
+        return _do_synthesize(synth, cancel_slot, text, callback, params);
     }
     // Control has already returned to the caller by the time this runs on the pool thread, so
     // a synthesis error has nowhere to go but through the callback the caller is still holding.
-    let report_to_caller = params.callback;
+    let report_to_caller = callback;
     let report_user_data = UserDataPtr(params.user_data);
     SYNTHESIS_THREAD_POOL.spawn(move || {
-        if let Err(error) = _do_synthesize(synth, cancel_slot, text, params) {
+        if let Err(error) = _do_synthesize(synth, cancel_slot, text, callback, params) {
             invoke_callback(
                 report_to_caller,
                 SynthesisEvent::with_error(error),
@@ -780,6 +784,7 @@ fn _do_synthesize(
     synth: AssertUnwindSafe<Arc<DengjenSpeechSynthesizer>>,
     cancel_slot: Arc<Mutex<Option<CancellationToken>>>,
     text: String,
+    callback: SpeechSynthesisCallback,
     params: SynthesisParams,
 ) -> DengjenFFIResult<()> {
     // Tuned defaults for realtime chunking, not placeholders — do not change.
@@ -787,7 +792,6 @@ fn _do_synthesize(
     const REALTIME_CHUNK_PADDING: usize = 3;
 
     let output_config = Some(params.as_synth_output_config());
-    let callback = params.callback;
     let user_data = params.user_data;
     match params.mode {
         synth_mode::SYNTH_MODE_LAZY => {
@@ -889,7 +893,7 @@ mod tests {
             volume: 100,
             pitch: 50,
             appended_silence_ms: 0,
-            callback: noop_callback,
+            callback: Some(noop_callback),
             nonblocking: 0,
             user_data: std::ptr::null_mut(),
         }
@@ -981,7 +985,7 @@ mod tests {
         let voice_ptr = new_test_piper_voice();
         assert!(!voice_ptr.is_null(), "Failed to load test piper voice");
         let mut params = synth_params();
-        params.callback = recording_callback;
+        params.callback = Some(recording_callback);
         params.user_data = token;
         let mut out_error = ExternError::default();
         let text = c_str("t:_");
@@ -1292,6 +1296,21 @@ mod tests {
     }
 
     #[test]
+    fn speak_null_callback_returns_null_pointer_error_without_panicking() {
+        let mut voice = fake_voice();
+        let mut out_error = ExternError::default();
+        let text = std::ffi::CString::new("hello").unwrap();
+        let mut params = synth_params();
+        params.callback = None;
+        unsafe {
+            libdengjenSpeak(&mut voice, FfiStr::from_cstr(&text), params, &mut out_error);
+        }
+        assert_eq!(out_error.get_code().code(), error_codes::NULL_POINTER);
+        // SAFETY: see `get_audio_info_null_voice_returns_null_pointer_error_without_panicking`.
+        unsafe { out_error.manually_release() };
+    }
+
+    #[test]
     fn speak_to_file_null_voice_returns_null_pointer_error_without_panicking() {
         let mut out_error = ExternError::default();
         let text = std::ffi::CString::new("hello").unwrap();
@@ -1487,7 +1506,7 @@ mod abi_struct_tests {
             volume: 80,
             pitch: 40,
             appended_silence_ms: 250,
-            callback: noop_callback,
+            callback: Some(noop_callback),
             nonblocking: 0,
             user_data: std::ptr::null_mut(),
         };
