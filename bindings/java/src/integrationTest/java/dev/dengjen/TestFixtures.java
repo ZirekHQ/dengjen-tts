@@ -6,15 +6,17 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 final class TestFixtures {
-    private TestFixtures() {}
+  private TestFixtures() {}
 
-    static Path syntheticPiperConfigPath(Path tempDir) {
-        try {
-            Path modelSrc = Path.of("../../crates/dengjen/models/piper/tests/fixtures/synthetic_piper_batch.onnx");
-            Path modelDst = tempDir.resolve("model.onnx");
-            Files.copy(modelSrc, modelDst);
+  static Path syntheticPiperConfigPath(Path tempDir) {
+    try {
+      Path modelSrc =
+          Path.of("../../crates/dengjen/models/piper/tests/fixtures/synthetic_piper_batch.onnx");
+      Path modelDst = tempDir.resolve("model.onnx");
+      Files.copy(modelSrc, modelDst);
 
-            String configJson = """
+      String configJson =
+          """
                     {
                         "key": null,
                         "language": {"code": "en-US"},
@@ -31,11 +33,11 @@ final class TestFixtures {
                         "hop_length": 256
                     }
                     """;
-            Path configPath = tempDir.resolve("model.onnx.json");
-            Files.writeString(configPath, configJson);
-            return configPath;
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
+      Path configPath = tempDir.resolve("model.onnx.json");
+      Files.writeString(configPath, configJson);
+      return configPath;
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
     }
+  }
 }
