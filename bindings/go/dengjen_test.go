@@ -5,6 +5,7 @@ package dengjen
 // handles all necessary cgo interactions.
 
 import (
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -76,6 +77,28 @@ func TestLoadVoiceAudioInfoAndClose(t *testing.T) {
 	// Close must be idempotent.
 	if err := v.Close(); err != nil {
 		t.Fatalf("second Close failed: %v", err)
+	}
+}
+
+func TestClosedVoiceMethodsReportErrVoiceClosed(t *testing.T) {
+	v, err := LoadVoice(syntheticPiperConfigPath(t))
+	if err != nil {
+		t.Fatalf("LoadVoice failed: %v", err)
+	}
+	if err := v.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+	_, err = v.AudioInfo()
+	if !errors.Is(err, ErrVoiceClosed) {
+		t.Fatalf("expected errors.Is(err, ErrVoiceClosed), got %v", err)
+	}
+}
+
+func TestFFIErrorFallsBackToCodeWhenMessageIsEmpty(t *testing.T) {
+	err := &FFIError{Code: 42}
+	want := "libdengjen error 42"
+	if got := err.Error(); got != want {
+		t.Fatalf("Error() = %q, want %q", got, want)
 	}
 }
 

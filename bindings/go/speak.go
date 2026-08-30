@@ -52,7 +52,7 @@ func boolToUint8(b bool) C.uint8_t {
 // synchronous; it only applies to Speak.
 func (v *Voice) SpeakToFile(text string, params SynthesisParams, outFilename string) (bool, error) {
 	if v.ptr == nil {
-		return false, &FFIError{Message: "voice is closed"}
+		return false, ErrVoiceClosed
 	}
 	cText := C.CString(text)
 	defer C.free(unsafe.Pointer(cText))
@@ -92,7 +92,7 @@ func (v *Voice) SpeakToFile(text string, params SynthesisParams, outFilename str
 // from any panics inside onEvent yourself if there's a chance it might.
 func (v *Voice) Speak(text string, params SynthesisParams, onEvent func(SynthesisEvent) bool) error {
 	if v.ptr == nil {
-		return &FFIError{Message: "voice is closed"}
+		return ErrVoiceClosed
 	}
 	cText := C.CString(text)
 	defer C.free(unsafe.Pointer(cText))
@@ -134,7 +134,7 @@ func (v *Voice) Speak(text string, params SynthesisParams, onEvent func(Synthesi
 // libdengjenCancel's own documented contract.
 func (v *Voice) Cancel() error {
 	if v.ptr == nil {
-		return &FFIError{Message: "voice is closed"}
+		return ErrVoiceClosed
 	}
 	var cErr C.struct_ExternError
 	C.libdengjenCancel(v.ptr, &cErr)
