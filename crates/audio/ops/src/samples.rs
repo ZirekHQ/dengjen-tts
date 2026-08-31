@@ -65,17 +65,27 @@ impl AudioSamples {
         if self.0.is_empty() {
             return Vec::new();
         }
-        // f32::max ignores a NaN operand, so a NaN sample cannot poison the peak.
+        // A NaN or +-Infinity sample (model inference can emit either) is excluded from peak
+        // detection -- f32::max ignores NaN, but not Infinity, which would otherwise drive gain
+        // to 0.0 and silence every OTHER sample too -- and degrades to silence in the output
+        // rather than corrupting the scale for the rest of the buffer.
         let peak_magnitude = self
             .0
             .iter()
+            .filter(|sample| sample.is_finite())
             .map(|sample| sample.abs())
             .fold(0.0f32, f32::max)
             .max(f32::EPSILON);
         let gain = WAV_PEAK_MAGNITUDE / peak_magnitude;
         self.0
             .iter()
-            .map(|&sample| (sample * gain).clamp(I16_MIN_AS_F32, I16_MAX_AS_F32) as i16)
+            .map(|&sample| {
+                if sample.is_finite() {
+                    (sample * gain).clamp(I16_MIN_AS_F32, I16_MAX_AS_F32) as i16
+                } else {
+                    0
+                }
+            })
             .collect()
     }
 
@@ -94,14 +104,23 @@ impl AudioSamples {
         if self.0.is_empty() {
             return;
         }
-        // f32::max ignores a NaN operand, so a NaN sample cannot poison the peak.
+        // Same non-finite handling as to_i16_vec: excluded from peak detection, degraded to
+        // silence in the output, so one corrupted sample can't zero (or NaN-poison) every
+        // other sample via an Infinity-inflated divisor.
         let peak_magnitude = self
             .0
             .iter()
+            .filter(|sample| sample.is_finite())
             .map(|sample| sample.abs())
             .fold(0.0f32, f32::max);
         let divisor = peak_magnitude.max(max_value) / max_value.abs();
-        self.0.iter_mut().for_each(|sample| *sample /= divisor);
+        self.0.iter_mut().for_each(|sample| {
+            *sample = if sample.is_finite() {
+                *sample / divisor
+            } else {
+                0.0
+            };
+        });
     }
 
     pub fn apply_hanning_window(&mut self) -> Result<(), crate::AudioOpsError> {
@@ -117,15 +136,24 @@ impl AudioSamples {
     }
 
     /// Crossfades the last `overlap_len` samples of `self` with the first `overlap_len` samples
-    /// of `other` (equal-power ramp, gains summing to unity) and appends the rest of `other`.
+    /// of `other` (linear ramp, complementary gains summing to exactly 1.0 at every sample) and
+    /// appends the rest of `other`. A linear ramp, not an equal-power (sin/cos) one, because
+    /// `self`/`other` are adjacent chunks of the same continuous signal, not independent
+    /// sources: for phase-aligned/correlated samples, equal-power gains sum to more than 1.0
+    /// (up to sqrt(2) at the midpoint), producing an audible bump at the seam.
     pub fn overlap_with(&mut self, other: &mut Self, overlap_len: usize) {
         let overlap_len = overlap_len.min(self.0.len()).min(other.0.len());
-        if overlap_len > 0 {
+        if overlap_len == 1 {
+            // No meaningful ramp over a single sample; blend evenly rather than picking an
+            // arbitrary endpoint of a degenerate 0..=1 range.
+            let tail_start = self.0.len() - 1;
+            self.0[tail_start] = (self.0[tail_start] + other.0[0]) * 0.5;
+        } else if overlap_len > 1 {
             let tail_start = self.0.len() - overlap_len;
+            let span = (overlap_len - 1) as f32;
             for offset in 0..overlap_len {
-                let phase = offset as f32 / overlap_len as f32 * HALF_TURN / 2.0;
-                let gain_in = phase.sin();
-                let gain_out = phase.cos();
+                let gain_in = offset as f32 / span;
+                let gain_out = 1.0 - gain_in;
                 self.0[tail_start + offset] =
                     self.0[tail_start + offset] * gain_out + other.0[offset] * gain_in;
             }
@@ -176,7 +204,8 @@ impl AudioSamples {
 
     /// Zeroes every sample at or above `cutoff` within `sample_range`. Not a frequency filter.
     pub fn zero_samples_above(&mut self, sample_range: std::ops::Range<usize>, cutoff: f32) {
-        let clamped = sample_range.start.min(self.0.len())..sample_range.end.min(self.0.len());
+        let end = sample_range.end.min(self.0.len());
+        let clamped = sample_range.start.min(end)..end;
         self.0[clamped].iter_mut().for_each(|sample| {
             *sample = if *sample < cutoff { *sample } else { 0.0 };
         });
@@ -184,7 +213,8 @@ impl AudioSamples {
 
     /// Zeroes every sample at or below `cutoff` within `sample_range`. Not a frequency filter.
     pub fn zero_samples_below(&mut self, sample_range: std::ops::Range<usize>, cutoff: f32) {
-        let clamped = sample_range.start.min(self.0.len())..sample_range.end.min(self.0.len());
+        let end = sample_range.end.min(self.0.len());
+        let clamped = sample_range.start.min(end)..end;
         self.0[clamped].iter_mut().for_each(|sample| {
             *sample = if *sample > cutoff { *sample } else { 0.0 };
         });
@@ -192,7 +222,8 @@ impl AudioSamples {
 
     /// Removes samples whose magnitude is at or below `silence_threshold`.
     pub fn strip_silence(&mut self, sample_range: std::ops::Range<usize>, silence_threshold: f32) {
-        let clamped = sample_range.start.min(self.0.len())..sample_range.end.min(self.0.len());
+        let end = sample_range.end.min(self.0.len());
+        let clamped = sample_range.start.min(end)..end;
         if clamped.is_empty() {
             return;
         }
@@ -378,6 +409,16 @@ mod tests {
     }
 
     #[test]
+    fn zero_samples_above_clamps_a_range_that_would_reverse_after_independent_end_clamping() {
+        // start=10 and end=1: clamping each independently to len() (3) leaves 3..1, still
+        // reversed, and indexing a reversed range panics. Clamping start to the
+        // already-clamped end instead collapses this to the valid empty range 1..1.
+        let mut buffer = AudioSamples::from(vec![1.0, 2.0, 3.0]);
+        buffer.zero_samples_above(10..1, 0.0);
+        assert_eq!(buffer.into_vec(), vec![1.0, 2.0, 3.0]);
+    }
+
+    #[test]
     fn test_normalize() {
         let mut buffer = AudioSamples::from(vec![0.0, 0.1, 2.2, 0.0, 0.5, 0.0, 0.7, 0.0]);
         buffer.normalize(1.0);
@@ -423,11 +464,11 @@ mod tests {
     }
 
     #[test]
-    fn normalize_ignores_a_nan_sample_when_computing_the_peak_instead_of_panicking() {
+    fn normalize_degrades_a_nan_sample_to_silence_without_poisoning_the_rest() {
         let mut buffer = AudioSamples::from(vec![f32::NAN, 2.0]);
         buffer.normalize(1.0);
         let samples = buffer.into_vec();
-        assert!(samples[0].is_nan());
+        assert_eq!(samples[0], 0.0);
         assert_eq!(samples[1], 1.0);
     }
 
@@ -446,24 +487,30 @@ mod tests {
     }
 
     #[test]
-    fn normalize_produces_nan_when_buffer_contains_infinity() {
-        // Documents a hidden edge case, not a fix: an infinite sample drives
-        // `peak_magnitude` (and so `divisor`) to `Infinity`, and dividing that
-        // same infinite sample by an infinite divisor is `NaN`, not a panic.
-        let mut buffer = AudioSamples::from(vec![f32::INFINITY, 0.5]);
-        buffer.normalize(1.0);
-        let samples = buffer.into_vec();
-        assert!(samples[0].is_nan());
-        assert_eq!(samples[1], 0.0);
+    fn zero_samples_below_clamps_a_range_that_would_reverse_after_independent_end_clamping() {
+        let mut buffer = AudioSamples::from(vec![1.0, 2.0, 3.0]);
+        buffer.zero_samples_below(10..1, 0.0);
+        assert_eq!(buffer.into_vec(), vec![1.0, 2.0, 3.0]);
     }
 
     #[test]
-    fn to_i16_vec_saturates_infinity_to_zero_via_nan_gain() {
-        // Same root cause as normalize's Infinity->NaN case above, masked
-        // differently here: `gain` becomes 0.0, so `Infinity * 0.0` is `NaN`,
-        // which `.clamp()` passes through and `as i16` then saturates to 0.
+    fn normalize_degrades_an_infinite_sample_to_silence_without_poisoning_the_rest() {
+        // An infinite sample is excluded from peak detection, so it no longer inflates
+        // `divisor` to Infinity and zeroes (or NaNs) every other sample in the buffer.
+        let mut buffer = AudioSamples::from(vec![f32::INFINITY, 0.5]);
+        buffer.normalize(1.0);
+        let samples = buffer.into_vec();
+        assert_eq!(samples[0], 0.0);
+        assert_eq!(samples[1], 0.5);
+    }
+
+    #[test]
+    fn to_i16_vec_degrades_an_infinite_sample_to_silence_without_poisoning_the_rest() {
+        // peak_magnitude is computed from the finite 0.5 sample alone (Infinity excluded), so
+        // gain reflects the real finite peak instead of collapsing to 0.0 and silencing the
+        // whole buffer.
         let buffer = AudioSamples::from(vec![f32::INFINITY, 0.5]);
-        assert_eq!(buffer.to_i16_vec(), vec![0, 0]);
+        assert_eq!(buffer.to_i16_vec(), vec![0, 32767]);
     }
 
     #[test]
@@ -635,8 +682,29 @@ mod tests {
         let mut head = AudioSamples::from(vec![1.0, 2.0]);
         let mut tail = AudioSamples::from(vec![3.0, 4.0]);
         head.overlap_with(&mut tail, 2);
-        let ramp = (std::f32::consts::PI / 4.0).sin();
-        assert_eq!(head.as_vec(), &vec![1.0, 2.0 * ramp + 4.0 * ramp]);
+        // offset=0: gain_out=1.0, gain_in=0.0 -> 1.0*1.0 + 3.0*0.0 = 1.0 (unchanged boundary).
+        // offset=1: gain_out=0.0, gain_in=1.0 -> 2.0*0.0 + 4.0*1.0 = 4.0 (fully "other").
+        assert_eq!(head.as_vec(), &vec![1.0, 4.0]);
+    }
+
+    #[test]
+    fn overlap_with_a_single_sample_overlap_averages_instead_of_using_a_degenerate_ramp() {
+        let mut head = AudioSamples::from(vec![1.0, 2.0]);
+        let mut tail = AudioSamples::from(vec![3.0, 4.0]);
+        head.overlap_with(&mut tail, 1);
+        assert_eq!(head.into_vec(), vec![1.0, 2.5, 4.0]);
+    }
+
+    #[test]
+    fn overlap_with_gains_sum_to_exactly_one_at_every_offset() {
+        // The bug this fixes: an equal-power (sin/cos) ramp sums to more than 1.0 for
+        // correlated/phase-aligned samples, producing an audible bump at the seam. Verify the
+        // complementary property directly by crossfading two buffers of 1.0s -- the result at
+        // every overlap position must stay exactly 1.0, never overshoot.
+        let mut head = AudioSamples::from(vec![1.0; 8]);
+        let mut tail = AudioSamples::from(vec![1.0; 8]);
+        head.overlap_with(&mut tail, 8);
+        assert!(head.into_vec().into_iter().all(|s| s == 1.0));
     }
 
     #[test]
