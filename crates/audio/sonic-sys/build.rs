@@ -1,9 +1,9 @@
 use std::env;
 use std::path::PathBuf;
 
-const SONIC_C_SOURCE: &str = "../../../deps/sonic/sonic.c";
-const SONIC_C_HEADER: &str = "../../../deps/sonic/sonic.h";
-const SONIC_INCLUDE_DIR: &str = "../../../deps/sonic";
+const SONIC_C_SOURCE: &str = "vendor/sonic.c";
+const SONIC_C_HEADER: &str = "vendor/sonic.h";
+const SONIC_INCLUDE_DIR: &str = "vendor";
 
 fn build_static_lib(source: &str, include_dir: &str) {
     cc::Build::new()
