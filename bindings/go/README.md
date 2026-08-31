@@ -62,19 +62,25 @@ if there's any chance it might panic.
 
 ## Known limitations
 
-- This module is usable only from within a checkout of the parent
-  [dengjen-tts](https://github.com/ZirekHQ/dengjen-tts) repository today —
-  its cgo build flags (`dengjen.go`) resolve `libdengjen.h` and the built
-  native library via paths relative to this directory
-  (`../../crates/frontends/capi`, `../../target/release`), which only exist
-  inside that checkout. It is not `go get`-able as a standalone dependency.
-  No prebuilt binaries are published either way — every consumer builds
-  `libdengjen` from source (see `Makefile`).
-- A consumer binary built against this module needs `LD_LIBRARY_PATH` (or
-  an equivalent runtime library search path) pointing at the directory
-  holding the built `libdengjen` shared library at *run time*, not just at
-  build/test time — `make test`'s `LD_LIBRARY_PATH=$(TARGET_DIR)` wiring
-  only covers the test binary.
-- This is a thin wrapper: `Speak`'s callback shape mirrors the C API closely
-  rather than offering a fully idiomatic Go redesign (channels,
+- This directory is the **development copy** of the Go bindings, used by
+  this monorepo's own CI (`rust-lint.yml`, `sonar.yml`) and for local
+  iteration. Its cgo build flags (`dengjen.go`) resolve `libdengjen.h`
+  and the built native library via paths relative to this directory
+  (`../../crates/frontends/capi`, `../../target/release`), which only
+  exist inside a checkout of this repository — it is not `go get`-able
+  as a standalone dependency from here.
+- For a standalone, `go get`-able module with prebuilt binaries for
+  linux/amd64, linux/arm64, windows/amd64, and darwin/arm64, use
+  [github.com/ZirekHQ/dengjen-tts-go](https://github.com/ZirekHQ/dengjen-tts-go)
+  instead — it's generated from this directory on every tagged release
+  (see `.github/workflows/publish-go.yml`). Changes to the bindings
+  themselves are made here, not in that repo.
+- A consumer binary built against *this* development copy needs
+  `LD_LIBRARY_PATH` (or an equivalent runtime library search path)
+  pointing at the directory holding the built `libdengjen` shared
+  library at *run time*, not just at build/test time — `make test`'s
+  `LD_LIBRARY_PATH=$(TARGET_DIR)` wiring only covers the test binary.
+  (`dengjen-tts-go` doesn't have this limitation — it bakes an rpath in.)
+- This is a thin wrapper: `Speak`'s callback shape mirrors the C API
+  closely rather than offering a fully idiomatic Go redesign (channels,
   `context.Context`-driven cancellation).
