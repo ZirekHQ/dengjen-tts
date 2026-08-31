@@ -20,6 +20,8 @@ members = [
 
 [workspace.package]
 license = "GPL-3.0-or-later"
+repository = "https://github.com/ZirekHQ/dengjen-tts"
+homepage = "https://github.com/ZirekHQ/dengjen-tts"
 
 # Applies to every member crate that opts in with `[lints] workspace = true`.
 # CI (.github/workflows/rust-lint.yml) already runs `cargo clippy -- -D warnings`, which

@@ -1,8 +1,8 @@
-// bindgen's generated bindings mirror the C naming conventions of deps/sonic/sonic.h, which
+// bindgen's generated bindings mirror the C naming conventions of vendor/sonic.h, which
 // these lints don't recognize as idiomatic Rust.
 #![allow(non_upper_case_globals, non_camel_case_types, non_snake_case)]
 
-// Pulls in the bindgen output that build.rs generates from deps/sonic/sonic.h at build time.
+// Pulls in the bindgen output that build.rs generates from vendor/sonic.h at build time.
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
 #[cfg(test)]
