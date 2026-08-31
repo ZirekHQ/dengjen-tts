@@ -13,14 +13,14 @@ import java.nio.file.StandardCopyOption;
  * Resolves the native {@code libdengjen} shared library for {@link DengjenLib}. Two paths:
  *
  * <ul>
- *   <li>{@code -Ddengjen.native.library.path=<file>} — an explicit override, used by this
- *       module's own test suites (see {@code build.gradle.kts}) and available to any consumer
- *       who wants to point at a native library they built or placed themselves.
+ *   <li>{@code -Ddengjen.native.library.path=<file>} — an explicit override, used by this module's
+ *       own test suites (see {@code build.gradle.kts}) and available to any consumer who wants to
+ *       point at a native library they built or placed themselves.
  *   <li>Otherwise: detect the running platform (see {@link NativePlatform}) and look for that
  *       platform's native library as a classpath resource under {@code natives/<classifier>/},
- *       which is exactly what this project's per-platform classifier jars contain. The resource
- *       is copied to a temp file — {@code SymbolLookup.libraryLookup} needs a real filesystem
- *       path, not an in-jar one.
+ *       which is exactly what this project's per-platform classifier jars contain. The resource is
+ *       copied to a temp file — {@code SymbolLookup.libraryLookup} needs a real filesystem path,
+ *       not an in-jar one.
  * </ul>
  */
 final class NativeLibraryLoader {

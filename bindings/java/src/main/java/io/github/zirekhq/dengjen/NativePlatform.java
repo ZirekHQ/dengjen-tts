@@ -5,8 +5,8 @@ import java.util.Locale;
 /**
  * Maps the running JVM's {@code os.name}/{@code os.arch} to one of the four native-library
  * classifiers this project publishes (see the Java bindings Maven Central publish design doc).
- * Deliberately narrow: anything outside those four combinations is a platform this project does
- * not ship a native artifact for yet, and callers need a clear error rather than a guess.
+ * Deliberately narrow: anything outside those four combinations is a platform this project does not
+ * ship a native artifact for yet, and callers need a clear error rather than a guess.
  */
 final class NativePlatform {
   private NativePlatform() {}
