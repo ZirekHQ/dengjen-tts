@@ -308,3 +308,59 @@ jobs:
           git tag "${{ steps.version.outputs.version }}"
           git push origin HEAD:main
           git push origin "${{ steps.version.outputs.version }}"
+
+  verify:
+    needs: assemble-and-push
+    runs-on: ${{ matrix.platform.runner }}
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        platform:
+          - runner: ubuntu-latest
+            goarch: amd64
+          - runner: ubuntu-24.04-arm
+            goarch: arm64
+          - runner: windows-2022
+            goarch: amd64
+          - runner: macos-latest
+            goarch: arm64
+    steps:
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.22'
+      - name: fetch and build the just-published module (direct, bypassing the proxy cache)
+        env:
+          GOPROXY: direct
+          GONOSUMDB: github.com/ZirekHQ/dengjen-tts-go
+          GOFLAGS: '-mod=mod'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/dengjen-go-verify
+          cd /tmp/dengjen-go-verify
+          go mod init verify
+          go get "github.com/ZirekHQ/dengjen-tts-go@${{ needs.assemble-and-push.outputs.version }}"
+          cat > main_test.go <<'EOF'
+          package main
+
+          import (
+          	"testing"
+
+          	dengjen "github.com/ZirekHQ/dengjen-tts-go"
+          )
+
+          // This asserts on a field to give the test real content, but its
+          // main value is implicit: on Linux/macOS a cgo-linked binary has
+          // a DT_NEEDED/LC_LOAD_DYLIB entry for libdengjen resolved at
+          // process start, before this test body ever runs — so `go test`
+          // succeeding at all is already proof the rpath and bundled
+          // binary resolved correctly for this platform.
+          func TestModuleResolves(t *testing.T) {
+          	params := dengjen.SynthesisParams{Mode: dengjen.SynthModeLazy, Rate: 10, Volume: 100, Pitch: 50}
+          	if params.Rate != 10 {
+          		t.Fatalf("expected Rate 10, got %d", params.Rate)
+          	}
+          }
+          EOF
+          go test ./...
