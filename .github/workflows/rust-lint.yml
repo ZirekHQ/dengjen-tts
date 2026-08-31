@@ -94,6 +94,24 @@ jobs:
           # covered by the separate `rustsec/audit-check` job above (kept as belt-and-braces).
           command: check licenses bans sources
 
+  # crates/audio/sonic-sys/build.rs compiles vendor/sonic.c and .h, not deps/sonic's copies, so
+  # nothing in the build touches the deps/sonic submodule anymore. Renovate still keeps that
+  # submodule pinned to a tracked branch and will keep opening bump PRs for it; without this
+  # check, merging one would pass CI green while silently leaving vendor/ stale.
+  vendor-drift-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: git-submodule-fix
+        run: git config --global protocol.file.allow always
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: vendor drift check
+        run: |
+          diff -q deps/sonic/sonic.c crates/audio/sonic-sys/vendor/sonic.c
+          diff -q deps/sonic/sonic.h crates/audio/sonic-sys/vendor/sonic.h
+
   # Miri can't run this workspace's unsafe code: every unsafe block here calls into real linked
   # C libraries (onnxruntime, libsonic, espeak-ng), and Miri doesn't support arbitrary FFI.
   # AddressSanitizer does support real FFI, so it's used instead — validated locally to be clean
