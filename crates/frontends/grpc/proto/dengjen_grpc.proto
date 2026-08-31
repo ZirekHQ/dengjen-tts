@@ -1,6 +1,4 @@
-// Licensed under GPL-3.0-or-later; see LICENSE. Portions of this file predate
-// the relicense and were originally MIT-licensed (Copyright (c) Musharraf
-// Omer) — see NOTICE.
+// Licensed under GPL-3.0-or-later; see LICENSE.
 
 syntax = "proto3";
 
