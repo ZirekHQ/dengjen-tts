@@ -10,7 +10,7 @@ sleep_seconds=5
 for attempt in $(seq 1 "$max_attempts"); do
   status=$(curl -s -o /dev/null -w "%{http_code}" \
     -H "User-Agent: dengjen-tts-publish-ci (https://github.com/ZirekHQ/dengjen-tts)" \
-    "$url")
+    "$url") || status="000"
   if [ "$status" = "200" ]; then
     echo "${name} ${version} is live on crates.io"
     exit 0
