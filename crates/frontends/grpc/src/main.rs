@@ -100,7 +100,10 @@ impl DengjenGrpcService {
         (xxh3_64(canonical_path.as_bytes()) / VOICE_ID_REDUCTION_FACTOR).to_string()
     }
 
-    fn load_voice_from_config(&self, config_path: PathBuf) -> DengjenGrpcResult<grpc::VoiceDescriptor> {
+    fn load_voice_from_config(
+        &self,
+        config_path: PathBuf,
+    ) -> DengjenGrpcResult<grpc::VoiceDescriptor> {
         if !config_path.is_file() {
             return Err(DengjenGrpcError::VoiceNotFound(format!(
                 "Config file does not exists: `{}`",
@@ -426,7 +429,8 @@ impl DengjenGrpc for DengjenGrpcService {
         Ok(Response::new(ReceiverStream::new(rx)))
     }
 
-    type SynthesizeUtteranceRealtimeStream = ReceiverStream<Result<grpc::RealtimeAudioChunk, Status>>;
+    type SynthesizeUtteranceRealtimeStream =
+        ReceiverStream<Result<grpc::RealtimeAudioChunk, Status>>;
     async fn synthesize_utterance_realtime(
         &self,
         request: Request<grpc::SynthesisRequest>,
