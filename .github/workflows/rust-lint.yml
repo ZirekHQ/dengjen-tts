@@ -53,6 +53,7 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       issues: write
       checks: write
     steps:
@@ -171,8 +172,13 @@ jobs:
         run: git config --global protocol.file.allow always
       - name: install libclang, espeak-ng, and protoc
         run: sudo apt-get update && sudo apt-get install -y llvm llvm-dev llvm-runtime libclang-dev espeak-ng protobuf-compiler
+      # actions/checkout defaults to the synthetic merge commit for pull_request events, but
+      # GitHub's code coverage feature (see the upload step below) annotates the PR's file-diff
+      # view against the head commit -- checking out the merge commit here means the upload
+      # never lines up with anything the PR view actually shows.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           submodules: recursive
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
