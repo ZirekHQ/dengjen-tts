@@ -243,9 +243,12 @@ jobs:
   #   - config.json               ({"model_path": ..., "voices_dir": ..., "vocab_path": ...},
   #                                 each path resolved relative to this same directory)
   #   - whatever those three fields name
-  # This job no-ops cleanly (all steps skipped) until that variable is set.
+  # The job's own `if:` skips it entirely (no runner allocated, nothing checked out) until
+  # that variable is set.
   kokoro-real-voice-e2e:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: |
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+      vars.KOKORO_TEST_VOICE_ARCHIVE_URL != ''
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -259,17 +262,14 @@ jobs:
           submodules: recursive
           persist-credentials: false
       - name: download real Kokoro voice fixture
-        if: vars.KOKORO_TEST_VOICE_ARCHIVE_URL != ''
         run: |
           mkdir -p /tmp/kokoro-real-voice
           curl -fsSL "${{ vars.KOKORO_TEST_VOICE_ARCHIVE_URL }}" -o /tmp/kokoro-voice.tar.gz
           tar -xzf /tmp/kokoro-voice.tar.gz -C /tmp/kokoro-real-voice --strip-components=1
           echo "DENGJEN_KOKORO_TEST_VOICE_CONFIG=/tmp/kokoro-real-voice/config.json" >> "$GITHUB_ENV"
       - name: cargo test (dengjen-tts-kokoro, real voice e2e)
-        if: vars.KOKORO_TEST_VOICE_ARCHIVE_URL != ''
         run: cargo test -p dengjen-tts-kokoro --test e2e_real_voice
       - name: cargo test (dengjen-tts-cli, kokoro real voice e2e)
-        if: vars.KOKORO_TEST_VOICE_ARCHIVE_URL != ''
         run: cargo test -p dengjen-tts-cli --test kokoro_e2e
 
   bindings-java:

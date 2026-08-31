@@ -324,7 +324,10 @@ fn load_voice(config_path: &std::path::Path) -> DengjenResult<Arc<dyn DengjenMod
 }
 
 fn narrow_prosody_value(name: &str, value: u32) -> Result<u8, String> {
-    u8::try_from(value).map_err(|_| format!("`{name}` must be in the range 0-255, got {value}"))
+    u8::try_from(value)
+        .ok()
+        .filter(|&v| v <= 100)
+        .ok_or_else(|| format!("`{name}` must be in the range 0-100, got {value}"))
 }
 
 /// Converts the optional proto `ProsodyControls` into synth's `AudioOutputConfig`,
@@ -381,6 +384,19 @@ mod prosody_tests {
     fn output_config_from_prosody_rejects_a_value_above_u8_range_instead_of_wrapping() {
         let result = output_config_from_prosody(Some(grpc::ProsodyControls {
             rate: Some(300),
+            volume: None,
+            pitch: None,
+            appended_silence_ms: None,
+        }));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn output_config_from_prosody_rejects_a_value_within_u8_range_but_above_the_documented_100() {
+        // 101-255 all fit in a u8, so u8::try_from alone doesn't catch them, even though the
+        // documented valid range for rate/volume/pitch is 0-100.
+        let result = output_config_from_prosody(Some(grpc::ProsodyControls {
+            rate: Some(101),
             volume: None,
             pitch: None,
             appended_silence_ms: None,

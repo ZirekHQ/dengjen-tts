@@ -110,12 +110,20 @@ pub fn num_classes(shape: &Shape, seq_len: usize, expected_classes: usize) -> De
             "expected output sequence length {seq_len}, model produced shape {shape:?}"
         )));
     }
-    if num_classes as usize != expected_classes {
+    // ort::value::Shape stores dimensions as i64 and permits -1 to mark a dynamic dimension;
+    // `as usize` would wrap a negative value instead of rejecting it, and could then compare
+    // equal to a caller-supplied expected_classes of usize::MAX.
+    let num_classes = usize::try_from(num_classes).map_err(|_| {
+        inference_error(format!(
+            "expected a non-negative class dimension, model produced shape {shape:?}"
+        ))
+    })?;
+    if num_classes != expected_classes {
         return Err(inference_error(format!(
             "expected {expected_classes} classes, model produced shape {shape:?}"
         )));
     }
-    Ok(num_classes as usize)
+    Ok(num_classes)
 }
 
 /// Argmaxes the last axis of a flattened `(seq_len, num_classes)` logits
@@ -286,6 +294,15 @@ mod tests {
         for (shape, seq_len, expected_classes) in cases {
             assert!(num_classes(&shape, seq_len, expected_classes).is_err());
         }
+    }
+
+    #[test]
+    fn num_classes_rejects_a_negative_class_dimension_instead_of_wrapping_to_usize_max() {
+        // ort::value::Shape permits -1 to mark a dynamic dimension. `as usize` would wrap -1
+        // to usize::MAX, which then compares equal to an expected_classes of usize::MAX --
+        // exactly the value this regression case supplies.
+        let shape = Shape::new(vec![1, 4, -1]);
+        assert!(num_classes(&shape, 4, usize::MAX).is_err());
     }
 
     #[test]

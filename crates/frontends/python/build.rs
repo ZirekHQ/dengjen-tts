@@ -16,6 +16,13 @@ fn main() {
     let crate_dir =
         PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not set"));
 
+    // deps/dev lives outside this crate's own directory, so Cargo's default "rerun if anything
+    // in the package changed" heuristic never covers it. Watch it explicitly so a later-created
+    // (or updated) espeak-ng-data directory triggers the staging logic below on the next build,
+    // instead of silently staying skipped until something else invalidates the build cache.
+    let deps_dev_dir = workspace_root(&crate_dir).join("deps").join("dev");
+    println!("cargo:rerun-if-changed={}", deps_dev_dir.display());
+
     let espeak_data_src = workspace_root(&crate_dir)
         .join("deps")
         .join("dev")

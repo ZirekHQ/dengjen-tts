@@ -176,15 +176,25 @@ impl G2pwEngine {
         let (shape, probs) = outputs[0]
             .try_extract_tensor::<f32>()
             .map_err(inference_error)?;
-        // Bounds-check against the caller-supplied model's own reported output
-        // shape before indexing into `self.config.labels`, rather than trusting a
-        // caller-supplied model's output width matches the caller-supplied label
-        // list — the same "no panics on model-shape-dependent data" principle
-        // applied throughout this engine (e.g. hebrew-phonemizer's nakdimon.rs).
-        let num_labels = *shape
-            .last()
-            .ok_or_else(|| inference_error("empty output shape"))?
-            as usize;
+        // Validate the model's own reported output shape completely before indexing into
+        // `self.config.labels` or the probability buffer, rather than trusting a
+        // caller-supplied model's output width matches the caller-supplied label list — the
+        // same "no panics on model-shape-dependent data" principle applied throughout this
+        // engine (e.g. hebrew-phonemizer's nakdimon.rs). Checking only the last dimension
+        // would silently accept a wrong-rank tensor whose last dimension happens to match, or
+        // a negative (ONNX dynamic-dimension) label count that wraps to a huge usize.
+        if shape.len() != 2 {
+            return Err(inference_error(format!(
+                "expected a rank-2 (batch, num_labels) output tensor, got shape {shape:?}"
+            )));
+        }
+        if shape[0] != 1 {
+            return Err(inference_error(format!(
+                "expected batch size 1, model produced shape {shape:?}"
+            )));
+        }
+        let num_labels = usize::try_from(shape[1])
+            .map_err(|_| inference_error(format!("invalid label dimension in shape {shape:?}")))?;
         if num_labels != self.config.labels.len() || probs.len() < num_labels {
             return Err(inference_error(format!(
                 "g2pW model output width {num_labels} (probs len {}) does not match the \
