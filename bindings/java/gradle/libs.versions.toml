@@ -1,7 +1,13 @@
 [versions]
 junit-jupiter = "6.1.3"
+assertj = "3.27.7"
+awaitility = "4.3.0"
 spotless = "8.10.1"
 foojay-resolver = "1.0.0"
+
+[libraries]
+assertj-core = { module = "org.assertj:assertj-core", version.ref = "assertj" }
+awaitility = { module = "org.awaitility:awaitility", version.ref = "awaitility" }
 
 [plugins]
 spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }

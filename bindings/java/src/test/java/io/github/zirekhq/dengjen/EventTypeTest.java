@@ -1,20 +1,20 @@
 package io.github.zirekhq.dengjen;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.junit.jupiter.api.Test;
 
 class EventTypeTest {
   @Test
   void fromValueMapsKnownCodesToEnumConstants() {
-    assertEquals(EventType.SPEECH, EventType.fromValue(0));
-    assertEquals(EventType.FINISHED, EventType.fromValue(1));
-    assertEquals(EventType.ERROR, EventType.fromValue(2));
+    assertThat(EventType.fromValue(0)).isEqualTo(EventType.SPEECH);
+    assertThat(EventType.fromValue(1)).isEqualTo(EventType.FINISHED);
+    assertThat(EventType.fromValue(2)).isEqualTo(EventType.ERROR);
   }
 
   @Test
   void fromValueThrowsForUnrecognizedCode() {
-    assertThrows(IllegalArgumentException.class, () -> EventType.fromValue(99));
+    assertThatThrownBy(() -> EventType.fromValue(99)).isInstanceOf(IllegalArgumentException.class);
   }
 }

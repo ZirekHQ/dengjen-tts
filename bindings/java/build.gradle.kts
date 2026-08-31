@@ -25,11 +25,16 @@ dependencyLocking {
 testing {
     suites {
         val test by getting(JvmTestSuite::class) {
+            dependencies {
+                implementation(libs.assertj.core)
+            }
             useJUnitJupiter(libs.versions.junit.jupiter.get())
         }
         val integrationTest by registering(JvmTestSuite::class) {
             dependencies {
                 implementation(project())
+                implementation(libs.assertj.core)
+                implementation(libs.awaitility)
             }
             useJUnitJupiter(libs.versions.junit.jupiter.get())
             targets {
@@ -46,6 +51,7 @@ testing {
         val e2e by registering(JvmTestSuite::class) {
             dependencies {
                 implementation(project())
+                implementation(libs.assertj.core)
             }
             useJUnitJupiter(libs.versions.junit.jupiter.get())
             targets {

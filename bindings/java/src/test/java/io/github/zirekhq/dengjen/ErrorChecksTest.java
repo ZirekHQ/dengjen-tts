@@ -1,6 +1,6 @@
 package io.github.zirekhq.dengjen;
 
-import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.lang.foreign.MemorySegment;
 import org.junit.jupiter.api.Test;
@@ -8,12 +8,12 @@ import org.junit.jupiter.api.Test;
 class ErrorChecksTest {
   @Test
   void readMessageReturnsNullForANullPointerWithoutTouchingNativeMemory() {
-    assertNull(ErrorChecks.readMessage(MemorySegment.NULL));
+    assertThat(ErrorChecks.readMessage(MemorySegment.NULL)).isNull();
   }
 
   @Test
   void readAndFreeMessageReturnsNullForANullPointerWithoutTouchingNativeMemory() {
-    assertNull(ErrorChecks.readAndFreeMessage(MemorySegment.NULL));
+    assertThat(ErrorChecks.readAndFreeMessage(MemorySegment.NULL)).isNull();
   }
 
   @Test

@@ -1,11 +1,6 @@
 package io.github.zirekhq.dengjen;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertNotSame;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import org.junit.jupiter.api.Test;
 
@@ -14,15 +9,15 @@ class SynthesisEventTest {
   void equalsComparesDataByContentNotReference() {
     var a = new SynthesisEvent(EventType.SPEECH, new byte[] {1, 2, 3}, null);
     var b = new SynthesisEvent(EventType.SPEECH, new byte[] {1, 2, 3}, null);
-    assertEquals(a, b);
-    assertEquals(a.hashCode(), b.hashCode());
+    assertThat(a).isEqualTo(b);
+    assertThat(a.hashCode()).isEqualTo(b.hashCode());
   }
 
   @Test
   void equalsDetectsDifferingDataContent() {
     var a = new SynthesisEvent(EventType.SPEECH, new byte[] {1, 2, 3}, null);
     var b = new SynthesisEvent(EventType.SPEECH, new byte[] {1, 2, 4}, null);
-    assertNotEquals(a, b);
+    assertThat(a).isNotEqualTo(b);
   }
 
   @Test
@@ -30,13 +25,13 @@ class SynthesisEventTest {
     var error = new DengjenException(ErrorCode.PANIC, "boom");
     var a = new SynthesisEvent(EventType.ERROR, new byte[0], error);
     var b = new SynthesisEvent(EventType.FINISHED, new byte[0], error);
-    assertNotEquals(a, b);
+    assertThat(a).isNotEqualTo(b);
   }
 
   @Test
   void toStringIncludesTheDataContentNotAnArrayDump() {
     var event = new SynthesisEvent(EventType.SPEECH, new byte[] {1, 2, 3}, null);
-    assertTrue(event.toString().contains("[1, 2, 3]"));
+    assertThat(event.toString()).contains("[1, 2, 3]");
   }
 
   @Test
@@ -46,7 +41,7 @@ class SynthesisEventTest {
 
     original[0] = 99;
 
-    assertArrayEquals(new byte[] {1, 2, 3}, event.data());
+    assertThat(event.data()).containsExactly(1, 2, 3);
   }
 
   @Test
@@ -56,13 +51,13 @@ class SynthesisEventTest {
     byte[] first = event.data();
     first[0] = 99;
 
-    assertArrayEquals(new byte[] {1, 2, 3}, event.data());
-    assertNotSame(first, event.data());
+    assertThat(event.data()).containsExactly(1, 2, 3);
+    assertThat(first).isNotSameAs(event.data());
   }
 
   @Test
   void dataMayBeNull() {
     var event = new SynthesisEvent(EventType.FINISHED, null, null);
-    assertNull(event.data());
+    assertThat(event.data()).isNull();
   }
 }

@@ -1,8 +1,10 @@
 package io.github.zirekhq.dengjen;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -65,21 +67,20 @@ class SpeakConcurrencyIntegrationTest {
 
         // Nonblocking streams outlive speak(), so their releases land on
         // a pool thread after the loop above finishes.
-        long deadline = System.nanoTime() + 60_000_000_000L;
-        while (releases.get() < expected && System.nanoTime() < deadline) {
-          Thread.sleep(20);
-        }
-        assertEquals(
-            expected,
-            releases.get(),
-            "every speak() call must release its registration exactly once");
+        await()
+            .atMost(Duration.ofSeconds(60))
+            .pollInterval(Duration.ofMillis(20))
+            .until(() -> releases.get() >= expected);
+        assertThat(releases.get())
+            .as("every speak() call must release its registration exactly once")
+            .isEqualTo(expected);
       } finally {
         // A pool thread from a just-completed speak() call may still be
         // in-flight when the test method returns. If it invokes the hook
         // after another test has reset or reused it, that stale call could
-        // corrupt the concurrent-test counters. This sleep is an imperfect
+        // corrupt the concurrent-test counters. This delay is an imperfect
         // but necessary guard against that narrow window.
-        Thread.sleep(500);
+        await().pollDelay(Duration.ofMillis(500)).until(() -> true);
         SpeakTrampoline.testCallReleased.set(null);
       }
     }
