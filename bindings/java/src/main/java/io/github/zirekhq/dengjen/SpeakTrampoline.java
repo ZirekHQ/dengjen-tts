@@ -8,7 +8,9 @@ import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
+import java.util.Arrays;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -171,7 +173,39 @@ final class SpeakTrampoline {
     }
   }
 
-  private record DecodedEvent(EventType type, byte[] data, DengjenException error) {}
+  // Records derive equals/hashCode/toString field-by-field, which for an array field means
+  // reference identity and a `[B@...` dump instead of comparing/printing its content -- same
+  // reasoning as SynthesisEvent's own override, applied here for the same array field.
+  private record DecodedEvent(EventType type, byte[] data, DengjenException error) {
+    @Override
+    public boolean equals(Object obj) {
+      if (this == obj) {
+        return true;
+      }
+      if (!(obj instanceof DecodedEvent other)) {
+        return false;
+      }
+      return type == other.type
+          && Arrays.equals(data, other.data)
+          && Objects.equals(error, other.error);
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(type, Arrays.hashCode(data), error);
+    }
+
+    @Override
+    public String toString() {
+      return "DecodedEvent[type="
+          + type
+          + ", data="
+          + Arrays.toString(data)
+          + ", error="
+          + error
+          + "]";
+    }
+  }
 
   private static DecodedEvent decodeEvent(MemorySegment eventSegment) {
     int eventType =
