@@ -15,7 +15,7 @@ fn build_static_lib(source: &str, include_dir: &str) {
 fn write_bindings(header: &str, out_dir: &str) {
     let bindings = bindgen::Builder::default()
         .header(header)
-        .parse_callbacks(Box::new(bindgen::CargoCallbacks))
+        .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         .generate()
         .expect("Unable to generate bindings");
 

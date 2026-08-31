@@ -1,64 +1,60 @@
 package io.github.zirekhq.dengjen;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.junit.jupiter.api.Test;
 
 class SynthesisParamsTest {
   @Test
   void rejectsAnOutOfRangeRate() {
-    assertThrows(
-        IllegalArgumentException.class,
-        () -> new SynthesisParams(SynthesisMode.LAZY, 101, 0, 0, 0));
+    assertThatThrownBy(() -> new SynthesisParams(SynthesisMode.LAZY, 101, 0, 0, 0))
+        .isInstanceOf(IllegalArgumentException.class);
   }
 
   @Test
   void rejectsOutOfRangeRateBelowZero() {
-    assertThrows(
-        IllegalArgumentException.class, () -> new SynthesisParams(SynthesisMode.LAZY, -1, 0, 0, 0));
+    assertThatThrownBy(() -> new SynthesisParams(SynthesisMode.LAZY, -1, 0, 0, 0))
+        .isInstanceOf(IllegalArgumentException.class);
   }
 
   @Test
   void rejectsOutOfRangeVolume() {
-    assertThrows(
-        IllegalArgumentException.class, () -> new SynthesisParams(SynthesisMode.LAZY, 0, -1, 0, 0));
-    assertThrows(
-        IllegalArgumentException.class,
-        () -> new SynthesisParams(SynthesisMode.LAZY, 0, 101, 0, 0));
+    assertThatThrownBy(() -> new SynthesisParams(SynthesisMode.LAZY, 0, -1, 0, 0))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> new SynthesisParams(SynthesisMode.LAZY, 0, 101, 0, 0))
+        .isInstanceOf(IllegalArgumentException.class);
   }
 
   @Test
   void rejectsOutOfRangePitch() {
-    assertThrows(
-        IllegalArgumentException.class, () -> new SynthesisParams(SynthesisMode.LAZY, 0, 0, -1, 0));
-    assertThrows(
-        IllegalArgumentException.class,
-        () -> new SynthesisParams(SynthesisMode.LAZY, 0, 0, 101, 0));
+    assertThatThrownBy(() -> new SynthesisParams(SynthesisMode.LAZY, 0, 0, -1, 0))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> new SynthesisParams(SynthesisMode.LAZY, 0, 0, 101, 0))
+        .isInstanceOf(IllegalArgumentException.class);
   }
 
   @Test
   void acceptsBoundaryRateValues() {
-    assertEquals(0, new SynthesisParams(SynthesisMode.LAZY, 0, 0, 0, 0).rate());
-    assertEquals(100, new SynthesisParams(SynthesisMode.LAZY, 100, 0, 0, 0).rate());
+    assertThat(new SynthesisParams(SynthesisMode.LAZY, 0, 0, 0, 0).rate()).isEqualTo(0);
+    assertThat(new SynthesisParams(SynthesisMode.LAZY, 100, 0, 0, 0).rate()).isEqualTo(100);
   }
 
   @Test
   void acceptsBoundaryVolumeValues() {
-    assertEquals(0, new SynthesisParams(SynthesisMode.LAZY, 0, 0, 0, 0).volume());
-    assertEquals(100, new SynthesisParams(SynthesisMode.LAZY, 0, 100, 0, 0).volume());
+    assertThat(new SynthesisParams(SynthesisMode.LAZY, 0, 0, 0, 0).volume()).isEqualTo(0);
+    assertThat(new SynthesisParams(SynthesisMode.LAZY, 0, 100, 0, 0).volume()).isEqualTo(100);
   }
 
   @Test
   void acceptsBoundaryPitchValues() {
-    assertEquals(0, new SynthesisParams(SynthesisMode.LAZY, 0, 0, 0, 0).pitch());
-    assertEquals(100, new SynthesisParams(SynthesisMode.LAZY, 0, 0, 100, 0).pitch());
+    assertThat(new SynthesisParams(SynthesisMode.LAZY, 0, 0, 0, 0).pitch()).isEqualTo(0);
+    assertThat(new SynthesisParams(SynthesisMode.LAZY, 0, 0, 100, 0).pitch()).isEqualTo(100);
   }
 
   @Test
   void defaultsNonblockingToFalse() {
     var params = new SynthesisParams(SynthesisMode.LAZY, 10, 100, 50, 0);
-    assertFalse(params.nonblocking());
+    assertThat(params.nonblocking()).isFalse();
   }
 }

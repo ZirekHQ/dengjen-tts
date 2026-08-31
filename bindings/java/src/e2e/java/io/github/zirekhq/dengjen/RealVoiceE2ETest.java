@@ -1,6 +1,6 @@
 package io.github.zirekhq.dengjen;
 
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.IOException;
@@ -26,10 +26,12 @@ class RealVoiceE2ETest {
       Path outPath = tempDir.resolve("output.wav");
       SynthesisParams params = new SynthesisParams(SynthesisMode.LAZY, 10, 100, 50, 0);
       boolean wrote = voice.speakToFile("Hello, world!", params, outPath.toString());
-      assertTrue(wrote);
+      assertThat(wrote).isTrue();
 
       byte[] data = Files.readAllBytes(outPath);
-      assertTrue(data.length > 44, "expected a WAV file with audio samples beyond the header");
+      assertThat(data.length)
+          .as("expected a WAV file with audio samples beyond the header")
+          .isGreaterThan(44);
     }
   }
 }

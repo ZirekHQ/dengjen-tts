@@ -10,12 +10,11 @@ on:
   pull_request:
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 jobs:
   linux:
     runs-on: ${{ matrix.platform.runner }}
+    permissions:
+      contents: read
     strategy:
       matrix:
         platform:
@@ -109,6 +108,8 @@ jobs:
 
   windows:
     runs-on: ${{ matrix.platform.runner }}
+    permissions:
+      contents: read
     env:
       CMAKE_GENERATOR: Ninja
     strategy:
@@ -147,6 +148,8 @@ jobs:
 
   macos:
     runs-on: ${{ matrix.platform.runner }}
+    permissions:
+      contents: read
     strategy:
       matrix:
         platform:
@@ -181,6 +184,8 @@ jobs:
 
   sdist:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: git-submodule-workaround
         run:
@@ -203,6 +208,8 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: git-submodule-fix
         run: git config --global protocol.file.allow always
@@ -236,6 +243,8 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     if: "startsWith(github.ref, 'refs/tags/')"
     needs: [linux, windows, macos, sdist]
     steps:

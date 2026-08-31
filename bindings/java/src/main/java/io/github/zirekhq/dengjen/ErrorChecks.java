@@ -28,12 +28,22 @@ final class ErrorChecks {
     if (messagePtr.equals(MemorySegment.NULL)) {
       return null;
     }
-    String message = messagePtr.reinterpret(Long.MAX_VALUE).getString(0);
+    String message = readMessage(messagePtr);
     try {
       DengjenLib.FREE_STRING.invokeExact(messagePtr);
     } catch (Throwable t) {
       throw new IllegalStateException("libdengjenFreeString downcall failed", t);
     }
     return message;
+  }
+
+  // Like readAndFreeMessage, but leaves the native string alone: for the SynthesisEvent
+  // path, where libdengjenFreeSynthesisEvent -- not this call site -- owns freeing the
+  // message, and freeing it here too would be a double-free.
+  static String readMessage(MemorySegment messagePtr) {
+    if (messagePtr.equals(MemorySegment.NULL)) {
+      return null;
+    }
+    return messagePtr.reinterpret(Long.MAX_VALUE).getString(0);
   }
 }

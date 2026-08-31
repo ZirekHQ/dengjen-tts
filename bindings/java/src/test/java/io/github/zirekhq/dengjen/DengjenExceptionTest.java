@@ -1,6 +1,6 @@
 package io.github.zirekhq.dengjen;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import org.junit.jupiter.api.Test;
 
@@ -8,19 +8,19 @@ class DengjenExceptionTest {
   @Test
   void usesTheGivenMessageWhenPresent() {
     var ex = new DengjenException(ErrorCode.NULL_POINTER, "voice_ptr was null");
-    assertEquals("voice_ptr was null", ex.getMessage());
-    assertEquals(ErrorCode.NULL_POINTER, ex.errorCode());
+    assertThat(ex.getMessage()).isEqualTo("voice_ptr was null");
+    assertThat(ex.errorCode()).isEqualTo(ErrorCode.NULL_POINTER);
   }
 
   @Test
   void fallsBackToADescriptiveMessageWhenNoneIsGiven() {
     var ex = new DengjenException(ErrorCode.UNKNOWN_ERROR, "");
-    assertEquals("UNKNOWN_ERROR (no message from libdengjen)", ex.getMessage());
+    assertThat(ex.getMessage()).isEqualTo("UNKNOWN_ERROR (no message from libdengjen)");
   }
 
   @Test
   void fallsBackToADescriptiveMessageWhenMessageIsNull() {
     var ex = new DengjenException(ErrorCode.UNKNOWN_ERROR, null);
-    assertEquals("UNKNOWN_ERROR (no message from libdengjen)", ex.getMessage());
+    assertThat(ex.getMessage()).isEqualTo("UNKNOWN_ERROR (no message from libdengjen)");
   }
 }
