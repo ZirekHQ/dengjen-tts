@@ -7,6 +7,10 @@ on:
       - master
   pull_request:
   workflow_dispatch:
+  schedule:
+    # Weekly, not per-PR: real-voice-e2e (below) downloads real model weights, too slow/costly
+    # to run on every push.
+    - cron: "0 3 * * 1"
 
 permissions:
   contents: read
@@ -224,6 +228,49 @@ jobs:
         with:
           file: cobertura.xml
           language: Rust
+
+  # Runs the DENGJEN_KOKORO_TEST_VOICE_CONFIG-gated real-voice e2e tests
+  # (dengjen-tts-kokoro's e2e_real_voice.rs, dengjen-tts-cli's kokoro_e2e.rs) against an actual
+  # trained voice instead of the synthetic fixture every other job uses. Never runs on a
+  # push/PR (real model weights are too large/slow to fetch on every run); only on the weekly
+  # schedule above or a manual workflow_dispatch.
+  #
+  # No specific model source is configured here: verifying a third-party Kokoro export's
+  # license and its exact file layout against KokoroVoiceConfig's schema is a one-time judgment
+  # call for whoever maintains this repo, not something to hardcode sight-unseen. Set the
+  # `KOKORO_TEST_VOICE_ARCHIVE_URL` repository variable (Settings > Secrets and variables >
+  # Actions > Variables) to a .tar.gz whose root directory holds:
+  #   - config.json               ({"model_path": ..., "voices_dir": ..., "vocab_path": ...},
+  #                                 each path resolved relative to this same directory)
+  #   - whatever those three fields name
+  # This job no-ops cleanly (all steps skipped) until that variable is set.
+  kokoro-real-voice-e2e:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: git-submodule-fix
+        run: git config --global protocol.file.allow always
+      - name: install libclang and espeak-ng
+        run: sudo apt-get update && sudo apt-get install -y llvm llvm-dev llvm-runtime libclang-dev espeak-ng
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: download real Kokoro voice fixture
+        if: vars.KOKORO_TEST_VOICE_ARCHIVE_URL != ''
+        run: |
+          mkdir -p /tmp/kokoro-real-voice
+          curl -fsSL "${{ vars.KOKORO_TEST_VOICE_ARCHIVE_URL }}" -o /tmp/kokoro-voice.tar.gz
+          tar -xzf /tmp/kokoro-voice.tar.gz -C /tmp/kokoro-real-voice --strip-components=1
+          echo "DENGJEN_KOKORO_TEST_VOICE_CONFIG=/tmp/kokoro-real-voice/config.json" >> "$GITHUB_ENV"
+      - name: cargo test (dengjen-tts-kokoro, real voice e2e)
+        if: vars.KOKORO_TEST_VOICE_ARCHIVE_URL != ''
+        run: cargo test -p dengjen-tts-kokoro --test e2e_real_voice
+      - name: cargo test (dengjen-tts-cli, kokoro real voice e2e)
+        if: vars.KOKORO_TEST_VOICE_ARCHIVE_URL != ''
+        run: cargo test -p dengjen-tts-cli --test kokoro_e2e
 
   bindings-java:
     runs-on: ubuntu-latest
