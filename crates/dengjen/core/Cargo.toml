@@ -3,10 +3,13 @@ name = "dengjen-tts-core"
 version = "0.2.0"
 edition = "2021"
 license.workspace = true
+description = "Core error types, synthesis configuration, and shared primitives for the dengjen-tts speech synthesis engine"
+repository.workspace = true
+homepage.workspace = true
 
 [lints]
 workspace = true
 
 [dependencies]
-audio-ops = { path = "../../audio/ops" }
+audio-ops = { path = "../../audio/ops", version = "1.0.0" }
 once_cell = "1.18.0"
