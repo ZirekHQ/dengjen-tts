@@ -51,11 +51,11 @@ message Version {
 }
 
 message VoiceRef {
-    string voice_id = 1;
+    string voice_key = 1;
 }
 
 message VoiceDescriptor {
-  string voice_id = 1;
+  string voice_key = 1;
   SynthesisOptions synthesis_options = 2;
   map<int64, string> speakers = 3;
   AudioFormat audio = 4;
@@ -65,14 +65,14 @@ message VoiceDescriptor {
 }
 
 message VoiceConfigLocation {
-  string config_path = 1;
+  string path = 1;
 }
 
 // Contains text and other synthesis parameters
 message SynthesisRequest {
-  string voice_id = 1;
+  string voice_key = 1;
   string text = 2;
-  ProsodyControls speech_args = 3;
+  ProsodyControls prosody = 3;
   SynthesisMode synthesis_mode = 4;
 }
 
@@ -88,7 +88,7 @@ message SynthesisOptions {
 }
 
 message VoiceSynthesisOptions{
-    string voice_id = 1;
+    string voice_key = 1;
     SynthesisOptions synthesis_options = 2;
 }
 
@@ -101,12 +101,12 @@ message AudioFormat {
 
 // Contains  wave bytes for a synthesized utterance
 message SynthesisChunk {
-  bytes wav_samples = 1;
-  float rtf = 2;
+  bytes audio_bytes = 1;
+  float real_time_factor = 2;
 }
 
 message RealtimeAudioChunk {
-  bytes wav_samples = 1;
+  bytes audio_bytes = 1;
 }
 
 message ProsodyControls {
