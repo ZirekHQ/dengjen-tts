@@ -115,7 +115,12 @@ final class SpeakTrampoline {
   // boundary (undefined behavior), so a handler exception is caught here
   // and treated as "stop early" instead, the same contract bindings/go's
   // onEvent documents (must not panic across the boundary).
-  private static byte invoke(MemorySegment eventSegment, MemorySegment userData) {
+  //
+  // Package-private (not private) purely so SpeakTrampolineIntegrationTest can call it directly
+  // with synthetic events to cover defensive paths a real speak() call can't reliably trigger.
+  // The MethodHandles.lookup() call above that registers this as the native upcall stub already
+  // has full private access from inside this class, so this has no effect on the FFI wiring.
+  static byte invoke(MemorySegment eventSegment, MemorySegment userData) {
     SpeakTrampoline trampoline = null;
     boolean freed = false;
     try {
