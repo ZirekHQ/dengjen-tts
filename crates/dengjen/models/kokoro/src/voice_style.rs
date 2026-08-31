@@ -1,5 +1,5 @@
 use dengjen_tts_core::{DengjenError, DengjenResult};
-use ndarray::Array2;
+use ndarray::{Array2, Axis, Slice};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -47,8 +47,11 @@ impl VoiceStyles {
             DengjenError::OperationError(format!("Unknown Kokoro voice: `{}`", voice_name))
         })?;
         let row_index = token_len.saturating_sub(1).min(MAX_TOKEN_LEN - 1);
+        // Equivalent to `s![row_index..row_index + 1, ..]` without the `s!` macro: its expansion
+        // carries an internal `#[allow(unsafe_code)]` that a plain `#[deny]` can override but
+        // `#![forbid(unsafe_code)]` (required for this crate, which has no FFI boundary) cannot.
         Ok(table
-            .slice(ndarray::s![row_index..row_index + 1, ..])
+            .slice_axis(Axis(0), Slice::from(row_index..row_index + 1))
             .to_owned())
     }
 }
