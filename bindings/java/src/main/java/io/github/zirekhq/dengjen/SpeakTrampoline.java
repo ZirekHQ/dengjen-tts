@@ -176,7 +176,11 @@ final class SpeakTrampoline {
   // Records derive equals/hashCode/toString field-by-field, which for an array field means
   // reference identity and a `[B@...` dump instead of comparing/printing its content -- same
   // reasoning as SynthesisEvent's own override, applied here for the same array field.
-  private record DecodedEvent(EventType type, byte[] data, DengjenException error) {
+  //
+  // Package-private (not private) purely so SpeakTrampolineTest can construct and compare
+  // instances directly; decodeEvent()'s own logic is already covered indirectly through
+  // SpeakTrampolineIntegrationTest's calls into invoke().
+  record DecodedEvent(EventType type, byte[] data, DengjenException error) {
     @Override
     public boolean equals(Object obj) {
       if (this == obj) {
