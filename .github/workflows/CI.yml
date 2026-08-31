@@ -247,8 +247,8 @@ jobs:
         run: cargo test -p dengjen-tts-piper --no-default-features --features espeak,tashkeel,hebrew,pinyin
       - name: cargo test (dengjen-tts-piper, espeak feature disabled)
         run: cargo test -p dengjen-tts-piper --no-default-features --features tashkeel
-      - name: cargo test (dengjen-tts-kokoro)
-        run: cargo test -p dengjen-tts-kokoro
+      - name: cargo test (dengjen-tts-kokoro, espeak feature enabled)
+        run: cargo test -p dengjen-tts-kokoro --features espeak
       - name: cargo test (dengjen-tts-kokoro, espeak feature disabled)
         run: cargo test -p dengjen-tts-kokoro --no-default-features
 
