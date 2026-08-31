@@ -16,7 +16,7 @@ use tonic::{Request, Response, Status};
 use xxhash_rust::xxh3::xxh3_64;
 
 const DEFAULT_DENGJEN_GRPC_SERVER_PORT: u16 = 49314;
-const VOICE_ID_REDUCTION_FACTOR: u64 = 10000000000000;
+const VOICE_KEY_REDUCTION_FACTOR: u64 = 10000000000000;
 
 type DengjenGrpcResult<T> = Result<T, DengjenGrpcError>;
 
@@ -82,7 +82,7 @@ impl Voice {
     }
 }
 
-/// Registry of loaded voices, keyed by voice ID.
+/// Registry of loaded voices, keyed by voice key.
 struct DengjenGrpcService(RwLock<HashMap<String, Voice>>);
 
 impl DengjenGrpcService {
@@ -90,14 +90,14 @@ impl DengjenGrpcService {
         Self(RwLock::new(HashMap::new()))
     }
 
-    /// Derives a stable voice ID from a canonicalized config path.
+    /// Derives a stable voice key from a canonicalized config path.
     fn voice_key_for_path(config_path: &std::path::Path) -> String {
         let canonical_path = config_path
             .canonicalize()
             .unwrap()
             .to_string_lossy()
             .into_owned();
-        (xxh3_64(canonical_path.as_bytes()) / VOICE_ID_REDUCTION_FACTOR).to_string()
+        (xxh3_64(canonical_path.as_bytes()) / VOICE_KEY_REDUCTION_FACTOR).to_string()
     }
 
     fn load_voice_from_config(
@@ -117,7 +117,7 @@ impl DengjenGrpcService {
 
         let model = load_voice(&config_path)?;
         log::info!(
-            "Loaded Vits voice from: `{}`. Voice ID: {}",
+            "Loaded Vits voice from: `{}`. Voice key: {}",
             config_path.display(),
             voice_key
         );
@@ -168,7 +168,7 @@ impl DengjenGrpcService {
     }
 
     /// Turns an already-resolved generic synthesis config into gRPC-facing
-    /// `SynthesisOptions`, looking up the speaker's display name when set and
+    /// `SynthesisSettings`, looking up the speaker's display name when set and
     /// otherwise deferring to `on_unset_speaker` (the two config sources
     /// disagree on the unset fallback). The named `length_scale`/`noise_scale`/
     /// `noise_w` proto fields are read via `PiperSynthesisConfig` (works for any
@@ -179,7 +179,7 @@ impl DengjenGrpcService {
         model: &(impl DengjenModel + ?Sized),
         config: &SynthesisConfig,
         on_unset_speaker: impl FnOnce() -> DengjenGrpcResult<Option<String>>,
-    ) -> DengjenGrpcResult<grpc::SynthesisOptions> {
+    ) -> DengjenGrpcResult<grpc::SynthesisSettings> {
         let speaker = match config.speaker {
             Some(ref speaker_id) => model.speaker_id_to_name(speaker_id)?,
             None => on_unset_speaker()?,
@@ -196,7 +196,7 @@ impl DengjenGrpcService {
             .filter(|(key, _)| !named_keys.contains(&key.as_str()))
             .map(|(key, value)| (key.clone(), *value))
             .collect();
-        Ok(grpc::SynthesisOptions {
+        Ok(grpc::SynthesisSettings {
             speaker,
             length_scale: Some(piper_config.length_scale),
             noise_scale: Some(piper_config.noise_scale),
@@ -205,7 +205,7 @@ impl DengjenGrpcService {
         })
     }
 
-    /// Builds `grpc::SynthesisOptions` for a backend with no tunable synthesis
+    /// Builds `grpc::SynthesisSettings` for a backend with no tunable synthesis
     /// config at all (e.g. Kokoro, whose `get_default_synthesis_config`/
     /// `get_fallback_synthesis_config` always return `Ok(None)`). The scale
     /// fields are `None` (meaning "not applicable", not "zero"), and the
@@ -213,8 +213,8 @@ impl DengjenGrpcService {
     /// config-bearing path uses for its own unset-speaker case.
     fn synth_options_for_configless_backend(
         on_unset_speaker: impl FnOnce() -> DengjenGrpcResult<Option<String>>,
-    ) -> DengjenGrpcResult<grpc::SynthesisOptions> {
-        Ok(grpc::SynthesisOptions {
+    ) -> DengjenGrpcResult<grpc::SynthesisSettings> {
+        Ok(grpc::SynthesisSettings {
             speaker: on_unset_speaker()?,
             length_scale: None,
             noise_scale: None,
@@ -225,7 +225,7 @@ impl DengjenGrpcService {
 
     fn synth_options_from_default_config(
         model: &(impl DengjenModel + ?Sized),
-    ) -> DengjenGrpcResult<grpc::SynthesisOptions> {
+    ) -> DengjenGrpcResult<grpc::SynthesisSettings> {
         match model.get_default_synthesis_config()? {
             Some(config) => Self::synth_options_from_synthesis_config(model, &config, || {
                 Ok(Some("Default".to_string()))
@@ -234,11 +234,11 @@ impl DengjenGrpcService {
         }
     }
 
-    /// Reads a model's fallback synthesis config as gRPC-facing `SynthesisOptions`,
+    /// Reads a model's fallback synthesis config as gRPC-facing `SynthesisSettings`,
     /// resolving an unset speaker to speaker ID `0`'s name.
     fn synth_options_from_model(
         model: &(impl DengjenModel + ?Sized),
-    ) -> DengjenGrpcResult<grpc::SynthesisOptions> {
+    ) -> DengjenGrpcResult<grpc::SynthesisSettings> {
         match model.get_fallback_synthesis_config()? {
             Some(config) => Self::synth_options_from_synthesis_config(model, &config, || {
                 Ok(model.speaker_id_to_name(&0)?)
@@ -249,7 +249,7 @@ impl DengjenGrpcService {
         }
     }
 
-    fn lookup_synth_options(&self, voice_key: &str) -> DengjenGrpcResult<grpc::SynthesisOptions> {
+    fn lookup_synth_options(&self, voice_key: &str) -> DengjenGrpcResult<grpc::SynthesisSettings> {
         let voices = self.0.read().unwrap();
         let voice = voices.get(voice_key).ok_or_else(|| {
             DengjenGrpcError::VoiceNotFound(format!(
@@ -268,8 +268,8 @@ impl DengjenGrpcService {
     fn apply_synth_options(
         &self,
         voice_key: &str,
-        synth_opts: grpc::SynthesisOptions,
-    ) -> DengjenGrpcResult<grpc::SynthesisOptions> {
+        synth_opts: grpc::SynthesisSettings,
+    ) -> DengjenGrpcResult<grpc::SynthesisSettings> {
         let voices = self.0.read().unwrap();
         let voice = voices.get(voice_key).ok_or_else(|| {
             DengjenGrpcError::VoiceNotFound(format!(
@@ -392,7 +392,7 @@ impl DengjenGrpc for DengjenGrpcService {
     async fn get_synthesis_options(
         &self,
         request: Request<grpc::VoiceRef>,
-    ) -> Result<Response<grpc::SynthesisOptions>, Status> {
+    ) -> Result<Response<grpc::SynthesisSettings>, Status> {
         let voice_key = request.into_inner().voice_key;
         let synth_opts = self.lookup_synth_options(&voice_key)?;
         Ok(Response::new(synth_opts))
@@ -400,8 +400,8 @@ impl DengjenGrpc for DengjenGrpcService {
 
     async fn set_synthesis_options(
         &self,
-        request: Request<grpc::VoiceSynthesisOptions>,
-    ) -> Result<Response<grpc::SynthesisOptions>, Status> {
+        request: Request<grpc::VoiceSynthesisSettings>,
+    ) -> Result<Response<grpc::SynthesisSettings>, Status> {
         let req = request.into_inner();
         let synth_opts = req
             .synthesis_options
@@ -937,7 +937,7 @@ mod synth_options_tests {
     #[test]
     fn apply_synth_options_reports_voice_not_found_for_an_unloaded_voice() {
         let service = DengjenGrpcService::new();
-        let opts = grpc::SynthesisOptions {
+        let opts = grpc::SynthesisSettings {
             speaker: None,
             length_scale: None,
             noise_scale: None,
@@ -987,7 +987,7 @@ mod synth_options_tests {
         };
         let service = service_with_voice("v1", model);
 
-        let update = grpc::SynthesisOptions {
+        let update = grpc::SynthesisSettings {
             speaker: Some("Robot".to_string()),
             length_scale: Some(2.0),
             noise_scale: None,
@@ -1030,7 +1030,7 @@ mod synth_options_tests {
             })),
         };
         let service = service_with_voice("v1", model);
-        let update = grpc::SynthesisOptions {
+        let update = grpc::SynthesisSettings {
             speaker: Some("NoSuchSpeaker".to_string()),
             length_scale: None,
             noise_scale: None,
@@ -1060,7 +1060,7 @@ mod synth_options_tests {
         let service = service_with_voice("v1", model);
         let mut parameters = StdHashMap::new();
         parameters.insert("length_scale".to_string(), 2.5);
-        let update = grpc::SynthesisOptions {
+        let update = grpc::SynthesisSettings {
             speaker: None,
             length_scale: None,
             noise_scale: None,
@@ -1086,7 +1086,7 @@ mod synth_options_tests {
         let service = service_with_voice("v1", model);
         let mut parameters = StdHashMap::new();
         parameters.insert("length_scale".to_string(), 9.9);
-        let update = grpc::SynthesisOptions {
+        let update = grpc::SynthesisSettings {
             speaker: None,
             length_scale: Some(3.0),
             noise_scale: None,
@@ -1157,7 +1157,7 @@ mod synth_options_tests {
         service
             .apply_synth_options(
                 "v1",
-                grpc::SynthesisOptions {
+                grpc::SynthesisSettings {
                     speaker: None,
                     length_scale: None,
                     noise_scale: None,
@@ -1172,7 +1172,7 @@ mod synth_options_tests {
         let result = service
             .apply_synth_options(
                 "v1",
-                grpc::SynthesisOptions {
+                grpc::SynthesisSettings {
                     speaker: None,
                     length_scale: Some(2.0),
                     noise_scale: None,
@@ -1199,7 +1199,7 @@ mod synth_options_tests {
         service.0.write().unwrap().insert("v1".to_string(), voice);
         let result = service.apply_synth_options(
             "v1",
-            grpc::SynthesisOptions {
+            grpc::SynthesisSettings {
                 speaker: None,
                 length_scale: None,
                 noise_scale: None,
