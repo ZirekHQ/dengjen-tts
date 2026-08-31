@@ -50,3 +50,47 @@ mod tests {
         assert_eq!(param_to_percent(0.53, 0.5, 5.5), 1);
     }
 }
+
+#[cfg(test)]
+mod proptest_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    // min < max strictly: every real PARAM_RANGE constant in this crate (speed/volume/pitch)
+    // satisfies this, and param_to_percent divides by (max - min), so a zero span isn't a
+    // case worth modeling here.
+    fn param_range() -> impl Strategy<Value = (f32, f32)> {
+        (-1000.0f32..1000.0, 0.01f32..1000.0).prop_map(|(min, span)| (min, min + span))
+    }
+
+    proptest! {
+        #[test]
+        fn percent_to_param_stays_within_the_range_for_any_u8(
+            value: u8,
+            (min, max) in param_range(),
+        ) {
+            let result = percent_to_param(value, min, max);
+            prop_assert!(result >= min && result <= max);
+        }
+
+        #[test]
+        fn percent_to_param_is_monotonic_over_the_unclamped_domain(
+            a in 0u8..=100,
+            b in 0u8..=100,
+            (min, max) in param_range(),
+        ) {
+            let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+            prop_assert!(percent_to_param(lo, min, max) <= percent_to_param(hi, min, max));
+        }
+
+        #[test]
+        fn param_to_percent_round_trips_percent_to_param_within_rounding_tolerance(
+            value in 0u8..=100,
+            (min, max) in param_range(),
+        ) {
+            let param = percent_to_param(value, min, max);
+            let recovered = param_to_percent(param, min, max);
+            prop_assert!((i32::from(recovered) - i32::from(value)).abs() <= 1);
+        }
+    }
+}

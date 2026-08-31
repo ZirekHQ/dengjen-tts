@@ -645,3 +645,89 @@ mod tests {
         assert_eq!(buffer.to_i16_vec(), vec![-32767, 16383, 32767]);
     }
 }
+
+#[cfg(test)]
+mod proptest_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    // Finite, non-degenerate f32s: bounded so results stay well away from f32's own limits,
+    // letting these properties test structure/logic rather than accidentally rediscovering
+    // float overflow (already covered by the dedicated NaN/infinity unit tests above).
+    fn sample() -> impl Strategy<Value = f32> {
+        -1000.0f32..1000.0f32
+    }
+
+    fn samples(max_len: usize) -> impl Strategy<Value = Vec<f32>> {
+        prop::collection::vec(sample(), 0..=max_len)
+    }
+
+    proptest! {
+        #[test]
+        fn overlap_with_length_matches_the_clamped_overlap_formula(
+            head in samples(20),
+            tail in samples(20),
+            overlap_len in 0usize..30,
+        ) {
+            let head_len = head.len();
+            let tail_len = tail.len();
+            let mut head = AudioSamples::from(head);
+            let mut tail = AudioSamples::from(tail);
+            head.overlap_with(&mut tail, overlap_len);
+            let clamped_overlap = overlap_len.min(head_len).min(tail_len);
+            prop_assert_eq!(head.len(), head_len + tail_len - clamped_overlap);
+        }
+
+        #[test]
+        fn overlap_with_zero_overlap_len_is_a_plain_append(
+            head in samples(20),
+            tail in samples(20),
+        ) {
+            let expected: Vec<f32> = head.iter().copied().chain(tail.iter().copied()).collect();
+            let mut head = AudioSamples::from(head);
+            let mut tail = AudioSamples::from(tail);
+            head.overlap_with(&mut tail, 0);
+            prop_assert_eq!(head.into_vec(), expected);
+        }
+
+        #[test]
+        fn overlap_with_two_silent_buffers_stays_silent(
+            head_len in 0usize..20,
+            tail_len in 0usize..20,
+            overlap_len in 0usize..30,
+        ) {
+            let mut head = AudioSamples::from(vec![0.0f32; head_len]);
+            let mut tail = AudioSamples::from(vec![0.0f32; tail_len]);
+            head.overlap_with(&mut tail, overlap_len);
+            prop_assert!(head.into_vec().into_iter().all(|s| s == 0.0));
+        }
+
+        #[test]
+        fn strip_silence_never_grows_and_leaves_samples_outside_the_range_untouched(
+            data in samples(30),
+            start in 0usize..30,
+            len in 0usize..30,
+            threshold in 0.0f32..2.0,
+        ) {
+            let end = (start + len).min(data.len());
+            let start = start.min(end);
+            let before_len = data.len();
+            let prefix = data[..start].to_vec();
+            let suffix = data[end..].to_vec();
+            let expected_retained: Vec<f32> = data[start..end]
+                .iter()
+                .copied()
+                .filter(|s| s.abs() > threshold)
+                .collect();
+
+            let mut buffer = AudioSamples::from(data);
+            buffer.strip_silence(start..end, threshold);
+            let result = buffer.into_vec();
+
+            prop_assert!(result.len() <= before_len);
+            prop_assert_eq!(&result[..start], &prefix[..]);
+            prop_assert_eq!(&result[start..start + expected_retained.len()], &expected_retained[..]);
+            prop_assert_eq!(&result[start + expected_retained.len()..], &suffix[..]);
+        }
+    }
+}
