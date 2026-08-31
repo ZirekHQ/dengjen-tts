@@ -115,7 +115,7 @@ impl DengjenModel for VitsStreamingModel {
     }
 
     fn speak_batch(&self, phoneme_batches: Vec<String>) -> DengjenResult<Vec<Audio>> {
-        let (pad_id, bos_id, eos_id) = self.get_meta_ids();
+        let (pad_id, bos_id, eos_id) = self.get_meta_ids()?;
         phoneme_batches
             .into_iter()
             .map(|phonemes| {
@@ -125,7 +125,7 @@ impl DengjenModel for VitsStreamingModel {
             .collect()
     }
     fn speak_one_sentence(&self, phonemes: String) -> DengjenAudioResult {
-        let (pad_id, bos_id, eos_id) = self.get_meta_ids();
+        let (pad_id, bos_id, eos_id) = self.get_meta_ids()?;
         self.infer_with_values(self.phonemes_to_input_ids(&phonemes, pad_id, bos_id, eos_id))
     }
     fn get_default_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
@@ -173,7 +173,7 @@ impl DengjenModel for VitsStreamingModel {
         if cancel_token.is_cancelled() {
             return Ok(Box::new(std::iter::empty()));
         }
-        let (pad_id, bos_id, eos_id) = self.get_meta_ids();
+        let (pad_id, bos_id, eos_id) = self.get_meta_ids()?;
         let encoder_outputs =
             self.infer_encoder(self.phonemes_to_input_ids(&phonemes, pad_id, bos_id, eos_id))?;
         Ok(Box::new(SpeechStreamer::new(
@@ -213,9 +213,22 @@ impl EncoderOutputs {
                 .then(|| extract_named_array(&values, name))
                 .transpose()
         };
+        let z = extract_named_array(&values, "z")?;
+        let y_mask = extract_named_array(&values, "y_mask")?;
+        // `z`/`y_mask` are later indexed and sliced on axis 2, which requires rank >= 3. The
+        // ONNX graph's output shape is not guaranteed by this crate, so validate it here rather
+        // than panicking downstream.
+        for (name, array) in [("z", &z), ("y_mask", &y_mask)] {
+            if array.ndim() < 3 {
+                return Err(DengjenError::with_message(format!(
+                    "Encoder output `{name}` must have at least 3 dimensions, got shape {:?}",
+                    array.shape()
+                )));
+            }
+        }
         Ok(Self {
-            z: extract_named_array(&values, "z")?,
-            y_mask: extract_named_array(&values, "y_mask")?,
+            z,
+            y_mask,
             p_duration: optional("p_duration")?,
             // Single-speaker graphs emit no `g`. An empty array stands in for
             // "absent" — every decoder call keys off `g.is_empty()` to decide
@@ -379,7 +392,13 @@ impl AdaptiveMelChunker {
     }
 
     fn current_chunk_width(&self) -> isize {
-        (self.base_chunk_size * (self.chunks_emitted + 1)).min(MAX_CHUNK_SIZE) as isize
+        // `chunk_size` reaches here from the public `stream_synthesis` API; clamping the
+        // effective width to at least one frame prevents a caller-supplied 0 from stalling the
+        // cursor and looping forever.
+        self.base_chunk_size
+            .max(1)
+            .saturating_mul(self.chunks_emitted + 1)
+            .min(MAX_CHUNK_SIZE) as isize
     }
 }
 
@@ -473,5 +492,18 @@ mod tests {
         assert_eq!(mel_index.end, None);
         assert_eq!(audio_index.end, None);
         assert!(chunker.next().is_none());
+    }
+
+    #[test]
+    fn adaptive_mel_chunker_terminates_when_chunk_size_and_padding_are_both_zero() {
+        // Before the fix, chunk_size=0 with chunk_padding=0 made current_chunk_width() return
+        // 0, so the cursor never advanced and the iterator yielded empty slices forever.
+        let chunker = AdaptiveMelChunker::new(1000, 0, 0, 10);
+        let chunks: Vec<_> = chunker.take(1000).collect();
+        assert!(
+            chunks.len() < 1000,
+            "iterator did not terminate within 1000 chunks"
+        );
+        assert_eq!(chunks.last().unwrap().0.end, None);
     }
 }

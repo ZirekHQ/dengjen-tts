@@ -116,18 +116,27 @@ pub fn map_phonemes_to_ids(
     bos_id: i64,
     eos_id: i64,
 ) -> Vec<i64> {
-    let longest_entry = phoneme_id_map
-        .keys()
-        .map(|entry| entry.chars().count())
-        .max()
-        .unwrap_or(1)
-        .max(1);
+    // Cap the match width per starting character, so one pathological long key in an untrusted
+    // config cannot make every cursor position scan the full key length.
+    let mut longest_entry_by_first_char: HashMap<char, usize> = HashMap::new();
+    for entry in phoneme_id_map.keys() {
+        let mut entry_chars = entry.chars();
+        if let Some(first) = entry_chars.next() {
+            let len = 1 + entry_chars.count();
+            let slot = longest_entry_by_first_char.entry(first).or_insert(0);
+            *slot = (*slot).max(len);
+        }
+    }
     let chars: Vec<char> = phonemes.chars().collect();
 
     let mut phoneme_ids = Vec::with_capacity((chars.len() + 1) * 2);
     phoneme_ids.push(bos_id);
     let mut cursor = 0;
     while cursor < chars.len() {
+        let longest_entry = longest_entry_by_first_char
+            .get(&chars[cursor])
+            .copied()
+            .unwrap_or(0);
         let widest = longest_entry.min(chars.len() - cursor);
         // An entry with an empty id list is treated the same as no entry at all: the
         // config claims to cover this cluster but supplies no id, so it can't be emitted.
@@ -313,6 +322,20 @@ mod tests {
         map.insert("ɪ".to_string(), vec![99]);
         let ids = map_phonemes_to_ids(&map, "aɪ", 3, 1, 2);
         assert_eq!(ids, vec![1, 161, 3, 2]);
+    }
+
+    #[test]
+    fn map_phonemes_to_ids_matches_correctly_when_key_lengths_vary_by_starting_character() {
+        let map = HashMap::from([
+            ("aaaaaaaaaa".to_string(), vec![1]),
+            ("b".to_string(), vec![2]),
+            ("ba".to_string(), vec![3]),
+        ]);
+        let ids = map_phonemes_to_ids(&map, "ba", 0, 100, 200);
+        // "ba" greedily matches the 2-char entry even though the longest key in the whole
+        // map ("aaaaaaaaaa") starts with an unrelated character: the per-starting-character
+        // width cap must not shrink 'b's own longest match below what it actually has.
+        assert_eq!(ids, vec![100, 3, 0, 200]);
     }
 
     #[test]

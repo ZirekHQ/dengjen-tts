@@ -75,21 +75,24 @@ pub struct AudioOutputConfig {
 
 impl AudioOutputConfig {
     fn apply(&self, mut audio: Audio) -> DengjenAudioResult {
-        let mut samples = audio.samples.take();
-        if let Some(silence_ms) = self.appended_silence_ms {
-            let silence = self.generate_silence(
-                silence_ms as usize,
-                audio.info.sample_rate,
-                audio.info.num_channels,
-            )?;
-            samples.extend(silence.into_vec());
-        }
+        let samples = audio.samples.take();
         let processed = self.apply_to_raw_samples(
             samples.into(),
             audio.info.sample_rate,
             audio.info.num_channels,
         )?;
         audio.samples.merge(processed);
+        if let Some(silence_ms) = self.appended_silence_ms {
+            // generate_silence already routes through apply_to_raw_samples, so appending its
+            // result here (rather than raw zeros merged before the call above) keeps the
+            // rate/volume/pitch scaling applied exactly once.
+            let silence = self.generate_silence(
+                silence_ms as usize,
+                audio.info.sample_rate,
+                audio.info.num_channels,
+            )?;
+            audio.samples.merge(silence);
+        }
         Ok(audio)
     }
 
@@ -133,24 +136,32 @@ impl AudioOutputConfig {
                 sonic_sys::sonicSetPitch(stream, pitch);
             }
 
-            sonic_sys::sonicWriteFloatToStream(stream, input.as_ptr(), input.len() as i32);
+            // libsonic's numSamples/maxSamples parameters (and sonicSamplesAvailable's return)
+            // are always a per-channel frame count -- the library multiplies by numChannels
+            // itself to get the actual interleaved float count. `input`/`output` are
+            // interleaved buffers, so every frame count below is scaled by num_channels when
+            // sizing or indexing them.
+            let frame_count = input.len() / num_channels;
+            sonic_sys::sonicWriteFloatToStream(stream, input.as_ptr(), frame_count as i32);
             sonic_sys::sonicFlushStream(stream);
 
-            let available = sonic_sys::sonicSamplesAvailable(stream);
-            if available <= 0 {
+            let available_frames = sonic_sys::sonicSamplesAvailable(stream);
+            if available_frames <= 0 {
                 sonic_sys::sonicDestroyStream(stream);
                 return Err(DengjenError::OperationError(
                     "Sonic Error: failed to apply audio config. Invalid parameter value for rate, volume, or pitch".to_string(),
                 ));
             }
 
-            let mut output: Vec<f32> = Vec::with_capacity(available as usize);
-            sonic_sys::sonicReadFloatFromStream(
+            let mut output: Vec<f32> = Vec::with_capacity(available_frames as usize * num_channels);
+            // sonicReadFloatFromStream can return fewer frames than `available_frames`; set_len
+            // must reflect what was actually written, not the pre-read availability count.
+            let frames_read = sonic_sys::sonicReadFloatFromStream(
                 stream,
                 output.spare_capacity_mut().as_mut_ptr().cast(),
-                available,
+                available_frames,
             );
-            output.set_len(available as usize);
+            output.set_len(frames_read.max(0) as usize * num_channels);
 
             sonic_sys::sonicDestroyStream(stream);
 
@@ -171,7 +182,7 @@ impl AudioOutputConfig {
         sample_rate: usize,
         num_channels: usize,
     ) -> DengjenResult<AudioSamples> {
-        let sample_count = (time_ms * sample_rate) / 1000;
+        let sample_count = (time_ms * sample_rate * num_channels) / 1000;
         let silence = vec![0f32; sample_count];
         self.apply_to_raw_samples(silence.into(), sample_rate, num_channels)
     }
@@ -1166,6 +1177,22 @@ mod audio_output_config_tests {
     }
 
     #[test]
+    fn generate_silence_scales_sample_count_by_channel_count() {
+        let config = AudioOutputConfig {
+            rate: None,
+            volume: None,
+            pitch: None,
+            appended_silence_ms: None,
+        };
+        let silence = config.generate_silence(1000, 16000, 2).unwrap();
+        assert_eq!(
+            silence.len(),
+            32000,
+            "1000ms @ 16000Hz stereo must be 16000 frames * 2 channels = 32000 samples"
+        );
+    }
+
+    #[test]
     fn apply_appends_generated_silence_when_configured() {
         let config = AudioOutputConfig {
             rate: None,
@@ -1182,6 +1209,31 @@ mod audio_output_config_tests {
             original_len + 8000,
             "500ms @ 16000Hz of silence (8000 samples) must be appended"
         );
+    }
+
+    #[test]
+    fn apply_scales_appended_silence_by_rate_exactly_once() {
+        let config = AudioOutputConfig {
+            rate: Some(100),
+            volume: None,
+            pitch: None,
+            appended_silence_ms: Some(500),
+        };
+        let raw_samples = sine_samples(100);
+
+        // Both computed via a single apply_to_raw_samples pass each -- the ground truth this
+        // config's own real behavior must match once the real audio and the silence are
+        // combined.
+        let expected_silence_len = config.generate_silence(500, 16000, 1).unwrap().len();
+        let expected_audio_len = config
+            .apply_to_raw_samples(AudioSamples::from(raw_samples.clone()), 16000, 1)
+            .unwrap()
+            .len();
+
+        let audio = Audio::new(AudioSamples::from(raw_samples), 16000, None);
+        let result = config.apply(audio).unwrap();
+
+        assert_eq!(result.len(), expected_audio_len + expected_silence_len);
     }
 }
 

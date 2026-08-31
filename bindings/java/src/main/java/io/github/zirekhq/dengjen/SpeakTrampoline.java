@@ -8,7 +8,9 @@ import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
+import java.util.Arrays;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -115,7 +117,108 @@ final class SpeakTrampoline {
   // boundary (undefined behavior), so a handler exception is caught here
   // and treated as "stop early" instead, the same contract bindings/go's
   // onEvent documents (must not panic across the boundary).
-  private static byte invoke(MemorySegment eventSegment, MemorySegment userData) {
+  //
+  // Package-private (not private) purely so SpeakTrampolineIntegrationTest can call it directly
+  // with synthetic events to cover defensive paths a real speak() call can't reliably trigger.
+  // The MethodHandles.lookup() call above that registers this as the native upcall stub already
+  // has full private access from inside this class, so this has no effect on the FFI wiring.
+  static byte invoke(MemorySegment eventSegment, MemorySegment userData) {
+    SpeakTrampoline trampoline = null;
+    boolean freed = false;
+    try {
+      trampoline = REGISTRY.get(userData.address());
+      DecodedEvent decoded = decodeEvent(eventSegment);
+
+      // event was produced by exactly one SpeechSynthesisCallback invocation (this one) and
+      // is freed here exactly once, per libdengjenFreeSynthesisEvent's documented contract --
+      // which now includes the error message decodeEvent already read above, so it must not
+      // be freed a second time here (hence readMessage, not readAndFreeMessage).
+      freeEventOrThrow(eventSegment);
+      freed = true;
+
+      if (trampoline == null) {
+        return 1; // already released -- tell the stream to stop
+      }
+
+      boolean wantsMore =
+          trampoline.handler.onEvent(
+              new SynthesisEvent(decoded.type(), decoded.data(), decoded.error()));
+
+      // A Finished/Error event is the normal end of the stream, but the
+      // handler returning false also ends it -- either way this is the
+      // last time this trampoline runs for this call, so its registration
+      // must be released here. The `||` (not two independent branches) is
+      // load-bearing: a terminal event whose handler also returns false
+      // must still only release once. Mirrors bindings/go's callback.go
+      // `terminal || !wantsMore` fix exactly.
+      boolean terminal = decoded.type() == EventType.FINISHED || decoded.type() == EventType.ERROR;
+      if (terminal || !wantsMore) {
+        trampoline.release();
+      }
+      return (byte) (wantsMore ? 0 : 1);
+    } catch (
+        @SuppressWarnings("java:S1181")
+        Throwable t) {
+      // Must not let anything escape across this FFI boundary (undefined behavior in native
+      // code): an unrecognized event type, a handler-thrown exception or Error, a downcall
+      // failure, or anything else unexpected all degrade to "stop the stream" instead of
+      // crashing the process. The native event is freed here if the throw happened before
+      // freeEventOrThrow above got a chance to run, and the registry entry is released either
+      // way so a failure here can't leak it.
+      //
+      // java:S1181 (catch Exception, not Throwable) is suppressed above: Error subtypes are
+      // exactly what must be caught here too -- a handler throwing AssertionError (see
+      // VoiceIntegrationTest's speakHandlerThrowingAnErrorDoesNotCrossTheNativeBoundary... test)
+      // must not escape this native upcall either, which narrowing to Exception would miss.
+      if (!freed) {
+        tryFreeEvent(eventSegment);
+      }
+      if (trampoline != null) {
+        trampoline.release();
+      }
+      return 1;
+    }
+  }
+
+  // Records derive equals/hashCode/toString field-by-field, which for an array field means
+  // reference identity and a `[B@...` dump instead of comparing/printing its content -- same
+  // reasoning as SynthesisEvent's own override, applied here for the same array field.
+  //
+  // Package-private (not private) purely so SpeakTrampolineTest can construct and compare
+  // instances directly; decodeEvent()'s own logic is already covered indirectly through
+  // SpeakTrampolineIntegrationTest's calls into invoke().
+  record DecodedEvent(EventType type, byte[] data, DengjenException error) {
+    @Override
+    public boolean equals(Object obj) {
+      if (this == obj) {
+        return true;
+      }
+      if (!(obj instanceof DecodedEvent other)) {
+        return false;
+      }
+      return type == other.type
+          && Arrays.equals(data, other.data)
+          && Objects.equals(error, other.error);
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(type, Arrays.hashCode(data), error);
+    }
+
+    @Override
+    public String toString() {
+      return "DecodedEvent[type="
+          + type
+          + ", data="
+          + Arrays.toString(data)
+          + ", error="
+          + error
+          + "]";
+    }
+  }
+
+  private static DecodedEvent decodeEvent(MemorySegment eventSegment) {
     int eventType =
         eventSegment.get(ValueLayout.JAVA_INT, DengjenLayouts.SYNTHESIS_EVENT_TYPE_OFFSET);
     long len = eventSegment.get(ValueLayout.JAVA_LONG, DengjenLayouts.SYNTHESIS_EVENT_LEN_OFFSET);
@@ -137,40 +240,25 @@ final class SpeakTrampoline {
           err.get(ValueLayout.ADDRESS, DengjenLayouts.EXTERN_ERROR_MESSAGE_OFFSET);
       error = new DengjenException(ErrorCode.fromCode(code), ErrorChecks.readMessage(messagePtr));
     }
+    return new DecodedEvent(type, data, error);
+  }
 
-    // event was produced by exactly one SpeechSynthesisCallback invocation (this one) and
-    // is freed here exactly once, per libdengjenFreeSynthesisEvent's documented contract --
-    // which now includes the error message read above, so it must not be freed a second
-    // time here (hence readMessage, not readAndFreeMessage).
+  private static void freeEventOrThrow(MemorySegment eventSegment) {
     try {
       DengjenLib.FREE_SYNTHESIS_EVENT.invokeExact(eventSegment);
     } catch (Throwable t) {
       throw new IllegalStateException("libdengjenFreeSynthesisEvent downcall failed", t);
     }
+  }
 
-    SpeakTrampoline trampoline = REGISTRY.get(userData.address());
-    if (trampoline == null) {
-      return 1; // already released -- tell the stream to stop
-    }
-
-    boolean wantsMore;
+  // Best-effort: called only while invoke() is already unwinding from another failure, so a
+  // downcall failure here would only replace one unrecoverable-for-this-event problem with
+  // another.
+  private static void tryFreeEvent(MemorySegment eventSegment) {
     try {
-      wantsMore = trampoline.handler.onEvent(new SynthesisEvent(type, data, error));
-    } catch (RuntimeException e) {
-      wantsMore = false;
+      DengjenLib.FREE_SYNTHESIS_EVENT.invokeExact(eventSegment);
+    } catch (Throwable freeFailure) {
+      // See method doc: intentionally swallowed.
     }
-
-    // A Finished/Error event is the normal end of the stream, but the
-    // handler returning false also ends it -- either way this is the
-    // last time this trampoline runs for this call, so its registration
-    // must be released here. The `||` (not two independent branches) is
-    // load-bearing: a terminal event whose handler also returns false
-    // must still only release once. Mirrors bindings/go's callback.go
-    // `terminal || !wantsMore` fix exactly.
-    boolean terminal = type == EventType.FINISHED || type == EventType.ERROR;
-    if (terminal || !wantsMore) {
-      trampoline.release();
-    }
-    return (byte) (wantsMore ? 0 : 1);
   }
 }

@@ -64,7 +64,7 @@ type ESpeakLock<'a> = std::sync::MutexGuard<'a, ()>;
 fn resolve_data_directory() -> Option<CString> {
     let base = match env::var(DENGJEN_ESPEAKNG_DATA_DIRECTORY) {
         Ok(configured) => PathBuf::from(configured),
-        Err(_) => env::current_exe().unwrap().parent().unwrap().to_path_buf(),
+        Err(_) => env::current_exe().ok()?.parent()?.to_path_buf(),
     };
     if !base.join("espeak-ng-data").exists() {
         return None;

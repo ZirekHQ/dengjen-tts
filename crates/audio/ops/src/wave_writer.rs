@@ -4,6 +4,7 @@ use std::fmt;
 use std::fs::File;
 use std::io::{Cursor, Seek, Write};
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 #[derive(Debug)]
 pub struct WaveWriterError(String);
@@ -67,21 +68,53 @@ where
         sample_width,
     )?;
 
-    let mut file = File::create(path).map_err(|source| {
-        WaveWriterError::new(format!(
-            "could not create wave file `{}`: {source}",
-            path.display()
-        ))
-    })?;
+    // Written to a temp sibling and renamed into place on success, so a write failure never
+    // truncates or deletes a pre-existing file already at `path` (`File::create` truncates).
+    // The temp path is unique per call and opened with exclusive creation, so two concurrent
+    // writes to the same destination can never truncate, overwrite, or race on each other's
+    // temp file.
+    let temp_path = temp_sibling_path(path);
+
+    let mut file = File::options()
+        .write(true)
+        .create_new(true)
+        .open(&temp_path)
+        .map_err(|source| {
+            WaveWriterError::new(format!(
+                "could not create wave file `{}`: {source}",
+                temp_path.display()
+            ))
+        })?;
 
     // write_all (not write) avoids silently truncating on a short write.
     file.write_all(&encoded).map_err(|source| {
-        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(&temp_path);
         WaveWriterError::new(format!(
             "could not write wave bytes to `{}`: {source}",
+            temp_path.display()
+        ))
+    })?;
+    drop(file);
+
+    std::fs::rename(&temp_path, path).map_err(|source| {
+        let _ = std::fs::remove_file(&temp_path);
+        WaveWriterError::new(format!(
+            "could not finalize wave file `{}`: {source}",
             path.display()
         ))
     })
+}
+
+/// Process-local counter making each call's temp filename unique, combined with the process
+/// ID so distinct processes writing to the same destination path also can't collide.
+static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+fn temp_sibling_path(path: &Path) -> std::path::PathBuf {
+    let unique = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let mut temp_name = std::ffi::OsString::from(".");
+    temp_name.push(path.file_name().unwrap_or_default());
+    temp_name.push(format!(".{}.{unique}.tmp", std::process::id()));
+    path.with_file_name(temp_name)
 }
 
 #[cfg(test)]
@@ -252,6 +285,95 @@ mod tests {
         let result = write_wave_samples_to_file(path, samples.iter(), 22050, 1, 2);
 
         assert!(result.is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn to_file_preserves_a_pre_existing_file_when_writing_the_replacement_fails() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir().join(format!(
+            "dengjen-wave-writer-preserve-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("existing.wav");
+        std::fs::write(&path, b"pre-existing content").unwrap();
+
+        // A read-only directory makes creating the temp sibling file fail, standing in for
+        // any failure between temp-file creation and the final rename.
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let root_can_bypass_permissions = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(dir.join("root_probe"))
+            .is_ok();
+
+        let result = write_wave_samples_to_file(&path, sample_data().iter(), 22050, 1, 2);
+
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let existing_content = std::fs::read(&path).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+
+        if root_can_bypass_permissions {
+            eprintln!(
+                "skipping: this process can bypass the read-only directory permission (likely root)"
+            );
+            return;
+        }
+        assert!(result.is_err());
+        assert_eq!(existing_content, b"pre-existing content");
+    }
+
+    #[test]
+    fn temp_sibling_path_is_unique_across_repeated_calls_for_the_same_destination() {
+        // The bug this fixes: a fixed temp filename let two concurrent writes to the same
+        // destination race on the same .tmp file, corrupting one or both. Each call must now
+        // get its own path.
+        let dest = Path::new("/tmp/dengjen-wave-writer-uniqueness-test.wav");
+        let first = temp_sibling_path(dest);
+        let second = temp_sibling_path(dest);
+        assert_ne!(first, second);
+    }
+
+    #[test]
+    fn concurrent_writes_to_the_same_destination_do_not_corrupt_each_other() {
+        let dir = std::env::temp_dir().join(format!(
+            "dengjen-wave-writer-concurrency-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("shared.wav");
+
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    write_wave_samples_to_file(&path, sample_data().iter(), 22050, 1, 2)
+                })
+            })
+            .collect();
+        for handle in handles {
+            handle.join().unwrap().unwrap();
+        }
+
+        // Whichever write landed last, the destination must be a single complete,
+        // uncorrupted WAV file (correct header, no leftover partial/temp bytes) -- not a mix
+        // of two writers' bytes.
+        let bytes = std::fs::read(&path).unwrap();
+        assert_eq!(&bytes[0..4], b"RIFF");
+        assert_eq!(&bytes[8..12], b"WAVE");
+        let leftover_temp_files: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.file_name().to_string_lossy().contains(".tmp"))
+            .collect();
+        assert!(
+            leftover_temp_files.is_empty(),
+            "temp files were left behind: {leftover_temp_files:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[cfg(target_os = "linux")]

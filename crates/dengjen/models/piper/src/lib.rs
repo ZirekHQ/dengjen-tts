@@ -66,10 +66,19 @@ trait VitsModelCommons {
     fn get_hebrew_engine(&self) -> Option<&HebrewEngine>;
     fn get_pinyin_engine(&self) -> Option<&PinyinEngine>;
 
-    fn get_meta_ids(&self) -> (i64, i64, i64) {
+    fn get_meta_ids(&self) -> DengjenResult<(i64, i64, i64)> {
         let phoneme_id_map = &self.get_config().phoneme_id_map;
-        let first_id = |token: &str| *phoneme_id_map.get(token).unwrap().first().unwrap();
-        (first_id(PAD), first_id(BOS), first_id(EOS))
+        let first_id = |token: &str| {
+            phoneme_id_map
+                .get(token)
+                .and_then(|ids| ids.first().copied())
+                .ok_or_else(|| {
+                    DengjenError::InvalidConfiguration(format!(
+                        "Voice config's `phoneme_id_map` has no id for the required token `{token}`"
+                    ))
+                })
+        };
+        Ok((first_id(PAD)?, first_id(BOS)?, first_id(EOS)?))
     }
 
     fn language(&self) -> Option<String> {
@@ -249,7 +258,46 @@ mod tests {
             },
             speaker_map: HashMap::new(),
         };
-        assert_eq!(commons.get_meta_ids(), (3, 1, 2));
+        assert_eq!(commons.get_meta_ids().unwrap(), (3, 1, 2));
+    }
+
+    #[test]
+    fn get_meta_ids_errors_when_a_required_token_is_missing() {
+        let commons = TestVitsCommons {
+            synth_config: RwLock::new(PiperSynthesisConfig::default()),
+            config: ModelConfig {
+                phoneme_id_map: HashMap::from([
+                    (BOS.to_string(), vec![1]),
+                    (EOS.to_string(), vec![2]),
+                ]),
+                ..Default::default()
+            },
+            speaker_map: HashMap::new(),
+        };
+        assert!(matches!(
+            commons.get_meta_ids(),
+            Err(DengjenError::InvalidConfiguration(_))
+        ));
+    }
+
+    #[test]
+    fn get_meta_ids_errors_when_a_required_token_maps_to_an_empty_id_list() {
+        let commons = TestVitsCommons {
+            synth_config: RwLock::new(PiperSynthesisConfig::default()),
+            config: ModelConfig {
+                phoneme_id_map: HashMap::from([
+                    (PAD.to_string(), vec![]),
+                    (BOS.to_string(), vec![1]),
+                    (EOS.to_string(), vec![2]),
+                ]),
+                ..Default::default()
+            },
+            speaker_map: HashMap::new(),
+        };
+        assert!(matches!(
+            commons.get_meta_ids(),
+            Err(DengjenError::InvalidConfiguration(_))
+        ));
     }
 
     #[test]

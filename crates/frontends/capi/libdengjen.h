@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#define PIPER_SYNTH_CONFIG_NO_SPEAKER UINT32_MAX
+
 #define INVALID_SYNTHESIS_MODE 16
 
 #define FAILED_TO_LOAD_RESOURCE 17
@@ -84,7 +86,7 @@ typedef struct SynthesisParams {
 
 typedef uint8_t (*SpeechSynthesisCallback)(struct SynthesisEvent, void*);
 
-void libdengjenFreeString(int8_t *string_ptr);
+void libdengjenFreeString(char *string_ptr);
 
 void libdengjenFreePiperSynthConfig(struct PiperSynthConfig *synth_config);
 

@@ -58,12 +58,16 @@ fn write_minimal_vocab(dir: &std::path::Path) -> PathBuf {
     path
 }
 
-fn build_synthetic_kokoro_model() -> dengjen_tts_kokoro::KokoroModel {
-    let root = std::env::temp_dir().join("dengjen_synth_tests_kokoro_fixture");
-    let voices_dir = root.join("voices");
+/// Builds a synthetic Kokoro model backed by a unique temp-dir fixture. The returned
+/// `TempDir` must be kept alive for as long as the model: `KokoroVoiceConfig` retains
+/// `voices_dir`/`vocab_path`, so dropping the guard early (or reusing a fixed path across
+/// concurrent test runs) can pull the fixture out from under the model.
+fn build_synthetic_kokoro_model() -> (dengjen_tts_kokoro::KokoroModel, tempfile::TempDir) {
+    let root = tempfile::tempdir().expect("failed to create fixture temp dir");
+    let voices_dir = root.path().join("voices");
     std::fs::create_dir_all(&voices_dir).expect("failed to create fixture voices dir");
     write_synthetic_voice(&voices_dir, "test_voice");
-    let vocab_path = write_minimal_vocab(&root);
+    let vocab_path = write_minimal_vocab(root.path());
 
     let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../models/kokoro/tests/fixtures/synthetic_kokoro.onnx");
@@ -77,15 +81,14 @@ fn build_synthetic_kokoro_model() -> dengjen_tts_kokoro::KokoroModel {
     };
     let model = dengjen_tts_kokoro::KokoroModel::from_config(config)
         .expect("failed to build synthetic Kokoro model");
-    std::fs::remove_dir_all(&root).ok();
-    model
+    (model, root)
 }
 
 // Regression guard: chunk_size must be interpreted as a mel-frame count, not a raw
 // sample count, so capi's default of 72 doesn't fragment every sentence into tiny chunks.
 #[test]
 fn kokoro_realtime_stream_uses_realistic_chunk_duration_for_capi_default_chunk_size() {
-    let model = build_synthetic_kokoro_model();
+    let (model, _fixture_dir) = build_synthetic_kokoro_model();
     let model: Arc<dyn dengjen_tts_core::DengjenModel + Send + Sync> = Arc::new(model);
     let synthesizer = dengjen_tts::DengjenSpeechSynthesizer::new(model).unwrap();
 

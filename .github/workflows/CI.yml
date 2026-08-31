@@ -140,6 +140,10 @@ jobs:
           args: --release --out dist
           working-directory: ./crates/frontends/python
           sccache: 'true'
+          # Pinned so Renovate (see renovate.json) can bump it deliberately,
+          # rather than the action re-resolving "latest" over the network
+          # on every retry.
+          maturin-version: v1.14.1
       - name: Upload wheels
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -176,6 +180,10 @@ jobs:
           args: --release --out dist
           working-directory: ./crates/frontends/python
           sccache: 'true'
+          # Pinned so Renovate (see renovate.json) can bump it deliberately,
+          # rather than the action re-resolving "latest" over the network
+          # on every retry.
+          maturin-version: v1.14.1
       - name: Upload wheels
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -200,6 +208,10 @@ jobs:
           command: sdist
           args: --out dist
           working-directory: ./crates/frontends/python
+          # Pinned so Renovate (see renovate.json) can bump it deliberately,
+          # rather than the action re-resolving "latest" over the network
+          # on every retry.
+          maturin-version: v1.14.1
       - name: Upload sdist
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -248,12 +260,22 @@ jobs:
     if: "startsWith(github.ref, 'refs/tags/')"
     needs: [linux, windows, macos, sdist]
     steps:
+      # No `working-directory` on the maturin-action step below: `path: dist` here
+      # downloads every artifact under $GITHUB_WORKSPACE/dist/, and the upload step's
+      # glob is workspace-root-relative to match. A working-directory of
+      # ./crates/frontends/python previously made that glob look for
+      # crates/frontends/python/wheels-*/*, which never matched anything.
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: dist
       - name: Publish to PyPI
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.49.3
         env:
           MATURIN_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
         with:
           command: upload
-          args: --non-interactive --skip-existing wheels-*/*
-          working-directory: ./crates/frontends/python
+          args: --non-interactive --skip-existing dist/wheels-*/*
+          # Pinned so Renovate (see renovate.json) can bump it deliberately,
+          # rather than the action re-resolving "latest" over the network
+          # on every retry.
+          maturin-version: v1.14.1

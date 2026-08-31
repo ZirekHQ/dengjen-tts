@@ -113,11 +113,15 @@ impl G2pwEngine {
 
         let (tokens, text_to_token) =
             tokenize_and_map(&self.tokenizer, &windowed_text.to_lowercase());
-        let token_position = *text_to_token.get(windowed_query_id).ok_or_else(|| {
-            DengjenError::PhonemizationError(format!(
-                "windowed query position {windowed_query_id} has no token mapping"
-            ))
-        })?;
+        let token_position = text_to_token
+            .get(windowed_query_id)
+            .copied()
+            .flatten()
+            .ok_or_else(|| {
+                DengjenError::PhonemizationError(format!(
+                    "windowed query position {windowed_query_id} has no token mapping"
+                ))
+            })?;
 
         // [CLS] occupies position 0, shifting every real token index by one.
         let truncate_len = self.config.max_len.saturating_sub(2);
@@ -154,7 +158,7 @@ impl G2pwEngine {
         let phoneme_mask_arr = Array2::from_shape_vec((1, self.config.labels.len()), phoneme_mask)
             .map_err(inference_error)?;
 
-        let mut session = self.session.lock().unwrap();
+        let mut session = self.session.lock().map_err(inference_error)?;
         let outputs = session
             .run(ort::inputs![
                 "input_ids" => Tensor::from_array(input_ids_arr).map_err(inference_error)?,
@@ -166,18 +170,31 @@ impl G2pwEngine {
             ])
             .map_err(inference_error)?;
 
+        if outputs.len() == 0 {
+            return Err(inference_error("model produced no output tensors"));
+        }
         let (shape, probs) = outputs[0]
             .try_extract_tensor::<f32>()
             .map_err(inference_error)?;
-        // Bounds-check against the caller-supplied model's own reported output
-        // shape before indexing into `self.config.labels`, rather than trusting a
-        // caller-supplied model's output width matches the caller-supplied label
-        // list — the same "no panics on model-shape-dependent data" principle
-        // applied throughout this engine (e.g. hebrew-phonemizer's nakdimon.rs).
-        let num_labels = *shape
-            .last()
-            .ok_or_else(|| inference_error("empty output shape"))?
-            as usize;
+        // Validate the model's own reported output shape completely before indexing into
+        // `self.config.labels` or the probability buffer, rather than trusting a
+        // caller-supplied model's output width matches the caller-supplied label list — the
+        // same "no panics on model-shape-dependent data" principle applied throughout this
+        // engine (e.g. hebrew-phonemizer's nakdimon.rs). Checking only the last dimension
+        // would silently accept a wrong-rank tensor whose last dimension happens to match, or
+        // a negative (ONNX dynamic-dimension) label count that wraps to a huge usize.
+        if shape.len() != 2 {
+            return Err(inference_error(format!(
+                "expected a rank-2 (batch, num_labels) output tensor, got shape {shape:?}"
+            )));
+        }
+        if shape[0] != 1 {
+            return Err(inference_error(format!(
+                "expected batch size 1, model produced shape {shape:?}"
+            )));
+        }
+        let num_labels = usize::try_from(shape[1])
+            .map_err(|_| inference_error(format!("invalid label dimension in shape {shape:?}")))?;
         if num_labels != self.config.labels.len() || probs.len() < num_labels {
             return Err(inference_error(format!(
                 "g2pW model output width {num_labels} (probs len {}) does not match the \

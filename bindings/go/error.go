@@ -6,7 +6,6 @@ package dengjen
 import "C"
 import (
 	"fmt"
-	"unsafe"
 )
 
 // FFIError wraps an error reported by libdengjen: a numeric code (matching the
@@ -37,7 +36,7 @@ func checkError(cErr C.struct_ExternError) error {
 	}
 	msg := C.GoString(cErr.message)
 	if cErr.message != nil {
-		C.libdengjenFreeString((*C.int8_t)(unsafe.Pointer(cErr.message)))
+		C.libdengjenFreeString(cErr.message)
 	}
 	return &FFIError{Code: int32(cErr.code), Message: msg}
 }

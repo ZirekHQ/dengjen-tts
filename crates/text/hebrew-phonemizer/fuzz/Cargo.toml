@@ -1,0 +1,28 @@
+[workspace]
+
+[package]
+name = "hebrew-phonemizer-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+arbitrary = { version = "1", features = ["derive"] }
+libfuzzer-sys = "0.4"
+
+[dependencies.ort]
+version = "2.0.0-rc.13"
+default-features = false
+
+[dependencies.hebrew-phonemizer]
+path = ".."
+
+[[bin]]
+name = "num_classes"
+path = "fuzz_targets/num_classes.rs"
+test = false
+doc = false
+bench = false

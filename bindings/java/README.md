@@ -33,14 +33,17 @@ try (Voice voice = Voice.load("/path/to/voice/config.json")) {
 For streaming synthesis (audio delivered incrementally via a callback):
 
 ```java
-voice.speak("Hello, world.", params, event -> {
-    switch (event.type()) {
-        case SPEECH -> { /* event.data() is a chunk of raw PCM audio */ }
-        case FINISHED -> { /* stream complete */ }
-        case ERROR -> { /* event.error() describes what went wrong */ }
-    }
-    return true; // keep receiving events; return false to stop early
-});
+try (Voice voice = Voice.load("/path/to/voice/config.json")) {
+    SynthesisParams params = new SynthesisParams(SynthesisMode.LAZY, 10, 100, 50, 0);
+    voice.speak("Hello, world.", params, event -> {
+        switch (event.type()) {
+            case SPEECH -> { /* event.data() is a chunk of raw PCM audio */ }
+            case FINISHED -> { /* stream complete */ }
+            case ERROR -> { /* event.error() describes what went wrong */ }
+        }
+        return true; // keep receiving events; return false to stop early
+    });
+}
 ```
 
 ## Callback safety

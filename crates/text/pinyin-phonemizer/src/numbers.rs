@@ -34,9 +34,10 @@ fn format_small_number(n: u32) -> String {
 /// needs (percentages/temperatures never exceed two digits in practice, but
 /// this stays correct rather than panicking on a longer input).
 fn format_integer(digits: &str) -> String {
-    let n: u64 = digits.parse().unwrap_or(0);
-    if n < 100 {
-        return format_small_number(n as u32);
+    if let Ok(n) = digits.parse::<u64>() {
+        if n < 100 {
+            return format_small_number(n as u32);
+        }
     }
     digits
         .chars()
@@ -45,7 +46,17 @@ fn format_integer(digits: &str) -> String {
         .collect()
 }
 
-pub(crate) fn normalize_numbers(text: &str) -> String {
+/// Reads a decimal fraction digit-by-digit (`76` -> `七六`, never `七十六`): unlike the whole
+/// part, digits after the point are always spoken individually.
+fn format_fraction_digits(digits: &str) -> String {
+    digits
+        .chars()
+        .filter_map(|c| c.to_digit(10))
+        .map(digit_to_word)
+        .collect()
+}
+
+pub fn normalize_numbers(text: &str) -> String {
     let text = normalize_temperatures(text);
     let text = normalize_percentages(&text);
     normalize_plain_digits(&text)
@@ -98,22 +109,50 @@ fn normalize_percentages(text: &str) -> String {
     let mut out = String::new();
     let mut i = 0;
     while i < chars.len() {
-        let digit_start = i;
-        let mut j = i;
-        while j < chars.len() && (chars[j].is_ascii_digit() || chars[j] == '.') {
-            j += 1;
+        let sign_start = i;
+        let negative = chars[i] == '-' || chars[i] == '\u{2212}';
+        let digit_start = if negative { i + 1 } else { i };
+
+        let mut integer_end = digit_start;
+        while integer_end < chars.len() && chars[integer_end].is_ascii_digit() {
+            integer_end += 1;
         }
-        if j > digit_start && j < chars.len() && (chars[j] == '%' || chars[j] == '\u{FF05}') {
-            let digits: String = chars[digit_start..j]
-                .iter()
-                .filter(|c| c.is_ascii_digit())
-                .collect();
-            let words = format_integer(&digits);
-            out.push_str(&format!("百分之{words}"));
-            i = j + 1;
+        let has_integer_digits = integer_end > digit_start;
+
+        let mut fraction_end = integer_end;
+        if has_integer_digits && integer_end < chars.len() && chars[integer_end] == '.' {
+            fraction_end = integer_end + 1;
+            while fraction_end < chars.len() && chars[fraction_end].is_ascii_digit() {
+                fraction_end += 1;
+            }
+        }
+        let has_fraction_digits = fraction_end > integer_end + 1;
+        let value_end = if has_fraction_digits {
+            fraction_end
+        } else {
+            integer_end
+        };
+
+        if has_integer_digits
+            && value_end < chars.len()
+            && (chars[value_end] == '%' || chars[value_end] == '\u{FF05}')
+        {
+            let integer_digits: String = chars[digit_start..integer_end].iter().collect();
+            let mut words = format_integer(&integer_digits);
+            if has_fraction_digits {
+                let fractional_digits: String =
+                    chars[integer_end + 1..fraction_end].iter().collect();
+                words = format!("{words}点{}", format_fraction_digits(&fractional_digits));
+            }
+            if negative {
+                out.push_str(&format!("负百分之{words}"));
+            } else {
+                out.push_str(&format!("百分之{words}"));
+            }
+            i = value_end + 1;
             continue;
         }
-        out.push(chars[digit_start]);
+        out.push(chars[sign_start]);
         i += 1;
     }
     out
@@ -160,6 +199,29 @@ mod tests {
     fn normalize_numbers_expands_a_percentage_with_bai_fen_zhi_prefix() {
         assert_eq!(super::normalize_numbers("77%"), "百分之七十七");
         assert_eq!(super::normalize_numbers("77％"), "百分之七十七");
+    }
+
+    #[test]
+    fn normalize_numbers_expands_a_decimal_percentage_reading_the_fraction_digit_by_digit() {
+        assert_eq!(super::normalize_numbers("98.76%"), "百分之九十八点七六");
+    }
+
+    #[test]
+    fn normalize_numbers_expands_a_negative_percentage_with_a_fu_prefix() {
+        assert_eq!(super::normalize_numbers("-7%"), "负百分之七");
+    }
+
+    #[test]
+    fn normalize_numbers_expands_a_negative_decimal_percentage() {
+        assert_eq!(super::normalize_numbers("-3.5%"), "负百分之三点五");
+    }
+
+    #[test]
+    fn format_integer_falls_back_to_digit_by_digit_when_the_value_overflows_u64() {
+        assert_eq!(
+            super::format_integer("18446744073709551616"),
+            "一八四四六七四四零七三七零九五五一六一六"
+        );
     }
 
     #[test]

@@ -61,12 +61,12 @@ pub(crate) fn wordize(text: &str) -> (Vec<Word>, Vec<Option<usize>>) {
 pub(crate) fn tokenize_and_map(
     tokenizer: &tokenizers::Tokenizer,
     text: &str,
-) -> (Vec<Token>, Vec<usize>) {
+) -> (Vec<Token>, Vec<Option<usize>>) {
     let (words, text_to_word) = wordize(text);
     let chars: Vec<char> = text.chars().collect();
 
     let mut tokens: Vec<Token> = Vec::new();
-    let mut text_to_token: Vec<usize> = vec![0; chars.len()];
+    let mut text_to_token: Vec<Option<usize>> = vec![None; chars.len()];
 
     for word in &words {
         let encoding = tokenizer
@@ -85,7 +85,7 @@ pub(crate) fn tokenize_and_map(
                 start: word.start,
                 end: word.end,
             });
-            text_to_token[word.start..word.end].fill(token_index);
+            text_to_token[word.start..word.end].fill(Some(token_index));
             continue;
         }
 
@@ -101,7 +101,7 @@ pub(crate) fn tokenize_and_map(
             });
             for pos in cursor..cursor + token_len {
                 if pos < text_to_token.len() {
-                    text_to_token[pos] = token_index;
+                    text_to_token[pos] = Some(token_index);
                 }
             }
             cursor += token_len;
@@ -109,9 +109,9 @@ pub(crate) fn tokenize_and_map(
     }
 
     // text_to_word's None (whitespace) positions never had a real word/token, so their
-    // text_to_token slot is left at the default 0 (matching upstream's own behavior:
-    // index_map_from_text_to_token starts as a copy of index_map_from_text_to_word,
-    // and only positions that belong to an actual token ever get overwritten).
+    // text_to_token slot stays None too -- unlike upstream's Python, which reuses 0 (a real
+    // token index) as its "unmapped" sentinel and relies on callers never querying a
+    // whitespace position.
     let _ = text_to_word;
     (tokens, text_to_token)
 }
@@ -164,7 +164,20 @@ mod tests {
         assert_eq!(tokens[0].end, 1);
         assert_eq!(tokens[1].start, 1);
         assert_eq!(tokens[1].end, 2);
-        assert_eq!(text_to_token, vec![0, 1]);
+        assert_eq!(text_to_token, vec![Some(0), Some(1)]);
+    }
+
+    #[test]
+    fn tokenize_and_map_leaves_whitespace_positions_unmapped() {
+        let Some(tokenizer) = test_tokenizer() else {
+            eprintln!("skipping: DENGJEN_PINYIN_TEST_TOKENIZER_PATH not set");
+            return;
+        };
+        let (_tokens, text_to_token) = super::tokenize_and_map(&tokenizer, " 你");
+        // Before the fix, an unmapped position defaulted to token index 0 -- the same index a
+        // real token can legitimately have -- so both the space and "你" mapped to token 0.
+        assert_eq!(text_to_token[0], None);
+        assert_eq!(text_to_token[1], Some(0));
     }
 
     fn test_tokenizer() -> Option<tokenizers::Tokenizer> {

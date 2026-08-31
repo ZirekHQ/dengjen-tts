@@ -1,0 +1,79 @@
+reviews:
+  # Exclude heavy binaries, models, and lockfiles
+  path_filters:
+    - "!deps/**"
+    - "!**/*.onnx"
+    - "!**/*.jar"
+    - "!**/*.bin"
+    - "!**/*.lock"
+    - "!**/*.lockfile"
+
+  # General repository-wide instructions
+  instructions: |
+    - Focus strictly on correctness, concurrency safety, memory safety, and performance.
+    - Avoid nitpicking style, naming conventions, or formatting unless it impacts API clarity or ABI safety.
+    - Flag any silent error discards, unchecked unwrap() calls in public APIs or request paths, and missing bounds checks.
+    - Keep comments concise: explain the root cause and provide a targeted code fix.
+
+  # Path-specific instructions
+  path_instructions:
+    # 1. Rust Audio Ops & DSP
+    - path: "crates/audio/**"
+      instructions: |
+        - Audio sample processing must be robust against NaN and infinity floats.
+        - Verify bounds checks on all sample ranges and slicing operations to prevent panics.
+        - Ensure buffer operations handle multi-channel layouts properly without truncating or stretching time durations.
+        - Ensure overlap-add implementations sum correctly to unity and prevent joint dropouts.
+
+    # 2. Rust Core, Models & Streaming Synthesis
+    - path: "crates/dengjen/**"
+      instructions: |
+        - Treat all on-disk voice configs and tensor metadata as untrusted inputs; avoid unconditional unwrap() or panic paths.
+        - Ensure streaming chunk loops cannot enter infinite loops on zero-length chunk inputs.
+        - Ensure tests that assert provider availability are guarded by appropriate feature gates (e.g., cuda, directml, coreml).
+
+    # 3. Text Processing & Phonemization (untrusted models, tensors, and locale data)
+    - path: "crates/text/**"
+      instructions: |
+        - Treat ONNX/tensor output shapes as untrusted; validate rank/dimensions explicitly (e.g. shape.len()) before indexing, never assume a successful shape.get(n) implies the expected rank.
+        - Avoid unwrap()/expect() on Mutex locks, process introspection (e.g. current_exe()), or other fallible OS/runtime calls on reachable paths; propagate a DengjenError instead.
+        - Verify text-normalization, number/percentage formatting, and tokenization logic against edge cases (negative/decimal values, whitespace, multi-byte characters) with explicit unit tests, not just the happy path.
+
+    # 4. C-API & Foreign Function Interface (FFI)
+    - path: "crates/frontends/capi/**"
+      instructions: |
+        - Never panic across FFI boundaries (ensure CatchUnwind or equivalent error trapping is used).
+        - Ensure correct string types in FFI signatures (use *mut c_char instead of fixed signedness integer pointers).
+        - Verify that native functions propagate error codes/messages via out-pointers rather than swallowing errors.
+
+    # 5. Java Bindings (Panama FFI)
+    - path: "bindings/java/**"
+      instructions: |
+        - Check Arena scopes and memory segment lifetimes to prevent use-after-free or memory leaks.
+        - Ensure native DengjenFFIError structs are mapped to DengjenException instances with descriptive error details.
+        - Verify thread safety for concurrent synthesis invocations.
+        - Any code invoked from a native upcall (e.g. a callback trampoline) must catch Throwable across its entire body and never let an exception cross back into native code.
+
+    # 6. Go Bindings (CGo)
+    - path: "bindings/go/**"
+      instructions: |
+        - Ensure every C.CString allocated is freed with defer C.free(unsafe.Pointer(...)).
+        - Follow Go runtime pointer-passing rules when bridging callbacks across CGo boundaries.
+
+    # 7. gRPC & Protobuf Frontends
+    - path: "crates/frontends/grpc/**"
+      instructions: |
+        - Ensure request handlers return tonic::Status errors rather than panicking on missing files or invalid inputs.
+        - Narrow or validate incoming proto integer ranges (e.g., prosody values 0-100) before casting to smaller integer types.
+
+    # 8. CLI Frontend
+    - path: "crates/frontends/cli/**"
+      instructions: |
+        - A named request field must only overwrite the default/fallback config when the caller explicitly set it; merge optional fields with Option::map or if-let, never assign unconditionally (a `None` should preserve the existing default, not reset it).
+        - CLI flags, --help text, and the stdin JSON request/output schema are a stable external interface; flag any change that would alter observable behavior for existing scripts or callers.
+
+    # 9. Python Bindings (PyO3)
+    - path: "crates/frontends/python/**"
+      instructions: |
+        - build.rs must not panic/expect() when an optional source path (e.g. a data directory) is absent; guard with an existence check and emit a cargo:warning instead.
+        - Verify every #[pyclass] field intended for Python access has #[pyo3(get)] (and #[pyo3(set)] if mutable); an #[allow(dead_code)] on a struct field usually signals a missing accessor, not truly dead code.

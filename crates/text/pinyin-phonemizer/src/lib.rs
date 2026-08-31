@@ -6,6 +6,10 @@ mod numbers;
 mod syllable;
 mod tokenize;
 
+// Exposed only so crates/text/pinyin-phonemizer/fuzz can fuzz this pure, no-model-required
+// text transformation directly, matching dengjen-tts-piper's map_phonemes_to_ids convention.
+pub use numbers::normalize_numbers;
+
 use dengjen_tts_core::{DengjenError, DengjenResult, Phonemes};
 use dictionary::{load_dictionaries, resolve_char, Dictionaries};
 use g2pw::{create_g2pw_engine, G2pwConfig, G2pwEngine};
