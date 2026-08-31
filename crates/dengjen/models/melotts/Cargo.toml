@@ -8,7 +8,7 @@ license.workspace = true
 workspace = true
 
 [features]
-default = ["espeak"]
+default = []
 espeak = ["dep:espeak-phonemizer"]
 pinyin = ["dep:pinyin-phonemizer"]
 cuda = ["ort/cuda"]

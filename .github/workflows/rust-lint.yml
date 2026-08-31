@@ -217,8 +217,8 @@ jobs:
         run: cargo llvm-cov --no-report -p dengjen-tts-piper --no-default-features --features espeak,tashkeel,hebrew,pinyin
       - name: cargo llvm-cov (dengjen-tts-piper, espeak feature disabled)
         run: cargo llvm-cov --no-report -p dengjen-tts-piper --no-default-features --features tashkeel
-      - name: cargo llvm-cov (dengjen-tts-kokoro)
-        run: cargo llvm-cov --no-report -p dengjen-tts-kokoro
+      - name: cargo llvm-cov (dengjen-tts-kokoro, espeak feature enabled)
+        run: cargo llvm-cov --no-report -p dengjen-tts-kokoro --features espeak
       - name: cargo llvm-cov (dengjen-tts-kokoro, espeak feature disabled)
         run: cargo llvm-cov --no-report -p dengjen-tts-kokoro --no-default-features
       - name: merge coverage into a Cobertura report
@@ -268,7 +268,7 @@ jobs:
           tar -xzf /tmp/kokoro-voice.tar.gz -C /tmp/kokoro-real-voice --strip-components=1
           echo "DENGJEN_KOKORO_TEST_VOICE_CONFIG=/tmp/kokoro-real-voice/config.json" >> "$GITHUB_ENV"
       - name: cargo test (dengjen-tts-kokoro, real voice e2e)
-        run: cargo test -p dengjen-tts-kokoro --test e2e_real_voice
+        run: cargo test -p dengjen-tts-kokoro --features espeak --test e2e_real_voice
       - name: cargo test (dengjen-tts-cli, kokoro real voice e2e)
         run: cargo test -p dengjen-tts-cli --test kokoro_e2e
 

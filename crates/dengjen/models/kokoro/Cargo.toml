@@ -8,7 +8,7 @@ license.workspace = true
 workspace = true
 
 [features]
-default = ["espeak"]
+default = []
 espeak = ["dep:espeak-phonemizer"]
 # GPU execution providers, opt-in per platform. Inference falls back to CPU at runtime if the
 # provider fails to initialize (see inference::execution_providers).
