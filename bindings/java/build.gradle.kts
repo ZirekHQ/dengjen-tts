@@ -4,6 +4,7 @@ plugins {
     java
     jacoco
     `jvm-test-suite`
+    `maven-publish`
     alias(libs.plugins.spotless)
 }
 
@@ -44,6 +45,8 @@ java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(25)
     }
+    withSourcesJar()
+    withJavadocJar()
 }
 
 repositories {
@@ -149,6 +152,42 @@ tasks.jacocoTestReport {
 spotless {
     java {
         googleJavaFormat()
+    }
+}
+
+val stagingDir: Provider<Directory> = layout.buildDirectory.dir("staging-deploy")
+
+publishing {
+    publications {
+        create<MavenPublication>("maven") {
+            from(components["java"])
+            pom {
+                name.set("dengjen-java-bindings")
+                description.set("Java bindings for libdengjen, the C API for dengjen-tts.")
+                url.set("https://github.com/ZirekHQ/dengjen-tts")
+                licenses {
+                    license {
+                        name.set("GPL-3.0-or-later")
+                        url.set("https://www.gnu.org/licenses/gpl-3.0.txt")
+                        distribution.set("repo")
+                    }
+                }
+                scm {
+                    connection.set("scm:git:https://github.com/ZirekHQ/dengjen-tts.git")
+                    developerConnection.set("scm:git:git@github.com:ZirekHQ/dengjen-tts.git")
+                    url.set("https://github.com/ZirekHQ/dengjen-tts.git")
+                }
+                developers {
+                    developer {
+                        id.set("austek")
+                        name.set("Ali Ustek")
+                    }
+                }
+            }
+        }
+    }
+    repositories {
+        maven { url = uri(stagingDir.get()) }
     }
 }
 
