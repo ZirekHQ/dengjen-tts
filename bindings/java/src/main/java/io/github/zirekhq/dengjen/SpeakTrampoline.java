@@ -156,13 +156,20 @@ final class SpeakTrampoline {
         trampoline.release();
       }
       return (byte) (wantsMore ? 0 : 1);
-    } catch (Throwable t) {
+    } catch (
+        @SuppressWarnings("java:S1181")
+        Throwable t) {
       // Must not let anything escape across this FFI boundary (undefined behavior in native
       // code): an unrecognized event type, a handler-thrown exception or Error, a downcall
       // failure, or anything else unexpected all degrade to "stop the stream" instead of
       // crashing the process. The native event is freed here if the throw happened before
       // freeEventOrThrow above got a chance to run, and the registry entry is released either
       // way so a failure here can't leak it.
+      //
+      // java:S1181 (catch Exception, not Throwable) is suppressed above: Error subtypes are
+      // exactly what must be caught here too -- a handler throwing AssertionError (see
+      // VoiceIntegrationTest's speakHandlerThrowingAnErrorDoesNotCrossTheNativeBoundary... test)
+      // must not escape this native upcall either, which narrowing to Exception would miss.
       if (!freed) {
         tryFreeEvent(eventSegment);
       }
