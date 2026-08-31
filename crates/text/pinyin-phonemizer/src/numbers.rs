@@ -56,7 +56,7 @@ fn format_fraction_digits(digits: &str) -> String {
         .collect()
 }
 
-pub(crate) fn normalize_numbers(text: &str) -> String {
+pub fn normalize_numbers(text: &str) -> String {
     let text = normalize_temperatures(text);
     let text = normalize_percentages(&text);
     normalize_plain_digits(&text)

@@ -12,6 +12,10 @@ mod ipa;
 mod nakdimon;
 
 pub use nakdimon::{create_nakdimon_engine, NakdimonEngine};
+// Exposed only so crates/text/hebrew-phonemizer/fuzz can fuzz this pure, no-model-required
+// tensor-shape validation directly, matching dengjen-tts-piper's map_phonemes_to_ids
+// convention.
+pub use nakdimon::num_classes;
 
 use dengjen_tts_core::{DengjenResult, Phonemes};
 

@@ -1,0 +1,23 @@
+[workspace]
+
+[package]
+name = "pinyin-phonemizer-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.pinyin-phonemizer]
+path = ".."
+
+[[bin]]
+name = "normalize_numbers"
+path = "fuzz_targets/normalize_numbers.rs"
+test = false
+doc = false
+bench = false

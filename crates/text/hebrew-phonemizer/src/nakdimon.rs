@@ -89,7 +89,7 @@ fn inference_error(cause: impl std::fmt::Display) -> DengjenError {
 /// keeps `merge_diacritics`'s `table[id - 1]` indexing in bounds: every id
 /// `argmax_per_position` can produce is `< expected_classes`, so `id - 1` is
 /// always a valid index into a table of length `expected_classes - 1`.
-fn num_classes(shape: &Shape, seq_len: usize, expected_classes: usize) -> DengjenResult<usize> {
+pub fn num_classes(shape: &Shape, seq_len: usize, expected_classes: usize) -> DengjenResult<usize> {
     if shape.len() != 3 {
         return Err(inference_error(format!(
             "expected a rank-3 output tensor, got shape {shape:?}"
