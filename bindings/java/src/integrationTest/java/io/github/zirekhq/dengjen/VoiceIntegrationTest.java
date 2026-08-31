@@ -109,13 +109,13 @@ class VoiceIntegrationTest {
   void speakHandlerReturningFalseReleasesTheCallRegistration(@TempDir Path tempDir) {
     try (Voice voice = Voice.load(TestFixtures.syntheticPiperConfigPath(tempDir).toString())) {
       boolean[] released = {false};
-      Runnable prevHook = SpeakTrampoline.testCallReleased;
-      SpeakTrampoline.testCallReleased = () -> released[0] = true;
+      Runnable prevHook = SpeakTrampoline.testCallReleased.get();
+      SpeakTrampoline.testCallReleased.set(() -> released[0] = true);
       try {
         SynthesisParams params = new SynthesisParams(SynthesisMode.LAZY, 10, 100, 50, 0);
         voice.speak("Test.", params, event -> false);
       } finally {
-        SpeakTrampoline.testCallReleased = prevHook;
+        SpeakTrampoline.testCallReleased.set(prevHook);
       }
       assertTrue(
           released[0],
@@ -127,8 +127,8 @@ class VoiceIntegrationTest {
   void speakReleasesTheCallRegistrationWhenMarshallingThrows(@TempDir Path tempDir) {
     try (Voice voice = Voice.load(TestFixtures.syntheticPiperConfigPath(tempDir).toString())) {
       int[] releases = {0};
-      Runnable prevHook = SpeakTrampoline.testCallReleased;
-      SpeakTrampoline.testCallReleased = () -> releases[0]++;
+      Runnable prevHook = SpeakTrampoline.testCallReleased.get();
+      SpeakTrampoline.testCallReleased.set(() -> releases[0]++);
       try {
         SynthesisParams params = new SynthesisParams(SynthesisMode.LAZY, 10, 100, 50, 0);
         // Throws inside allocateFrom, i.e. after the call is registered
@@ -136,7 +136,7 @@ class VoiceIntegrationTest {
         // can never release its own entry.
         assertThrows(NullPointerException.class, () -> voice.speak(null, params, event -> true));
       } finally {
-        SpeakTrampoline.testCallReleased = prevHook;
+        SpeakTrampoline.testCallReleased.set(prevHook);
       }
       assertEquals(
           1,

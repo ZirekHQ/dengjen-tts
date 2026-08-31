@@ -40,7 +40,7 @@ class SpeakConcurrencyIntegrationTest {
       int expected = THREADS * CALLS_PER_THREAD;
 
       AtomicInteger releases = new AtomicInteger();
-      SpeakTrampoline.testCallReleased = releases::incrementAndGet;
+      SpeakTrampoline.testCallReleased.set(releases::incrementAndGet);
       try {
         Thread[] threads = new Thread[THREADS];
         for (int t = 0; t < THREADS; t++) {
@@ -80,7 +80,7 @@ class SpeakConcurrencyIntegrationTest {
         // corrupt the concurrent-test counters. This sleep is an imperfect
         // but necessary guard against that narrow window.
         Thread.sleep(500);
-        SpeakTrampoline.testCallReleased = null;
+        SpeakTrampoline.testCallReleased.set(null);
       }
     }
   }
