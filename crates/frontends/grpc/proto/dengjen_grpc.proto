@@ -9,7 +9,7 @@ service DengjenGrpc {
   // Return dengjen version
   rpc GetDengjenVersion(Empty) returns (Version) {}
 
-  // Load a voice given its config directory
+  // Load a voice given its config file path
   rpc LoadVoice(VoiceConfigLocation) returns (VoiceDescriptor) {}
 
   // Fetch details for a loaded voice
