@@ -12,22 +12,22 @@ service DengjenGrpc {
   rpc GetDengjenVersion(Empty) returns (Version) {}
 
   // Load a voice from directory
-  rpc LoadVoice(VoicePath) returns (VoiceInfo) {}
+  rpc LoadVoice(VoiceConfigLocation) returns (VoiceDescriptor) {}
 
   // Get voice information
-  rpc GetVoiceInfo(VoiceIdentifier) returns (VoiceInfo) {}
+  rpc GetVoiceInfo(VoiceRef) returns (VoiceDescriptor) {}
 
   // Get synthesis options
-  rpc GetSynthesisOptions(VoiceIdentifier) returns (SynthesisOptions) {}
+  rpc GetSynthesisOptions(VoiceRef) returns (SynthesisOptions) {}
 
   // Set synthesis options
   rpc SetSynthesisOptions(VoiceSynthesisOptions) returns (SynthesisOptions) {}
 
   // Synthesize utterance
-  rpc SynthesizeUtterance(Utterance) returns (stream SynthesisResult) {}
+  rpc SynthesizeUtterance(SynthesisRequest) returns (stream SynthesisChunk) {}
 
   // Synthesize utterance in realtime
-  rpc SynthesizeUtteranceRealtime(Utterance) returns (stream WaveSamples) {}
+  rpc SynthesizeUtteranceRealtime(SynthesisRequest) returns (stream RealtimeAudioChunk) {}
 }
 
 enum SynthesisMode {
@@ -36,12 +36,12 @@ enum SynthesisMode {
   MODE_PARALLEL = 2;
   MODE_BATCHED = 3;
 }
-enum Quality {
-  QUALITY_UNSPECIFIED = 0;
-  QUALITY_X_LOW = 1;
-  QUALITY_LOW = 2;
-  QUALITY_MEDIUM = 3;
-  QUALITY_HIGH = 4;
+enum VoiceQuality {
+  VOICE_QUALITY_UNSPECIFIED = 0;
+  VOICE_QUALITY_X_LOW = 1;
+  VOICE_QUALITY_LOW = 2;
+  VOICE_QUALITY_MEDIUM = 3;
+  VOICE_QUALITY_HIGH = 4;
 }
 
 message Empty {}
@@ -50,29 +50,29 @@ message Version {
     string version = 1;
 }
 
-message VoiceIdentifier {
+message VoiceRef {
     string voice_id = 1;
 }
 
-message VoiceInfo {
+message VoiceDescriptor {
   string voice_id = 1;
   SynthesisOptions synthesis_options = 2;
   map<int64, string> speakers = 3;
-  AudioInfo audio = 4;
+  AudioFormat audio = 4;
   optional string language = 5;
-  optional Quality quality = 6;
+  optional VoiceQuality quality = 6;
   optional bool supports_streaming_output = 7;
 }
 
-message VoicePath {
+message VoiceConfigLocation {
   string config_path = 1;
 }
 
 // Contains text and other synthesis parameters
-message Utterance {
+message SynthesisRequest {
   string voice_id = 1;
   string text = 2;
-  SpeechArgs speech_args = 3;
+  ProsodyControls speech_args = 3;
   SynthesisMode synthesis_mode = 4;
 }
 
@@ -93,23 +93,23 @@ message VoiceSynthesisOptions{
 }
 
 // Audio output information
-message AudioInfo {
+message AudioFormat {
   uint32 sample_rate = 1;
   uint32 num_channels = 2;
   uint32 sample_width = 3;
 }
 
-// Contains  wave bytes for a synthesized utterance 
-message SynthesisResult {
+// Contains  wave bytes for a synthesized utterance
+message SynthesisChunk {
   bytes wav_samples = 1;
   float rtf = 2;
 }
 
-message WaveSamples {
+message RealtimeAudioChunk {
   bytes wav_samples = 1;
 }
 
-message SpeechArgs {
+message ProsodyControls {
     optional uint32 rate =1;
     optional uint32 volume =2;
     optional uint32 pitch =3;

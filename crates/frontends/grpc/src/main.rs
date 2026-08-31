@@ -100,7 +100,7 @@ impl DengjenGrpcService {
         (xxh3_64(canonical_path.as_bytes()) / VOICE_ID_REDUCTION_FACTOR).to_string()
     }
 
-    fn load_voice_from_config(&self, config_path: PathBuf) -> DengjenGrpcResult<grpc::VoiceInfo> {
+    fn load_voice_from_config(&self, config_path: PathBuf) -> DengjenGrpcResult<grpc::VoiceDescriptor> {
         if !config_path.is_file() {
             return Err(DengjenGrpcError::VoiceNotFound(format!(
                 "Config file does not exists: `{}`",
@@ -144,17 +144,17 @@ impl DengjenGrpcService {
         &self,
         voice_id: String,
         model: &(impl DengjenModel + ?Sized),
-    ) -> DengjenGrpcResult<grpc::VoiceInfo> {
+    ) -> DengjenGrpcResult<grpc::VoiceDescriptor> {
         let audio_info = model.audio_output_info()?;
         let speakers = model.get_speakers()?.cloned().unwrap_or_default();
         let language = model.get_language()?;
         let synth_options = Self::synth_options_from_default_config(model)?;
-        Ok(grpc::VoiceInfo {
+        Ok(grpc::VoiceDescriptor {
             voice_id,
             synthesis_options: Some(synth_options),
             language,
             speakers,
-            audio: Some(grpc::AudioInfo {
+            audio: Some(grpc::AudioFormat {
                 sample_rate: audio_info.sample_rate as u32,
                 num_channels: audio_info.num_channels as u32,
                 sample_width: audio_info.sample_width as u32,
@@ -316,9 +316,9 @@ fn load_voice(config_path: &std::path::Path) -> DengjenResult<Arc<dyn DengjenMod
     dengjen_tts_piper::from_config_path(config_path)
 }
 
-/// Converts the optional proto `SpeechArgs` into synth's `AudioOutputConfig`,
+/// Converts the optional proto `ProsodyControls` into synth's `AudioOutputConfig`,
 /// narrowing each field from the proto's wider integer types.
-fn output_config_from_speech_args(args: Option<grpc::SpeechArgs>) -> Option<AudioOutputConfig> {
+fn output_config_from_speech_args(args: Option<grpc::ProsodyControls>) -> Option<AudioOutputConfig> {
     args.map(|args| AudioOutputConfig {
         rate: args.rate.map(|v| v as u8),
         volume: args.volume.map(|v| v as u8),
@@ -363,8 +363,8 @@ impl DengjenGrpc for DengjenGrpcService {
 
     async fn load_voice(
         &self,
-        request: Request<grpc::VoicePath>,
-    ) -> Result<Response<grpc::VoiceInfo>, Status> {
+        request: Request<grpc::VoiceConfigLocation>,
+    ) -> Result<Response<grpc::VoiceDescriptor>, Status> {
         let config_path = PathBuf::from(request.into_inner().config_path);
         let voice_info = self.load_voice_from_config(config_path)?;
         Ok(Response::new(voice_info))
@@ -372,8 +372,8 @@ impl DengjenGrpc for DengjenGrpcService {
 
     async fn get_voice_info(
         &self,
-        request: Request<grpc::VoiceIdentifier>,
-    ) -> Result<Response<grpc::VoiceInfo>, Status> {
+        request: Request<grpc::VoiceRef>,
+    ) -> Result<Response<grpc::VoiceDescriptor>, Status> {
         let voice_id = request.into_inner().voice_id;
         let voices = self.0.read().unwrap();
         let voice = voices.get(&voice_id).ok_or_else(|| {
@@ -388,7 +388,7 @@ impl DengjenGrpc for DengjenGrpcService {
 
     async fn get_synthesis_options(
         &self,
-        request: Request<grpc::VoiceIdentifier>,
+        request: Request<grpc::VoiceRef>,
     ) -> Result<Response<grpc::SynthesisOptions>, Status> {
         let voice_id = request.into_inner().voice_id;
         let synth_opts = self.lookup_synth_options(&voice_id)?;
@@ -407,10 +407,10 @@ impl DengjenGrpc for DengjenGrpcService {
         Ok(Response::new(new_synth_opts))
     }
 
-    type SynthesizeUtteranceStream = ReceiverStream<Result<grpc::SynthesisResult, Status>>;
+    type SynthesizeUtteranceStream = ReceiverStream<Result<grpc::SynthesisChunk, Status>>;
     async fn synthesize_utterance(
         &self,
-        request: Request<grpc::Utterance>,
+        request: Request<grpc::SynthesisRequest>,
     ) -> Result<Response<Self::SynthesizeUtteranceStream>, Status> {
         let req = request.into_inner();
         let output_config = output_config_from_speech_args(req.speech_args);
@@ -418,7 +418,7 @@ impl DengjenGrpc for DengjenGrpcService {
 
         let (tx, rx) = mpsc::channel(512);
         tokio::task::spawn_blocking(move || {
-            drain_stream_into_channel(dengjen_stream, tx, |wav| grpc::SynthesisResult {
+            drain_stream_into_channel(dengjen_stream, tx, |wav| grpc::SynthesisChunk {
                 wav_samples: wav.as_wave_bytes(),
                 rtf: wav.real_time_factor().unwrap_or_default(),
             });
@@ -426,10 +426,10 @@ impl DengjenGrpc for DengjenGrpcService {
         Ok(Response::new(ReceiverStream::new(rx)))
     }
 
-    type SynthesizeUtteranceRealtimeStream = ReceiverStream<Result<grpc::WaveSamples, Status>>;
+    type SynthesizeUtteranceRealtimeStream = ReceiverStream<Result<grpc::RealtimeAudioChunk, Status>>;
     async fn synthesize_utterance_realtime(
         &self,
-        request: Request<grpc::Utterance>,
+        request: Request<grpc::SynthesisRequest>,
     ) -> Result<Response<Self::SynthesizeUtteranceRealtimeStream>, Status> {
         let req = request.into_inner();
         let output_config = output_config_from_speech_args(req.speech_args);
@@ -459,7 +459,7 @@ impl DengjenGrpc for DengjenGrpcService {
                     return;
                 }
             };
-            drain_stream_into_channel(realtime_speech_stream, tx, |wav| grpc::WaveSamples {
+            drain_stream_into_channel(realtime_speech_stream, tx, |wav| grpc::RealtimeAudioChunk {
                 wav_samples: wav.as_wave_bytes(),
             });
         });
