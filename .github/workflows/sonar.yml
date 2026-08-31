@@ -26,10 +26,38 @@ jobs:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
     steps:
+      - name: git-submodule-fix
+        run: git config --global protocol.file.allow always
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
         with:
           fetch-depth: 0  # Sonar needs full history for new-code detection and blame
+          submodules: recursive
           persist-credentials: false
+
+      # The Go and Java bindings are compiled against libdengjen (crates/frontends/capi), so
+      # generating real coverage for them -- rather than leaving sonar.coverage at 0% -- means
+      # building it here first, same toolchain as .github/workflows/rust-lint.yml's
+      # bindings-java/bindings-go jobs.
+      - name: install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev llvm-dev cmake protobuf-compiler
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: "1.97.1"
+
+      - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Java bindings coverage
+        working-directory: bindings/java
+        run: make coverage
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.22'
+      - name: Go bindings coverage
+        working-directory: bindings/go
+        run: make coverage
 
       - name: SonarQube scan
         if: env.SONAR_TOKEN != ''

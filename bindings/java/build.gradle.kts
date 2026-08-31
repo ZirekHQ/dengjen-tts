@@ -1,5 +1,6 @@
 plugins {
     java
+    jacoco
     `jvm-test-suite`
     alias(libs.plugins.spotless)
 }
@@ -15,6 +16,10 @@ java {
 
 repositories {
     mavenCentral()
+}
+
+dependencyLocking {
+    lockAllConfigurations()
 }
 
 testing {
@@ -56,6 +61,19 @@ testing {
 
 tasks.withType<Test>().configureEach {
     jvmArgs("--enable-native-access=ALL-UNNAMED")
+}
+
+// The jacoco plugin instruments every Test task (unit test, integrationTest, e2e) into its own
+// *.exec file under build/jacoco/; jacocoTestReport only reads test.exec by default, so it's
+// pointed at all three -- and depends on them running first -- to get a report covering the
+// whole suite rather than just the unit tests.
+tasks.jacocoTestReport {
+    dependsOn(tasks.test, testing.suites.named("integrationTest"), testing.suites.named("e2e"))
+    executionData(fileTree(layout.buildDirectory.dir("jacoco")).include("*.exec"))
+    reports {
+        xml.required.set(true)
+        html.required.set(false)
+    }
 }
 
 spotless {
