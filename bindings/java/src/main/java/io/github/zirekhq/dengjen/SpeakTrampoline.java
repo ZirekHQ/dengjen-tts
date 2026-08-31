@@ -125,45 +125,22 @@ final class SpeakTrampoline {
     boolean freed = false;
     try {
       trampoline = REGISTRY.get(userData.address());
-
-      int eventType =
-          eventSegment.get(ValueLayout.JAVA_INT, DengjenLayouts.SYNTHESIS_EVENT_TYPE_OFFSET);
-      long len = eventSegment.get(ValueLayout.JAVA_LONG, DengjenLayouts.SYNTHESIS_EVENT_LEN_OFFSET);
-      MemorySegment dataPtr =
-          eventSegment.get(ValueLayout.ADDRESS, DengjenLayouts.SYNTHESIS_EVENT_DATA_OFFSET);
-      MemorySegment errorPtr =
-          eventSegment.get(ValueLayout.ADDRESS, DengjenLayouts.SYNTHESIS_EVENT_ERROR_PTR_OFFSET);
-
-      EventType type = EventType.fromValue(eventType);
-      byte[] data =
-          (type == EventType.SPEECH && len > 0)
-              ? dataPtr.reinterpret(len).toArray(ValueLayout.JAVA_BYTE)
-              : new byte[0];
-      DengjenException error = null;
-      if (type == EventType.ERROR && !errorPtr.equals(MemorySegment.NULL)) {
-        MemorySegment err = errorPtr.reinterpret(DengjenLayouts.EXTERN_ERROR.byteSize());
-        int code = err.get(ValueLayout.JAVA_INT, DengjenLayouts.EXTERN_ERROR_CODE_OFFSET);
-        MemorySegment messagePtr =
-            err.get(ValueLayout.ADDRESS, DengjenLayouts.EXTERN_ERROR_MESSAGE_OFFSET);
-        error = new DengjenException(ErrorCode.fromCode(code), ErrorChecks.readMessage(messagePtr));
-      }
+      DecodedEvent decoded = decodeEvent(eventSegment);
 
       // event was produced by exactly one SpeechSynthesisCallback invocation (this one) and
       // is freed here exactly once, per libdengjenFreeSynthesisEvent's documented contract --
-      // which now includes the error message read above, so it must not be freed a second
-      // time here (hence readMessage, not readAndFreeMessage).
-      try {
-        DengjenLib.FREE_SYNTHESIS_EVENT.invokeExact(eventSegment);
-      } catch (Throwable t) {
-        throw new IllegalStateException("libdengjenFreeSynthesisEvent downcall failed", t);
-      }
+      // which now includes the error message decodeEvent already read above, so it must not
+      // be freed a second time here (hence readMessage, not readAndFreeMessage).
+      freeEventOrThrow(eventSegment);
       freed = true;
 
       if (trampoline == null) {
         return 1; // already released -- tell the stream to stop
       }
 
-      boolean wantsMore = trampoline.handler.onEvent(new SynthesisEvent(type, data, error));
+      boolean wantsMore =
+          trampoline.handler.onEvent(
+              new SynthesisEvent(decoded.type(), decoded.data(), decoded.error()));
 
       // A Finished/Error event is the normal end of the stream, but the
       // handler returning false also ends it -- either way this is the
@@ -172,7 +149,7 @@ final class SpeakTrampoline {
       // load-bearing: a terminal event whose handler also returns false
       // must still only release once. Mirrors bindings/go's callback.go
       // `terminal || !wantsMore` fix exactly.
-      boolean terminal = type == EventType.FINISHED || type == EventType.ERROR;
+      boolean terminal = decoded.type() == EventType.FINISHED || decoded.type() == EventType.ERROR;
       if (terminal || !wantsMore) {
         trampoline.release();
       }
@@ -182,20 +159,61 @@ final class SpeakTrampoline {
       // code): an unrecognized event type, a handler-thrown exception or Error, a downcall
       // failure, or anything else unexpected all degrade to "stop the stream" instead of
       // crashing the process. The native event is freed here if the throw happened before
-      // FREE_SYNTHESIS_EVENT above got a chance to run, and the registry entry is released
-      // either way so a failure here can't leak it.
+      // freeEventOrThrow above got a chance to run, and the registry entry is released either
+      // way so a failure here can't leak it.
       if (!freed) {
-        try {
-          DengjenLib.FREE_SYNTHESIS_EVENT.invokeExact(eventSegment);
-        } catch (Throwable freeFailure) {
-          // Best-effort: already unwinding from t, and a downcall failure here would only
-          // replace one unrecoverable-for-this-event problem with another.
-        }
+        tryFreeEvent(eventSegment);
       }
       if (trampoline != null) {
         trampoline.release();
       }
       return 1;
+    }
+  }
+
+  private record DecodedEvent(EventType type, byte[] data, DengjenException error) {}
+
+  private static DecodedEvent decodeEvent(MemorySegment eventSegment) {
+    int eventType =
+        eventSegment.get(ValueLayout.JAVA_INT, DengjenLayouts.SYNTHESIS_EVENT_TYPE_OFFSET);
+    long len = eventSegment.get(ValueLayout.JAVA_LONG, DengjenLayouts.SYNTHESIS_EVENT_LEN_OFFSET);
+    MemorySegment dataPtr =
+        eventSegment.get(ValueLayout.ADDRESS, DengjenLayouts.SYNTHESIS_EVENT_DATA_OFFSET);
+    MemorySegment errorPtr =
+        eventSegment.get(ValueLayout.ADDRESS, DengjenLayouts.SYNTHESIS_EVENT_ERROR_PTR_OFFSET);
+
+    EventType type = EventType.fromValue(eventType);
+    byte[] data =
+        (type == EventType.SPEECH && len > 0)
+            ? dataPtr.reinterpret(len).toArray(ValueLayout.JAVA_BYTE)
+            : new byte[0];
+    DengjenException error = null;
+    if (type == EventType.ERROR && !errorPtr.equals(MemorySegment.NULL)) {
+      MemorySegment err = errorPtr.reinterpret(DengjenLayouts.EXTERN_ERROR.byteSize());
+      int code = err.get(ValueLayout.JAVA_INT, DengjenLayouts.EXTERN_ERROR_CODE_OFFSET);
+      MemorySegment messagePtr =
+          err.get(ValueLayout.ADDRESS, DengjenLayouts.EXTERN_ERROR_MESSAGE_OFFSET);
+      error = new DengjenException(ErrorCode.fromCode(code), ErrorChecks.readMessage(messagePtr));
+    }
+    return new DecodedEvent(type, data, error);
+  }
+
+  private static void freeEventOrThrow(MemorySegment eventSegment) {
+    try {
+      DengjenLib.FREE_SYNTHESIS_EVENT.invokeExact(eventSegment);
+    } catch (Throwable t) {
+      throw new IllegalStateException("libdengjenFreeSynthesisEvent downcall failed", t);
+    }
+  }
+
+  // Best-effort: called only while invoke() is already unwinding from another failure, so a
+  // downcall failure here would only replace one unrecoverable-for-this-event problem with
+  // another.
+  private static void tryFreeEvent(MemorySegment eventSegment) {
+    try {
+      DengjenLib.FREE_SYNTHESIS_EVENT.invokeExact(eventSegment);
+    } catch (Throwable freeFailure) {
+      // See method doc: intentionally swallowed.
     }
   }
 }
