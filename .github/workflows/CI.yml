@@ -140,6 +140,10 @@ jobs:
           args: --release --out dist
           working-directory: ./crates/frontends/python
           sccache: 'true'
+          # Pinned so Renovate (see renovate.json) can bump it deliberately,
+          # rather than the action re-resolving "latest" over the network
+          # on every retry.
+          maturin-version: v1.14.1
       - name: Upload wheels
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -176,6 +180,10 @@ jobs:
           args: --release --out dist
           working-directory: ./crates/frontends/python
           sccache: 'true'
+          # Pinned so Renovate (see renovate.json) can bump it deliberately,
+          # rather than the action re-resolving "latest" over the network
+          # on every retry.
+          maturin-version: v1.14.1
       - name: Upload wheels
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -200,6 +208,10 @@ jobs:
           command: sdist
           args: --out dist
           working-directory: ./crates/frontends/python
+          # Pinned so Renovate (see renovate.json) can bump it deliberately,
+          # rather than the action re-resolving "latest" over the network
+          # on every retry.
+          maturin-version: v1.14.1
       - name: Upload sdist
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -257,3 +269,7 @@ jobs:
           command: upload
           args: --non-interactive --skip-existing wheels-*/*
           working-directory: ./crates/frontends/python
+          # Pinned so Renovate (see renovate.json) can bump it deliberately,
+          # rather than the action re-resolving "latest" over the network
+          # on every retry.
+          maturin-version: v1.14.1

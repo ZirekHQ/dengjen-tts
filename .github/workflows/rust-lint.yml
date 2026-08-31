@@ -194,6 +194,8 @@ jobs:
           echo "DENGJEN_ESPEAKNG_DATA_DIRECTORY=$data_dir" >> "$GITHUB_ENV"
       - name: cargo llvm-cov (espeak-phonemizer, single-threaded)
         run: cargo llvm-cov --no-report -p espeak-phonemizer -- --test-threads=1
+      - name: cargo llvm-cov (dengjen-tts-piper, hebrew and pinyin features enabled)
+        run: cargo llvm-cov --no-report -p dengjen-tts-piper --no-default-features --features espeak,tashkeel,hebrew,pinyin
       - name: cargo llvm-cov (dengjen-tts-piper, espeak feature disabled)
         run: cargo llvm-cov --no-report -p dengjen-tts-piper --no-default-features --features tashkeel
       - name: cargo llvm-cov (dengjen-tts-kokoro)
