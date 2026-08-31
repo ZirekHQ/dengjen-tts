@@ -1,0 +1,57 @@
+name: Publish to crates.io
+
+on:
+  push:
+    tags:
+      - "publish-*"
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+    steps:
+      - name: git-submodule-fix
+        run: git config --global protocol.file.allow always
+      - name: install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev llvm-dev cmake protobuf-compiler
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: "1.97.1"
+
+      - name: publish tier 1 (audio-ops, sonic-sys)
+        run: |
+          cargo publish -p audio-ops --locked
+          cargo publish -p sonic-sys --locked
+      - name: wait for tier 1 to index
+        run: |
+          bash .github/scripts/wait-for-crate.sh audio-ops 1.0.0
+          bash .github/scripts/wait-for-crate.sh sonic-sys 1.0.0
+
+      - name: publish tier 2 (dengjen-tts-core)
+        run: cargo publish -p dengjen-tts-core --locked
+      - name: wait for tier 2 to index
+        run: bash .github/scripts/wait-for-crate.sh dengjen-tts-core 0.2.0
+
+      - name: publish tier 3 (hebrew-phonemizer, pinyin-phonemizer)
+        run: |
+          cargo publish -p hebrew-phonemizer --locked
+          cargo publish -p pinyin-phonemizer --locked
+      - name: wait for tier 3 to index
+        run: |
+          bash .github/scripts/wait-for-crate.sh hebrew-phonemizer 0.1.0
+          bash .github/scripts/wait-for-crate.sh pinyin-phonemizer 0.1.0
+
+      - name: publish tier 4 (dengjen-tts-kokoro, dengjen-tts-melotts)
+        run: |
+          cargo publish -p dengjen-tts-kokoro --locked
+          cargo publish -p dengjen-tts-melotts --locked
