@@ -362,7 +362,8 @@ pub unsafe extern "C" fn libdengjenFreePiperSynthConfig(synth_config: *mut Piper
 /// # Safety
 /// `event` must be a value previously returned by a `SpeechSynthesisCallback` invocation (i.e.
 /// built by `SynthesisEvent::with_speech`/`with_error`/`with_finished`), and must be passed to
-/// this function at most once.
+/// this function at most once. This frees everything `event` owns, including the error message
+/// behind a non-null `error_ptr` — callers must not separately free that message.
 #[no_mangle]
 #[allow(non_snake_case)]
 pub unsafe extern "C" fn libdengjenFreeSynthesisEvent(event: SynthesisEvent) {
@@ -384,7 +385,14 @@ pub unsafe extern "C" fn libdengjenFreeSynthesisEvent(event: SynthesisEvent) {
         if !error_ptr.is_null() {
             // SAFETY: only `with_error` sets a non-null `error_ptr`, via
             // `Box::into_raw(Box::new(..))`; this is that box's one and only reclaim.
-            drop(unsafe { Box::from_raw(error_ptr) });
+            let boxed_error = unsafe { Box::from_raw(error_ptr) };
+            // SAFETY: `ExternError`'s `Drop` is a documented no-op (its message is a
+            // C-owned string, normally freed by the caller via `libdengjenFreeString`) —
+            // a plain `drop` here would leak the message on every real synthesis-error
+            // event. `manually_release()` is `ffi_support`'s own way to reclaim it, and
+            // this is that box's one and only reclaim (see above), so it's called at
+            // most once.
+            unsafe { boxed_error.manually_release() };
         }
     });
 }
@@ -1026,6 +1034,9 @@ mod tests {
             num_channels: 0,
             sample_width: 0,
         };
+        // SAFETY: a null `voice_ptr` is explicitly covered by `libdengjenGetAudioInfo`'s own
+        // `# Safety` doc -- it's handled gracefully (writes a NULL_POINTER error) rather than
+        // dereferenced.
         unsafe {
             libdengjenGetAudioInfo(std::ptr::null_mut(), &mut audio_info, &mut out_error);
         }
@@ -1039,6 +1050,8 @@ mod tests {
     #[test]
     fn get_piper_default_synth_config_null_voice_returns_null_pointer_error_without_panicking() {
         let mut out_error = ExternError::default();
+        // SAFETY: see `get_audio_info_null_voice_returns_null_pointer_error_without_panicking`
+        // -- same null-`voice_ptr`-handled-gracefully contract, on `libdengjenGetPiperDefaultSynthConfig`.
         let result =
             unsafe { libdengjenGetPiperDefaultSynthConfig(std::ptr::null_mut(), &mut out_error) };
         assert!(result.is_null());
@@ -1056,6 +1069,8 @@ mod tests {
             noise_scale: 1.0,
             noise_w: 1.0,
         };
+        // SAFETY: see `get_audio_info_null_voice_returns_null_pointer_error_without_panicking`
+        // -- same null-`voice_ptr`-handled-gracefully contract, on `libdengjenSetPiperSynthConfig`.
         unsafe {
             libdengjenSetPiperSynthConfig(std::ptr::null_mut(), synth_config, &mut out_error);
         }
@@ -1068,6 +1083,8 @@ mod tests {
     fn set_synthesis_parameter_null_voice_returns_null_pointer_error_without_panicking() {
         let mut out_error = ExternError::default();
         let key = FfiStr::from_cstr(std::ffi::CStr::from_bytes_with_nul(b"noise_scale\0").unwrap());
+        // SAFETY: see `get_audio_info_null_voice_returns_null_pointer_error_without_panicking`
+        // -- same null-`voice_ptr`-handled-gracefully contract, on `libdengjenSetSynthesisParameter`.
         unsafe {
             libdengjenSetSynthesisParameter(std::ptr::null_mut(), key, 0.5, &mut out_error);
         }
@@ -1220,6 +1237,9 @@ mod tests {
         // SAFETY: constructing a null `FfiStr` is the whole point of this test — no C caller is
         // dereferencing it, `libdengjenSetSynthesisParameter` must reject it gracefully instead.
         let null_key = unsafe { FfiStr::from_raw(std::ptr::null()) };
+        // SAFETY: `voice` is a valid handle owned by this test; `null_key` is deliberately
+        // invalid, which `libdengjenSetSynthesisParameter`'s own `# Safety` doc covers by
+        // rejecting it (`INVALID_UTF8_SEQUENCE`) instead of dereferencing it.
         unsafe {
             libdengjenSetSynthesisParameter(&mut voice, null_key, 0.5, &mut out_error);
         }
@@ -1236,6 +1256,8 @@ mod tests {
         let mut out_error = ExternError::default();
         let key = FfiStr::from_cstr(std::ffi::CStr::from_bytes_with_nul(b"custom_knob\0").unwrap());
         let mut value: f32 = 0.0;
+        // SAFETY: see `get_audio_info_null_voice_returns_null_pointer_error_without_panicking`
+        // -- same null-`voice_ptr`-handled-gracefully contract, on `libdengjenGetSynthesisParameter`.
         let found = unsafe {
             libdengjenGetSynthesisParameter(std::ptr::null_mut(), key, &mut value, &mut out_error)
         };
@@ -1251,6 +1273,8 @@ mod tests {
         let mut out_error = ExternError::default();
         let key = FfiStr::from_cstr(std::ffi::CStr::from_bytes_with_nul(b"custom_knob\0").unwrap());
         let mut value: f32 = 0.0;
+        // SAFETY: `voice` is a valid handle owned by this test, and `key`/`value` are valid
+        // for the duration of this call.
         let found =
             unsafe { libdengjenGetSynthesisParameter(&mut voice, key, &mut value, &mut out_error) };
         assert!(!found);
@@ -1262,6 +1286,8 @@ mod tests {
         let mut voice = fake_voice();
         let mut out_error = ExternError::default();
         let key = FfiStr::from_cstr(std::ffi::CStr::from_bytes_with_nul(b"custom_knob\0").unwrap());
+        // SAFETY: `voice` is a valid handle owned by this test, and `key` is valid for the
+        // duration of this call.
         unsafe {
             libdengjenSetSynthesisParameter(&mut voice, key, 1.25, &mut out_error);
         }
@@ -1270,6 +1296,8 @@ mod tests {
         let mut value: f32 = 0.0;
         let key2 =
             FfiStr::from_cstr(std::ffi::CStr::from_bytes_with_nul(b"custom_knob\0").unwrap());
+        // SAFETY: see above -- same valid `voice` handle, `key2` valid for the duration of
+        // this call.
         let found = unsafe {
             libdengjenGetSynthesisParameter(&mut voice, key2, &mut value, &mut out_error)
         };
@@ -1282,6 +1310,8 @@ mod tests {
     fn speak_null_voice_returns_null_pointer_error_without_panicking() {
         let mut out_error = ExternError::default();
         let text = std::ffi::CString::new("hello").unwrap();
+        // SAFETY: see `get_audio_info_null_voice_returns_null_pointer_error_without_panicking`
+        // -- same null-`voice_ptr`-handled-gracefully contract, on `libdengjenSpeak`.
         unsafe {
             libdengjenSpeak(
                 std::ptr::null_mut(),
@@ -1302,6 +1332,9 @@ mod tests {
         let text = std::ffi::CString::new("hello").unwrap();
         let mut params = synth_params();
         params.callback = None;
+        // SAFETY: `voice` is a valid handle owned by this test; a null `params.callback` is
+        // explicitly covered by `libdengjenSpeak`'s own `# Safety` doc -- handled the same way
+        // as a null `voice_ptr` (a NULL_POINTER error written to `out_error`).
         unsafe {
             libdengjenSpeak(&mut voice, FfiStr::from_cstr(&text), params, &mut out_error);
         }
@@ -1315,6 +1348,8 @@ mod tests {
         let mut out_error = ExternError::default();
         let text = std::ffi::CString::new("hello").unwrap();
         let filename = std::ffi::CString::new("out.wav").unwrap();
+        // SAFETY: see `get_audio_info_null_voice_returns_null_pointer_error_without_panicking`
+        // -- same null-`voice_ptr`-handled-gracefully contract, on `libdengjenSpeakToFile`.
         let result = unsafe {
             libdengjenSpeakToFile(
                 std::ptr::null_mut(),
@@ -1333,6 +1368,8 @@ mod tests {
     #[test]
     fn cancel_null_voice_returns_null_pointer_error_without_panicking() {
         let mut out_error = ExternError::default();
+        // SAFETY: see `get_audio_info_null_voice_returns_null_pointer_error_without_panicking`
+        // -- same null-`voice_ptr`-handled-gracefully contract, on `libdengjenCancel`.
         unsafe {
             libdengjenCancel(std::ptr::null_mut(), &mut out_error);
         }
@@ -1458,28 +1495,19 @@ mod abi_struct_tests {
         assert_eq!(event.event_type, synth_event::SYNTH_EVENT_ERROR);
         assert!(!event.error_ptr.is_null());
         assert_eq!(event.len, 0);
-
-        // SAFETY: `error_ptr` was produced by `Box::into_raw` inside `with_error`
-        // and hasn't been freed yet; reclaiming ownership here lets us call
-        // `manually_release()` (it consumes `self`) on the message before the box
-        // itself is dropped. `libdengjenFreeSynthesisEvent` does NOT do this — a
-        // pre-existing gap in the shipped function that leaks the message on every
-        // real synthesis-error event, out of scope to fix in this rewrite (see the
-        // plan's Global Constraints) — so calling that function directly here
-        // would leak the message under this crate's ASan CI gate.
-        let boxed_error = unsafe { Box::from_raw(event.error_ptr) };
+        // SAFETY: `error_ptr` was produced by `Box::into_raw` inside `with_error` and hasn't
+        // been freed yet; reading the code through the raw pointer doesn't take ownership
+        // away from it, so `libdengjenFreeSynthesisEvent` below still gets the one-and-only
+        // reclaim its own `# Safety` doc requires.
         assert_eq!(
-            boxed_error.get_code().code(),
+            unsafe { (*event.error_ptr).get_code().code() },
             error_codes::INVALID_UTF8_SEQUENCE
         );
-        unsafe { boxed_error.manually_release() };
 
-        // SAFETY: `event.data`/`event.len` were produced by `leak_bytes(Vec::new())` inside
-        // `with_error` via `Box::into_raw` and haven't been freed yet.
-        unsafe {
-            let s = std::slice::from_raw_parts_mut(event.data, event.len as usize);
-            drop(Box::from_raw(s as *mut [u8]));
-        }
+        // SAFETY: `event` came from `with_error`, one of the constructors
+        // `libdengjenFreeSynthesisEvent`'s `# Safety` doc covers; this reclaims both the
+        // leaked data slice and the boxed `ExternError` — message included — exactly once.
+        unsafe { libdengjenFreeSynthesisEvent(event) };
     }
 
     #[test]

@@ -11,6 +11,7 @@ import java.lang.invoke.MethodType;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Binds a Java SynthesisEventHandler to the native SpeechSynthesisCallback a speak() call streams
@@ -38,7 +39,7 @@ final class SpeakTrampoline {
    * already deterministic (no GC involved), but this hook still lets a test assert the *specific*
    * code path actually ran, not just that events stopped arriving.
    */
-  static volatile Runnable testCallReleased;
+  static final AtomicReference<Runnable> testCallReleased = new AtomicReference<>();
 
   private static final Map<Long, SpeakTrampoline> REGISTRY = new ConcurrentHashMap<>();
   // Starts at 1: id 0 would marshal to a NULL user_data, which is what a
@@ -101,8 +102,11 @@ final class SpeakTrampoline {
    * effect.
    */
   void release() {
-    if (REGISTRY.remove(id) != null && testCallReleased != null) {
-      testCallReleased.run();
+    if (REGISTRY.remove(id) != null) {
+      Runnable hook = testCallReleased.get();
+      if (hook != null) {
+        hook.run();
+      }
     }
   }
 
@@ -131,14 +135,13 @@ final class SpeakTrampoline {
       int code = err.get(ValueLayout.JAVA_INT, DengjenLayouts.EXTERN_ERROR_CODE_OFFSET);
       MemorySegment messagePtr =
           err.get(ValueLayout.ADDRESS, DengjenLayouts.EXTERN_ERROR_MESSAGE_OFFSET);
-      error =
-          new DengjenException(
-              ErrorCode.fromCode(code), ErrorChecks.readAndFreeMessage(messagePtr));
+      error = new DengjenException(ErrorCode.fromCode(code), ErrorChecks.readMessage(messagePtr));
     }
 
-    // event was produced by exactly one SpeechSynthesisCallback
-    // invocation (this one) and is freed here exactly once, per
-    // libdengjenFreeSynthesisEvent's documented contract.
+    // event was produced by exactly one SpeechSynthesisCallback invocation (this one) and
+    // is freed here exactly once, per libdengjenFreeSynthesisEvent's documented contract --
+    // which now includes the error message read above, so it must not be freed a second
+    // time here (hence readMessage, not readAndFreeMessage).
     try {
       DengjenLib.FREE_SYNTHESIS_EVENT.invokeExact(eventSegment);
     } catch (Throwable t) {
