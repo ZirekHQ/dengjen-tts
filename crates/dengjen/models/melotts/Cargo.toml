@@ -3,6 +3,9 @@ name = "dengjen-tts-melotts"
 version = "0.1.0"
 edition = "2021"
 license.workspace = true
+description = "MeloTTS neural TTS model backend for the dengjen-tts speech synthesis engine"
+repository.workspace = true
+homepage.workspace = true
 
 [lints]
 workspace = true
@@ -16,9 +19,9 @@ coreml = ["ort/coreml"]
 directml = ["ort/directml"]
 
 [dependencies]
-dengjen-tts-core = { path = "../../core" }
-espeak-phonemizer = { path = "../../../text/espeak-phonemizer", optional = true }
-pinyin-phonemizer = { path = "../../../text/pinyin-phonemizer", optional = true }
+dengjen-tts-core = { path = "../../core", version = "0.2.0" }
+espeak-phonemizer = { path = "../../../text/espeak-phonemizer", optional = true, version = "1.0.0" }
+pinyin-phonemizer = { path = "../../../text/pinyin-phonemizer", optional = true, version = "0.1.0" }
 serde = { version = "1.0.160", features = ["derive"] }
 serde_json = "1.0.89"
 ndarray = "0.17"
