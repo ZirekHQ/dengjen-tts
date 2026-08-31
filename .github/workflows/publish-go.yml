@@ -1,0 +1,117 @@
+name: Publish Go bindings release
+
+on:
+  push:
+    tags:
+      - "publish-go-v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        platform:
+          - target: x86_64
+            rust-target: x86_64-unknown-linux-gnu
+            artifact: libdengjen-linux-amd64
+          - target: aarch64
+            rust-target: aarch64-unknown-linux-gnu
+            artifact: libdengjen-linux-arm64
+    steps:
+      - name: git-submodule-fix
+        run: git config --global protocol.file.allow always
+      - name: install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev llvm-dev cmake protobuf-compiler
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: "1.97.1"
+          targets: ${{ matrix.platform.rust-target }}
+      - if: matrix.platform.target != 'x86_64'
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.6.0
+      - if: matrix.platform.target != 'x86_64'
+        name: install aarch64 cross toolchain
+        run: sudo apt-get install -y gcc-aarch64-linux-gnu libc6-dev-arm64-cross
+      - name: cargo build (release)
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: cargo build --release -p libdengjen --target ${{ matrix.platform.rust-target }}
+      - name: upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ matrix.platform.artifact }}
+          path: target/${{ matrix.platform.rust-target }}/release/liblibdengjen.so
+      - if: matrix.platform.target == 'x86_64'
+        name: upload header
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: libdengjen-header
+          path: crates/frontends/capi/libdengjen.h
+  build-windows:
+    runs-on: windows-2022
+    permissions:
+      contents: read
+    env:
+      CMAKE_GENERATOR: Ninja
+    steps:
+      - name: git-submodule-fix
+        run: git config --global protocol.file.allow always
+      - name: install-clang-and-mingw
+        run: choco install llvm mingw
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: "1.97.1"
+          targets: x86_64-pc-windows-gnu
+      - name: cargo build (release)
+        run: cargo build --release -p libdengjen --target x86_64-pc-windows-gnu
+      - name: upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: libdengjen-windows-amd64
+          path: target/x86_64-pc-windows-gnu/release/libdengjen.dll
+  build-macos:
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    steps:
+      - name: git-submodule-fix
+        run: git config --global protocol.file.allow always
+      - name: install libclang
+        run: |
+          brew install llvm
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: "1.97.1"
+          targets: aarch64-apple-darwin
+      - name: cargo build (release)
+        env:
+          # Bakes an @rpath-relative install name into the dylib itself so a
+          # consumer binary's `-rpath` entry (added in the generated Go
+          # cgo file, Task 2) is actually enough to resolve it at process
+          # start. Without this, macOS bakes the build machine's absolute
+          # path into the dylib's own LC_ID_DYLIB, which no consumer's
+          # rpath can match.
+          RUSTFLAGS: "-C link-args=-Wl,-install_name,@rpath/liblibdengjen.dylib"
+        run: cargo build --release -p libdengjen --target aarch64-apple-darwin
+      - name: upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: libdengjen-macos-arm64
+          path: target/aarch64-apple-darwin/release/liblibdengjen.dylib
