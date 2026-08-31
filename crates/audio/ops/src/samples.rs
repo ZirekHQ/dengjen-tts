@@ -49,7 +49,8 @@ impl AudioSamples {
 
     pub fn take_range(&mut self, sample_range: std::ops::Range<usize>) -> Vec<f32> {
         let clamped_end = sample_range.end.min(self.0.len());
-        self.0.drain(sample_range.start..clamped_end).collect()
+        let clamped_start = sample_range.start.min(clamped_end);
+        self.0.drain(clamped_start..clamped_end).collect()
     }
 
     pub fn len(&self) -> usize {
@@ -64,17 +65,13 @@ impl AudioSamples {
         if self.0.is_empty() {
             return Vec::new();
         }
-        let highest = self
+        // f32::max ignores a NaN operand, so a NaN sample cannot poison the peak.
+        let peak_magnitude = self
             .0
             .iter()
-            .max_by(|a, b| a.partial_cmp(b).unwrap())
-            .unwrap();
-        let lowest = self
-            .0
-            .iter()
-            .min_by(|a, b| a.partial_cmp(b).unwrap())
-            .unwrap();
-        let peak_magnitude = highest.abs().max(lowest.abs()).max(f32::EPSILON);
+            .map(|sample| sample.abs())
+            .fold(0.0f32, f32::max)
+            .max(f32::EPSILON);
         let gain = WAV_PEAK_MAGNITUDE / peak_magnitude;
         self.0
             .iter()
@@ -97,17 +94,12 @@ impl AudioSamples {
         if self.0.is_empty() {
             return;
         }
-        let highest = self
+        // f32::max ignores a NaN operand, so a NaN sample cannot poison the peak.
+        let peak_magnitude = self
             .0
             .iter()
-            .max_by(|a, b| a.partial_cmp(b).unwrap())
-            .unwrap();
-        let lowest = self
-            .0
-            .iter()
-            .min_by(|a, b| a.partial_cmp(b).unwrap())
-            .unwrap();
-        let peak_magnitude = highest.abs().max(lowest.abs());
+            .map(|sample| sample.abs())
+            .fold(0.0f32, f32::max);
         let divisor = peak_magnitude.max(max_value) / max_value.abs();
         self.0.iter_mut().for_each(|sample| *sample /= divisor);
     }
@@ -124,18 +116,21 @@ impl AudioSamples {
         Ok(())
     }
 
-    pub fn overlap_with(&mut self, other: &mut Self) {
-        if !self.0.is_empty() {
-            let tail_len = self.0.len();
-            let overlap_len = tail_len.min(other.0.len());
-            let ramp_span = 2.0 * overlap_len as f32;
+    /// Crossfades the last `overlap_len` samples of `self` with the first `overlap_len` samples
+    /// of `other` (equal-power ramp, gains summing to unity) and appends the rest of `other`.
+    pub fn overlap_with(&mut self, other: &mut Self, overlap_len: usize) {
+        let overlap_len = overlap_len.min(self.0.len()).min(other.0.len());
+        if overlap_len > 0 {
+            let tail_start = self.0.len() - overlap_len;
             for offset in 0..overlap_len {
-                let gain = (offset as f32 * HALF_TURN / ramp_span).sin();
-                self.0[tail_len - 1 - offset] *= gain;
-                other.0[offset] *= gain;
+                let phase = offset as f32 / overlap_len as f32 * HALF_TURN / 2.0;
+                let gain_in = phase.sin();
+                let gain_out = phase.cos();
+                self.0[tail_start + offset] =
+                    self.0[tail_start + offset] * gain_out + other.0[offset] * gain_in;
             }
         }
-        self.0.append(&mut other.0);
+        self.0.extend_from_slice(&other.0[overlap_len..]);
     }
 
     pub fn fade_in(&mut self, fade_samples: usize) {
@@ -179,25 +174,34 @@ impl AudioSamples {
         }
     }
 
-    pub fn lowpass_filter(&mut self, sample_range: std::ops::Range<usize>, cutoff: f32) {
-        for i in sample_range {
-            self.0[i] = if self.0[i] < cutoff { self.0[i] } else { 0.0 };
-        }
+    /// Zeroes every sample at or above `cutoff` within `sample_range`. Not a frequency filter.
+    pub fn zero_samples_above(&mut self, sample_range: std::ops::Range<usize>, cutoff: f32) {
+        let clamped = sample_range.start.min(self.0.len())..sample_range.end.min(self.0.len());
+        self.0[clamped].iter_mut().for_each(|sample| {
+            *sample = if *sample < cutoff { *sample } else { 0.0 };
+        });
     }
 
-    pub fn highpass_filter(&mut self, sample_range: std::ops::Range<usize>, cutoff: f32) {
-        for i in sample_range {
-            self.0[i] = if self.0[i] > cutoff { self.0[i] } else { 0.0 };
-        }
+    /// Zeroes every sample at or below `cutoff` within `sample_range`. Not a frequency filter.
+    pub fn zero_samples_below(&mut self, sample_range: std::ops::Range<usize>, cutoff: f32) {
+        let clamped = sample_range.start.min(self.0.len())..sample_range.end.min(self.0.len());
+        self.0[clamped].iter_mut().for_each(|sample| {
+            *sample = if *sample > cutoff { *sample } else { 0.0 };
+        });
     }
 
-    pub fn strip_silence(&mut self, sample_range: std::ops::Range<usize>) {
-        let retained: Vec<f32> = self.0[sample_range.clone()]
+    /// Removes samples whose magnitude is at or below `silence_threshold`.
+    pub fn strip_silence(&mut self, sample_range: std::ops::Range<usize>, silence_threshold: f32) {
+        let clamped = sample_range.start.min(self.0.len())..sample_range.end.min(self.0.len());
+        if clamped.is_empty() {
+            return;
+        }
+        let retained: Vec<f32> = self.0[clamped.clone()]
             .iter()
             .copied()
-            .filter(|&sample| sample > 0.0)
+            .filter(|sample| sample.abs() > silence_threshold)
             .collect();
-        self.0.splice(sample_range, retained);
+        self.0.splice(clamped, retained);
     }
 
     pub fn to_decibel(&self) -> Vec<f32> {
@@ -325,32 +329,52 @@ mod tests {
     }
 
     #[test]
-    fn test_overlap() {
+    fn overlap_with_sums_the_overlap_region_instead_of_appending_it() {
         let base = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
         let mut head = AudioSamples::from(base.clone());
         let mut tail = AudioSamples::from(base.clone());
-        head.overlap_with(&mut tail);
-        assert_eq!(head.len(), base.len() * 2);
-        let merged = head.as_vec();
-        assert_eq!(merged[7], 0.0);
-        assert_eq!(merged[8], 0.0);
+        head.overlap_with(&mut tail, 4);
+        assert_eq!(head.len(), base.len() * 2 - 4);
     }
 
     #[test]
-    fn test_lowpass_filter() {
+    fn overlap_with_does_not_zero_the_seam_samples() {
+        let mut head = AudioSamples::from(vec![1.0; 4]);
+        let mut tail = AudioSamples::from(vec![1.0; 4]);
+        head.overlap_with(&mut tail, 4);
+        assert!(head.into_vec().into_iter().all(|sample| sample != 0.0));
+    }
+
+    #[test]
+    fn overlap_with_clamps_overlap_len_to_the_shorter_buffer() {
+        let mut head = AudioSamples::from(vec![1.0, 2.0]);
+        let mut tail = AudioSamples::from(vec![3.0, 4.0, 5.0]);
+        head.overlap_with(&mut tail, 100);
+        assert_eq!(head.len(), 3);
+    }
+
+    #[test]
+    fn test_zero_samples_above() {
         let mut buffer = AudioSamples::from(vec![0.0, 0.1, 2.2, 0.0, 0.5, 0.0, 0.7, 0.0]);
-        buffer.lowpass_filter(0..5, 0.5);
+        buffer.zero_samples_above(0..5, 0.5);
         let zeroed = buffer.into_iter().filter(|&sample| sample == 0.0).count();
         assert_eq!(zeroed, 6);
     }
 
     #[test]
-    fn test_highpass_filter() {
+    fn test_zero_samples_below() {
         let mut buffer = AudioSamples::from(vec![0.0, 0.1, 2.2, 0.0, 0.5, 0.0, 0.7, 0.0]);
         let whole = 0..buffer.len();
-        buffer.highpass_filter(whole, 0.5);
+        buffer.zero_samples_below(whole, 0.5);
         let surviving = buffer.into_iter().filter(|&sample| sample != 0.0).count();
         assert_eq!(surviving, 2);
+    }
+
+    #[test]
+    fn zero_samples_above_clamps_an_out_of_range_sample_range_instead_of_panicking() {
+        let mut buffer = AudioSamples::from(vec![1.0, 2.0, 3.0]);
+        buffer.zero_samples_above(1..100, 1.5);
+        assert_eq!(buffer.into_vec(), vec![1.0, 0.0, 0.0]);
     }
 
     #[test]
@@ -379,44 +403,45 @@ mod tests {
     }
 
     #[test]
-    fn lowpass_filter_zeroes_a_nan_sample() {
+    fn zero_samples_above_zeroes_a_nan_sample() {
         let mut buffer = AudioSamples::from(vec![f32::NAN]);
-        buffer.lowpass_filter(0..1, 0.5);
+        buffer.zero_samples_above(0..1, 0.5);
         assert_eq!(buffer.into_vec(), vec![0.0]);
     }
 
     #[test]
-    fn highpass_filter_zeroes_a_nan_sample() {
+    fn zero_samples_below_zeroes_a_nan_sample() {
         let mut buffer = AudioSamples::from(vec![f32::NAN]);
-        buffer.highpass_filter(0..1, 0.5);
+        buffer.zero_samples_below(0..1, 0.5);
         assert_eq!(buffer.into_vec(), vec![0.0]);
     }
 
     #[test]
-    #[should_panic]
-    fn to_i16_vec_panics_on_nan_input() {
+    fn to_i16_vec_degrades_a_nan_sample_to_silence_instead_of_panicking() {
         let buffer = AudioSamples::from(vec![f32::NAN, 0.5]);
-        buffer.to_i16_vec();
+        assert_eq!(buffer.to_i16_vec(), vec![0, 32767]);
     }
 
     #[test]
-    #[should_panic]
-    fn normalize_panics_on_nan_input() {
-        let mut buffer = AudioSamples::from(vec![f32::NAN, 0.5]);
+    fn normalize_ignores_a_nan_sample_when_computing_the_peak_instead_of_panicking() {
+        let mut buffer = AudioSamples::from(vec![f32::NAN, 2.0]);
         buffer.normalize(1.0);
+        let samples = buffer.into_vec();
+        assert!(samples[0].is_nan());
+        assert_eq!(samples[1], 1.0);
     }
 
     #[test]
-    fn lowpass_filter_zeroes_positive_infinity_and_keeps_negative_infinity() {
+    fn zero_samples_above_zeroes_positive_infinity_and_keeps_negative_infinity() {
         let mut buffer = AudioSamples::from(vec![f32::INFINITY, f32::NEG_INFINITY]);
-        buffer.lowpass_filter(0..2, 0.0);
+        buffer.zero_samples_above(0..2, 0.0);
         assert_eq!(buffer.into_vec(), vec![0.0, f32::NEG_INFINITY]);
     }
 
     #[test]
-    fn highpass_filter_keeps_positive_infinity_and_zeroes_negative_infinity() {
+    fn zero_samples_below_keeps_positive_infinity_and_zeroes_negative_infinity() {
         let mut buffer = AudioSamples::from(vec![f32::INFINITY, f32::NEG_INFINITY]);
-        buffer.highpass_filter(0..2, 0.0);
+        buffer.zero_samples_below(0..2, 0.0);
         assert_eq!(buffer.into_vec(), vec![f32::INFINITY, 0.0]);
     }
 
@@ -442,11 +467,26 @@ mod tests {
     }
 
     #[test]
-    fn test_strip_silence() {
+    fn strip_silence_removes_samples_at_or_below_the_threshold() {
         let mut buffer = AudioSamples::from(vec![0.0, 0.1, 2.2, 0.0, 0.5, 0.0, 0.7, 0.0]);
         let whole = 0..buffer.len();
-        buffer.strip_silence(whole);
-        assert_eq!(buffer.len(), 4);
+        buffer.strip_silence(whole, 0.0);
+        assert_eq!(buffer.into_vec(), vec![0.1, 2.2, 0.5, 0.7]);
+    }
+
+    #[test]
+    fn strip_silence_preserves_negative_samples_above_the_threshold() {
+        let mut buffer = AudioSamples::from(vec![-0.9, 0.0, 0.8, -0.05]);
+        let whole = 0..buffer.len();
+        buffer.strip_silence(whole, 0.1);
+        assert_eq!(buffer.into_vec(), vec![-0.9, 0.8]);
+    }
+
+    #[test]
+    fn strip_silence_clamps_an_out_of_range_sample_range_instead_of_panicking() {
+        let mut buffer = AudioSamples::from(vec![1.0, 0.0, 3.0]);
+        buffer.strip_silence(1..100, 0.0);
+        assert_eq!(buffer.into_vec(), vec![1.0, 3.0]);
     }
 
     #[test]
@@ -467,6 +507,14 @@ mod tests {
         let removed = buffer.take_range(1..100);
         assert_eq!(removed, vec![2.0, 3.0]);
         assert_eq!(buffer.len(), 1);
+    }
+
+    #[test]
+    fn take_range_clamps_start_instead_of_panicking_when_start_exceeds_the_buffer() {
+        let mut buffer = AudioSamples::from(vec![1.0, 2.0, 3.0]);
+        let removed = buffer.take_range(5..100);
+        assert_eq!(removed, Vec::<f32>::new());
+        assert_eq!(buffer.len(), 3);
     }
 
     #[test]
@@ -586,9 +634,9 @@ mod tests {
     fn overlap_with_golden_values_for_a_known_input() {
         let mut head = AudioSamples::from(vec![1.0, 2.0]);
         let mut tail = AudioSamples::from(vec![3.0, 4.0]);
-        head.overlap_with(&mut tail);
+        head.overlap_with(&mut tail, 2);
         let ramp = (std::f32::consts::PI / 4.0).sin();
-        assert_eq!(head.as_vec(), &vec![ramp, 0.0, 0.0, 4.0 * ramp]);
+        assert_eq!(head.as_vec(), &vec![1.0, 2.0 * ramp + 4.0 * ramp]);
     }
 
     #[test]

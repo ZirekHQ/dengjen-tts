@@ -29,6 +29,14 @@ fn main() {
         return;
     }
 
+    if !espeak_data_src.exists() {
+        println!(
+            "cargo:warning=espeak-ng-data source not found at `{}`; skipping staging into pydengjen",
+            espeak_data_src.display()
+        );
+        return;
+    }
+
     let options = fs_extra::dir::CopyOptions::new();
     fs_extra::dir::copy(&espeak_data_src, &package_dir, &options)
         .expect("failed to stage espeak-ng-data into the pydengjen package");

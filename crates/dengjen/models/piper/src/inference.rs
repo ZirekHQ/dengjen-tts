@@ -164,9 +164,6 @@ impl VitsModel {
             Some(inference_ms),
         ))
     }
-    pub fn get_input_output_info(&self) -> DengjenResult<Vec<String>> {
-        todo!()
-    }
 }
 
 impl VitsModelCommons for VitsModel {
@@ -196,7 +193,7 @@ impl DengjenModel for VitsModel {
     }
 
     fn speak_batch(&self, phoneme_batches: Vec<String>) -> DengjenResult<Vec<Audio>> {
-        let (pad_id, bos_id, eos_id) = self.get_meta_ids();
+        let (pad_id, bos_id, eos_id) = self.get_meta_ids()?;
         phoneme_batches
             .into_iter()
             .map(|phonemes| {
@@ -207,7 +204,7 @@ impl DengjenModel for VitsModel {
     }
 
     fn speak_one_sentence(&self, phonemes: String) -> DengjenAudioResult {
-        let (pad_id, bos_id, eos_id) = self.get_meta_ids();
+        let (pad_id, bos_id, eos_id) = self.get_meta_ids()?;
         self.infer_with_values(self.phonemes_to_input_ids(&phonemes, pad_id, bos_id, eos_id))
     }
     fn get_default_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
@@ -248,6 +245,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(not(any(feature = "cuda", feature = "directml", feature = "coreml")))]
     fn execution_providers_is_empty_when_no_gpu_feature_is_enabled() {
         assert!(execution_providers().is_empty());
     }

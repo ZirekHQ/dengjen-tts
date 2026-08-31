@@ -487,6 +487,7 @@ dependencies = [
  "rayon",
  "serde_json",
  "sonic-sys",
+ "tempfile",
 ]
 
 [[package]]

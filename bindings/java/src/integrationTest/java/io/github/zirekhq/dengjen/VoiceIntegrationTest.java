@@ -123,6 +123,36 @@ class VoiceIntegrationTest {
   }
 
   @Test
+  void speakHandlerThrowingAnErrorDoesNotCrossTheNativeBoundaryAndReleasesTheRegistration(
+      @TempDir Path tempDir) {
+    try (Voice voice = Voice.load(TestFixtures.syntheticPiperConfigPath(tempDir).toString())) {
+      boolean[] released = {false};
+      Runnable prevHook = SpeakTrampoline.testCallReleased.get();
+      SpeakTrampoline.testCallReleased.set(() -> released[0] = true);
+      try {
+        SynthesisParams params = new SynthesisParams(SynthesisMode.LAZY, 10, 100, 50, 0);
+        // AssertionError is an Error, not a RuntimeException: a handler throwing one must not
+        // escape across the native upcall boundary (undefined behavior in the native code),
+        // and the call must still complete normally for this caller.
+        assertThatCode(
+                () ->
+                    voice.speak(
+                        "Test.",
+                        params,
+                        event -> {
+                          throw new AssertionError("boom");
+                        }))
+            .doesNotThrowAnyException();
+      } finally {
+        SpeakTrampoline.testCallReleased.set(prevHook);
+      }
+      assertThat(released[0])
+          .as("the registry entry for a call whose handler threw an Error was never released")
+          .isTrue();
+    }
+  }
+
+  @Test
   void speakReleasesTheCallRegistrationWhenMarshallingThrows(@TempDir Path tempDir) {
     try (Voice voice = Voice.load(TestFixtures.syntheticPiperConfigPath(tempDir).toString())) {
       int[] releases = {0};

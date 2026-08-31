@@ -12,7 +12,7 @@ fn overlap_pair_source() -> impl Fn() -> (AudioSamples, AudioSamples) {
 fn bench_overlap_with(divan_bencher: Bencher) {
     divan_bencher
         .with_inputs(overlap_pair_source())
-        .bench_refs(|(left, right)| left.overlap_with(right));
+        .bench_refs(|(left, right)| left.overlap_with(right, SAMPLE_COUNT / 2));
 }
 
 fn main() {

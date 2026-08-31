@@ -1,3 +1,3 @@
 # dengjen/synth
 
-Wraps `dengjen/model` and provides extra functionality, such as parallelism and prosody controls.
+Wraps `dengjen/models` and provides extra functionality, such as parallelism and prosody controls.

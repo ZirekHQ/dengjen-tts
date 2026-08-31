@@ -39,7 +39,7 @@ impl fmt::Display for DengjenError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::FailedToLoadResource(msg) => {
-                write!(f, "Failed to load resource from. Error `{msg}`")
+                write!(f, "Failed to load resource: {msg}")
             }
             Self::PhonemizationError(msg)
             | Self::InferenceError(msg)
@@ -180,7 +180,7 @@ mod tests {
     fn error_display_formats_each_variant() {
         assert_eq!(
             DengjenError::FailedToLoadResource("disk full".to_string()).to_string(),
-            "Failed to load resource from. Error `disk full`"
+            "Failed to load resource: disk full"
         );
         assert_eq!(
             DengjenError::PhonemizationError("bad text".to_string()).to_string(),

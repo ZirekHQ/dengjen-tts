@@ -68,6 +68,11 @@ pub mod synth_mode {
     pub const SYNTH_MODE_REALTIME: i32 = 2;
 }
 
+/// Sentinel for `PiperSynthConfig::speaker` meaning "no speaker set" (the model's default
+/// applies). Every real speaker id is a small, model-assigned index, so this out-of-range
+/// value can never collide with one — unlike `0`, which is itself a valid speaker id.
+pub const PIPER_SYNTH_CONFIG_NO_SPEAKER: u32 = u32::MAX;
+
 /// An opaque, loaded voice handed back to C callers as a raw pointer.
 pub struct DengjenVoice {
     /// Wrapped in AssertUnwindSafe because panics must be caught at unsafe extern "C" boundaries, not unwound.
@@ -275,6 +280,7 @@ impl SynthesisParams {
 
 #[repr(C)]
 pub struct PiperSynthConfig {
+    /// A real speaker id, or `PIPER_SYNTH_CONFIG_NO_SPEAKER` for "unset" (model default).
     speaker: u32,
     length_scale: f32,
     noise_scale: f32,
@@ -290,7 +296,7 @@ impl PiperSynthConfig {
             noise_w,
         } = self;
         dengjen_tts_piper::PiperSynthesisConfig {
-            speaker: Some(i64::from(speaker)),
+            speaker: (speaker != PIPER_SYNTH_CONFIG_NO_SPEAKER).then(|| i64::from(speaker)),
             length_scale,
             noise_scale,
             noise_w,
@@ -343,7 +349,7 @@ unsafe fn require_mut<'a, T>(
 /// `string_ptr` must be non-null and well-aligned.
 #[no_mangle]
 #[allow(non_snake_case)]
-pub unsafe extern "C" fn libdengjenFreeString(string_ptr: *mut i8) {
+pub unsafe extern "C" fn libdengjenFreeString(string_ptr: *mut std::os::raw::c_char) {
     // SAFETY: this function's own `# Safety` doc is the destructor's contract; nothing else
     // happens to `string_ptr` before the hand-off.
     unsafe { _internal_libdengjenFreeString(string_ptr) };
@@ -475,7 +481,9 @@ pub unsafe extern "C" fn libdengjenGetPiperDefaultSynthConfig(
             })?;
         let piper_config = dengjen_tts_piper::PiperSynthesisConfig::from(&config);
         Ok::<_, DengjenFFIError>(PiperSynthConfig {
-            speaker: piper_config.speaker.map_or(0, |sid| sid as u32),
+            speaker: piper_config
+                .speaker
+                .map_or(PIPER_SYNTH_CONFIG_NO_SPEAKER, |sid| sid as u32),
             length_scale: piper_config.length_scale,
             noise_scale: piper_config.noise_scale,
             noise_w: piper_config.noise_w,
@@ -665,8 +673,8 @@ pub unsafe extern "C" fn libdengjenSpeakToFile(
     };
     let owned_synth = AssertUnwindSafe(Arc::clone(&voice.synth));
     call_with_result(out_error, move || {
-        let wrote_file = _synthesize_to_file(owned_synth, text_ptr, params, out_filename_ptr);
-        Ok::<u8, DengjenFFIError>(u8::from(wrote_file.is_ok()))
+        _synthesize_to_file(owned_synth, text_ptr, params, out_filename_ptr)?;
+        Ok::<u8, DengjenFFIError>(1)
     })
 }
 
@@ -1366,6 +1374,30 @@ mod tests {
     }
 
     #[test]
+    fn speak_to_file_write_failure_populates_out_error_instead_of_reporting_success() {
+        let mut voice = fake_voice();
+        let mut out_error = ExternError::default();
+        let text = std::ffi::CString::new("hello").unwrap();
+        // A nonexistent parent directory makes the file write fail after synthesis succeeds.
+        let filename =
+            std::ffi::CString::new("/nonexistent-dengjen-capi-test-dir-xyz/out.wav").unwrap();
+        // SAFETY: `voice` is a valid handle owned by this test.
+        let result = unsafe {
+            libdengjenSpeakToFile(
+                &mut voice,
+                FfiStr::from_cstr(&text),
+                synth_params(),
+                FfiStr::from_cstr(&filename),
+                &mut out_error,
+            )
+        };
+        assert_eq!(result, 0);
+        assert!(!out_error.get_code().is_success());
+        // SAFETY: see `get_audio_info_null_voice_returns_null_pointer_error_without_panicking`.
+        unsafe { out_error.manually_release() };
+    }
+
+    #[test]
     fn cancel_null_voice_returns_null_pointer_error_without_panicking() {
         let mut out_error = ExternError::default();
         // SAFETY: see `get_audio_info_null_voice_returns_null_pointer_error_without_panicking`
@@ -1562,5 +1594,27 @@ mod abi_struct_tests {
         assert_eq!(piper_config.length_scale, 1.2);
         assert_eq!(piper_config.noise_scale, 0.5);
         assert_eq!(piper_config.noise_w, 0.9);
+    }
+
+    #[test]
+    fn as_piper_synth_config_treats_speaker_zero_as_a_real_speaker_not_unset() {
+        let synth_config = PiperSynthConfig {
+            speaker: 0,
+            length_scale: 1.0,
+            noise_scale: 1.0,
+            noise_w: 1.0,
+        };
+        assert_eq!(synth_config.as_piper_synth_config().speaker, Some(0));
+    }
+
+    #[test]
+    fn as_piper_synth_config_maps_the_sentinel_to_no_speaker() {
+        let synth_config = PiperSynthConfig {
+            speaker: PIPER_SYNTH_CONFIG_NO_SPEAKER,
+            length_scale: 1.0,
+            noise_scale: 1.0,
+            noise_w: 1.0,
+        };
+        assert_eq!(synth_config.as_piper_synth_config().speaker, None);
     }
 }

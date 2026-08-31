@@ -144,7 +144,9 @@ impl SynthesisRequest {
                 noise_w,
             );
         }
-        config.speaker = self.speaker_id.map(i64::from);
+        if let Some(speaker_id) = self.speaker_id {
+            config.speaker = Some(i64::from(speaker_id));
+        }
         config
     }
 
@@ -746,7 +748,7 @@ mod tests {
             ..Default::default()
         };
         let result = req.as_synthesis_config(&default_config);
-        assert_eq!(result.speaker, None);
+        assert_eq!(result.speaker, Some(0));
         assert_eq!(result.parameters.get("length_scale"), Some(&1.0));
         assert_eq!(result.parameters.get("noise_scale"), Some(&0.667));
         assert_eq!(result.parameters.get("noise_w"), Some(&0.8));

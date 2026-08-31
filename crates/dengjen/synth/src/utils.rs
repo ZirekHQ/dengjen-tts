@@ -1,6 +1,7 @@
-/// Linearly rescales a `0..=100` percentage onto `[min, max]`.
+/// Linearly rescales a `0..=100` percentage onto `[min, max]`. A `value` above 100 (reachable
+/// from the C API's `uint8_t` range) clamps to 100 rather than extrapolating past `max`.
 pub fn percent_to_param(value: u8, min: f32, max: f32) -> f32 {
-    let fraction = f32::from(value) / 100.0;
+    let fraction = f32::from(value.min(100)) / 100.0;
     min + fraction * (max - min)
 }
 
@@ -25,6 +26,11 @@ mod tests {
     #[test]
     fn maps_one_hundred_percent_to_the_range_ceiling() {
         assert_eq!(percent_to_param(100, 0.5, 5.5), 5.5);
+    }
+
+    #[test]
+    fn clamps_a_value_above_one_hundred_to_the_range_ceiling() {
+        assert_eq!(percent_to_param(255, 0.5, 5.5), 5.5);
     }
 
     #[test]

@@ -223,6 +223,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(not(any(feature = "cuda", feature = "directml", feature = "coreml")))]
     fn execution_providers_is_empty_when_no_gpu_feature_is_enabled() {
         assert!(execution_providers().is_empty());
     }

@@ -1,3 +1,3 @@
 # dengjen/models
 
-Contains concrete implmentations of various  speech synthesis models.
+Contains concrete implementations of various speech synthesis models.

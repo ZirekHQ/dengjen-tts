@@ -67,21 +67,41 @@ where
         sample_width,
     )?;
 
-    let mut file = File::create(path).map_err(|source| {
+    // Written to a temp sibling and renamed into place on success, so a write failure never
+    // truncates or deletes a pre-existing file already at `path` (`File::create` truncates).
+    let temp_path = temp_sibling_path(path);
+
+    let mut file = File::create(&temp_path).map_err(|source| {
         WaveWriterError::new(format!(
             "could not create wave file `{}`: {source}",
-            path.display()
+            temp_path.display()
         ))
     })?;
 
     // write_all (not write) avoids silently truncating on a short write.
     file.write_all(&encoded).map_err(|source| {
-        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(&temp_path);
         WaveWriterError::new(format!(
             "could not write wave bytes to `{}`: {source}",
+            temp_path.display()
+        ))
+    })?;
+    drop(file);
+
+    std::fs::rename(&temp_path, path).map_err(|source| {
+        let _ = std::fs::remove_file(&temp_path);
+        WaveWriterError::new(format!(
+            "could not finalize wave file `{}`: {source}",
             path.display()
         ))
     })
+}
+
+fn temp_sibling_path(path: &Path) -> std::path::PathBuf {
+    let mut temp_name = std::ffi::OsString::from(".");
+    temp_name.push(path.file_name().unwrap_or_default());
+    temp_name.push(".tmp");
+    path.with_file_name(temp_name)
 }
 
 #[cfg(test)]
@@ -252,6 +272,44 @@ mod tests {
         let result = write_wave_samples_to_file(path, samples.iter(), 22050, 1, 2);
 
         assert!(result.is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn to_file_preserves_a_pre_existing_file_when_writing_the_replacement_fails() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir().join(format!(
+            "dengjen-wave-writer-preserve-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("existing.wav");
+        std::fs::write(&path, b"pre-existing content").unwrap();
+
+        // A read-only directory makes creating the temp sibling file fail, standing in for
+        // any failure between temp-file creation and the final rename.
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let root_can_bypass_permissions = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(dir.join("root_probe"))
+            .is_ok();
+
+        let result = write_wave_samples_to_file(&path, sample_data().iter(), 22050, 1, 2);
+
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let existing_content = std::fs::read(&path).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+
+        if root_can_bypass_permissions {
+            eprintln!(
+                "skipping: this process can bypass the read-only directory permission (likely root)"
+            );
+            return;
+        }
+        assert!(result.is_err());
+        assert_eq!(existing_content, b"pre-existing content");
     }
 
     #[cfg(target_os = "linux")]

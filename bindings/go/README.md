@@ -9,6 +9,9 @@ Go bindings for [`libdengjen`](../../crates/frontends/capi), the C API for
 - A Rust toolchain (to build `libdengjen` from source — see the parent
   repository's own build prerequisites)
 - A C compiler (for cgo)
+- eSpeak-ng data for synthesis tests: either install `espeak-ng`, or point
+  `DENGJEN_ESPEAKNG_DATA_DIRECTORY` at a directory that holds
+  `espeak-ng-data`
 
 ## Building and testing
 

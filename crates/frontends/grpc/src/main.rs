@@ -16,7 +16,6 @@ use tonic::{Request, Response, Status};
 use xxhash_rust::xxh3::xxh3_64;
 
 const DEFAULT_DENGJEN_GRPC_SERVER_PORT: u16 = 49314;
-const VOICE_KEY_REDUCTION_FACTOR: u64 = 10000000000000;
 
 type DengjenGrpcResult<T> = Result<T, DengjenGrpcError>;
 
@@ -91,13 +90,18 @@ impl DengjenGrpcService {
     }
 
     /// Derives a stable voice key from a canonicalized config path.
-    fn voice_key_for_path(config_path: &std::path::Path) -> String {
+    fn voice_key_for_path(config_path: &std::path::Path) -> DengjenGrpcResult<String> {
         let canonical_path = config_path
             .canonicalize()
-            .unwrap()
+            .map_err(|source| {
+                DengjenGrpcError::VoiceNotFound(format!(
+                    "Could not resolve config path `{}`: {source}",
+                    config_path.display()
+                ))
+            })?
             .to_string_lossy()
             .into_owned();
-        (xxh3_64(canonical_path.as_bytes()) / VOICE_KEY_REDUCTION_FACTOR).to_string()
+        Ok(format!("{:016x}", xxh3_64(canonical_path.as_bytes())))
     }
 
     fn load_voice_from_config(
@@ -110,7 +114,7 @@ impl DengjenGrpcService {
                 config_path.display()
             )));
         }
-        let voice_key = Self::voice_key_for_path(&config_path);
+        let voice_key = Self::voice_key_for_path(&config_path)?;
         if let Some(voice) = self.0.read().unwrap().get(&voice_key) {
             return self.build_voice_info(voice_key, voice.model_ref());
         }
@@ -319,15 +323,70 @@ fn load_voice(config_path: &std::path::Path) -> DengjenResult<Arc<dyn DengjenMod
     dengjen_tts_piper::from_config_path(config_path)
 }
 
+fn narrow_prosody_value(name: &str, value: u32) -> Result<u8, String> {
+    u8::try_from(value).map_err(|_| format!("`{name}` must be in the range 0-255, got {value}"))
+}
+
 /// Converts the optional proto `ProsodyControls` into synth's `AudioOutputConfig`,
 /// narrowing each field from the proto's wider integer types.
-fn output_config_from_prosody(args: Option<grpc::ProsodyControls>) -> Option<AudioOutputConfig> {
-    args.map(|args| AudioOutputConfig {
-        rate: args.rate.map(|v| v as u8),
-        volume: args.volume.map(|v| v as u8),
-        pitch: args.pitch.map(|v| v as u8),
+fn output_config_from_prosody(
+    args: Option<grpc::ProsodyControls>,
+) -> Result<Option<AudioOutputConfig>, String> {
+    let Some(args) = args else {
+        return Ok(None);
+    };
+    Ok(Some(AudioOutputConfig {
+        rate: args
+            .rate
+            .map(|v| narrow_prosody_value("rate", v))
+            .transpose()?,
+        volume: args
+            .volume
+            .map(|v| narrow_prosody_value("volume", v))
+            .transpose()?,
+        pitch: args
+            .pitch
+            .map(|v| narrow_prosody_value("pitch", v))
+            .transpose()?,
         appended_silence_ms: args.appended_silence_ms,
-    })
+    }))
+}
+
+#[cfg(test)]
+mod prosody_tests {
+    use super::*;
+
+    #[test]
+    fn output_config_from_prosody_is_none_when_no_prosody_was_sent() {
+        assert!(output_config_from_prosody(None).unwrap().is_none());
+    }
+
+    #[test]
+    fn output_config_from_prosody_narrows_in_range_values() {
+        let config = output_config_from_prosody(Some(grpc::ProsodyControls {
+            rate: Some(50),
+            volume: Some(100),
+            pitch: Some(0),
+            appended_silence_ms: Some(200),
+        }))
+        .unwrap()
+        .unwrap();
+        assert_eq!(config.rate, Some(50));
+        assert_eq!(config.volume, Some(100));
+        assert_eq!(config.pitch, Some(0));
+        assert_eq!(config.appended_silence_ms, Some(200));
+    }
+
+    #[test]
+    fn output_config_from_prosody_rejects_a_value_above_u8_range_instead_of_wrapping() {
+        let result = output_config_from_prosody(Some(grpc::ProsodyControls {
+            rate: Some(300),
+            volume: None,
+            pitch: None,
+            appended_silence_ms: None,
+        }));
+        assert!(result.is_err());
+    }
 }
 
 /// Drains a blocking synthesis-result iterator into a channel, mapping each
@@ -416,7 +475,8 @@ impl DengjenGrpc for DengjenGrpcService {
         request: Request<grpc::SynthesisRequest>,
     ) -> Result<Response<Self::SynthesizeUtteranceStream>, Status> {
         let req = request.into_inner();
-        let output_config = output_config_from_prosody(req.prosody);
+        let output_config =
+            output_config_from_prosody(req.prosody).map_err(Status::invalid_argument)?;
         let dengjen_stream = self.open_synthesis_stream(&req.voice_key, req.text, output_config)?;
 
         let (tx, rx) = mpsc::channel(512);
@@ -436,7 +496,8 @@ impl DengjenGrpc for DengjenGrpcService {
         request: Request<grpc::SynthesisRequest>,
     ) -> Result<Response<Self::SynthesizeUtteranceRealtimeStream>, Status> {
         let req = request.into_inner();
-        let output_config = output_config_from_prosody(req.prosody);
+        let output_config =
+            output_config_from_prosody(req.prosody).map_err(Status::invalid_argument)?;
         let synth = {
             let voices = self.0.read().unwrap();
             let voice = voices.get(&req.voice_key).ok_or_else(|| {
@@ -651,6 +712,36 @@ mod voice_loading_tests {
             .unwrap()
             .insert(voice_key.to_string(), voice);
         service
+    }
+
+    #[test]
+    fn voice_key_for_path_errors_instead_of_panicking_on_an_unresolvable_path() {
+        let result = DengjenGrpcService::voice_key_for_path(std::path::Path::new(
+            "/does/not/exist-dengjen-test.json",
+        ));
+        assert!(matches!(result, Err(DengjenGrpcError::VoiceNotFound(_))));
+    }
+
+    #[test]
+    fn voice_key_for_path_derives_distinct_keys_for_distinct_files() {
+        let dir = std::env::temp_dir().join(format!(
+            "dengjen-grpc-voice-key-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let first = dir.join("first.json");
+        let second = dir.join("second.json");
+        std::fs::write(&first, "{}").unwrap();
+        std::fs::write(&second, "{}").unwrap();
+
+        let first_key = DengjenGrpcService::voice_key_for_path(&first).unwrap();
+        let second_key = DengjenGrpcService::voice_key_for_path(&second).unwrap();
+
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_ne!(first_key, second_key);
+        // The old reduction factor collapsed the 64-bit hash to ~1.8M values; guard against
+        // that regression by requiring the full-width hex representation.
+        assert_eq!(first_key.len(), 16);
     }
 
     #[test]

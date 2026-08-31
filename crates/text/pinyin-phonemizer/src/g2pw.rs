@@ -113,11 +113,15 @@ impl G2pwEngine {
 
         let (tokens, text_to_token) =
             tokenize_and_map(&self.tokenizer, &windowed_text.to_lowercase());
-        let token_position = *text_to_token.get(windowed_query_id).ok_or_else(|| {
-            DengjenError::PhonemizationError(format!(
-                "windowed query position {windowed_query_id} has no token mapping"
-            ))
-        })?;
+        let token_position = text_to_token
+            .get(windowed_query_id)
+            .copied()
+            .flatten()
+            .ok_or_else(|| {
+                DengjenError::PhonemizationError(format!(
+                    "windowed query position {windowed_query_id} has no token mapping"
+                ))
+            })?;
 
         // [CLS] occupies position 0, shifting every real token index by one.
         let truncate_len = self.config.max_len.saturating_sub(2);
@@ -154,7 +158,7 @@ impl G2pwEngine {
         let phoneme_mask_arr = Array2::from_shape_vec((1, self.config.labels.len()), phoneme_mask)
             .map_err(inference_error)?;
 
-        let mut session = self.session.lock().unwrap();
+        let mut session = self.session.lock().map_err(inference_error)?;
         let outputs = session
             .run(ort::inputs![
                 "input_ids" => Tensor::from_array(input_ids_arr).map_err(inference_error)?,
@@ -166,6 +170,9 @@ impl G2pwEngine {
             ])
             .map_err(inference_error)?;
 
+        if outputs.len() == 0 {
+            return Err(inference_error("model produced no output tensors"));
+        }
         let (shape, probs) = outputs[0]
             .try_extract_tensor::<f32>()
             .map_err(inference_error)?;
