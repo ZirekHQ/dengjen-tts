@@ -69,6 +69,18 @@ tasks.withType<Test>().configureEach {
     jvmArgs("--enable-native-access=ALL-UNNAMED")
 }
 
+// NativeLibraryLoader looks for a classifier jar on the classpath by default, which none of these
+// three suites carry -- point them at the native library `make native` builds instead, exactly
+// reproducing DengjenLib's old hardcoded ../../target/release resolution, just routed through the
+// same override property a published consumer would use.
+val devNativeLibraryPath = file("../../target/release/${System.mapLibraryName("libdengjen")}").absolutePath
+
+listOf("test", "integrationTest", "e2e").forEach { suiteName ->
+    tasks.named<Test>(suiteName) {
+        systemProperty("dengjen.native.library.path", devNativeLibraryPath)
+    }
+}
+
 // The jacoco plugin instruments every Test task (unit test, integrationTest, e2e) into its own
 // *.exec file under build/jacoco/; jacocoTestReport only reads test.exec by default, so it's
 // pointed at all three -- and depends on them running first -- to get a report covering the
