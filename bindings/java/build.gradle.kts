@@ -195,3 +195,26 @@ tasks.named("check") {
     dependsOn(testing.suites.named("integrationTest"))
     dependsOn(testing.suites.named("e2e"))
 }
+
+val nativeClassifiers = listOf("linux-x86_64", "linux-aarch64", "windows-x64", "macos-aarch64")
+
+val nativeArtifactsDir: Directory =
+    layout.projectDirectory.dir((findProperty("nativeArtifactsDir") as String?) ?: "native-artifacts")
+
+val nativeClassifierJars =
+    nativeClassifiers.associateWith { classifier ->
+        tasks.register<Jar>("nativeJar-$classifier") {
+            archiveClassifier.set(classifier)
+            val sourceDir = nativeArtifactsDir.dir(classifier)
+            from(sourceDir) { into("natives/$classifier") }
+            onlyIf { sourceDir.asFile.exists() }
+        }
+    }
+
+publishing {
+    publications {
+        named<MavenPublication>("maven") {
+            nativeClassifierJars.values.forEach { jarTask -> artifact(jarTask) }
+        }
+    }
+}
