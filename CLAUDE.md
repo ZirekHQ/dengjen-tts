@@ -17,6 +17,6 @@
 # Verification Gates (Run Before Finalizing)
 - Clippy: `cargo clippy --workspace --lib --bins -- -D warnings`[cite: 2]
 - Format: `cargo fmt --all -- --check`[cite: 2]
-- Tests: `cargo test -- --nocapture`
+- Tests: `cargo test --workspace --no-fail-fast -- --skip test_lazy_stream --skip test_parallel_stream --skip test_realtime_stream` (plain `cargo test` stops at the first failing crate and never reaches the rest of the workspace). Needs `espeak-ng` installed or `DENGJEN_ESPEAKNG_DATA_DIRECTORY` pointed at its data dir; the three skipped tests need real model fixtures not present by default — see `.github/workflows/rust-lint.yml`'s `asan` job for the same recipe.
 - Dependencies & Licenses: `cargo deny check licenses bans sources`[cite: 2]
 - Review: Run `/code-review` before merging non-trivial changes[cite: 2]
