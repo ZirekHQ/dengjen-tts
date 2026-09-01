@@ -1,5 +1,5 @@
 # Manual prerequisites — this workflow cannot create either for itself, and
-# both must be in place before the first `publish-go-v*` tag is pushed:
+# both must be in place before the first `go-release-v*` tag is pushed:
 #
 #   1. The ZirekHQ/dengjen-tts-go repository must already exist and have a
 #      `main` branch. Every release force-pushes an orphan commit onto it, so
@@ -15,7 +15,13 @@ name: Publish Go bindings release
 on:
   push:
     tags:
-      - "publish-go-v*"
+      # NOT "publish-*" or any prefix of it: .github/workflows/publish.yml
+      # (crates.io) also triggers on "publish-*", and a tag matching both
+      # would fire the crates.io publish workflow too — confirmed by a real
+      # collision (a "publish-go-v0.1.0" tag wrongly re-triggered it, which
+      # failed harmlessly since those crates were already published, but
+      # wasted a run and produced a confusing red X).
+      - "go-release-v*"
 
 permissions:
   contents: read
@@ -58,7 +64,7 @@ jobs:
       - name: cargo build (release)
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-        run: cargo build --release -p libdengjen --target ${{ matrix.platform.rust-target }}
+        run: cargo build --release --locked -p libdengjen --target ${{ matrix.platform.rust-target }}
       - name: assert no unbundled runtime dependency
         # `ort` is built with `copy-dylibs`, which on some targets drops a
         # companion ONNX Runtime shared library next to the build output
@@ -132,7 +138,7 @@ jobs:
           toolchain: "1.97.1"
           targets: x86_64-pc-windows-msvc
       - name: cargo build (release)
-        run: cargo build --release -p libdengjen --target x86_64-pc-windows-msvc
+        run: cargo build --release --locked -p libdengjen --target x86_64-pc-windows-msvc
       - name: assert no unbundled runtime dependency
         # See the same step in build-linux for why this exists. llvm-objdump
         # (from the LLVM install above) is used instead of MinGW's objdump,
@@ -201,7 +207,7 @@ jobs:
           # path into the dylib's own LC_ID_DYLIB, which no consumer's
           # rpath can match.
           RUSTFLAGS: "-C link-args=-Wl,-install_name,@rpath/liblibdengjen.dylib"
-        run: cargo build --release -p libdengjen --target aarch64-apple-darwin
+        run: cargo build --release --locked -p libdengjen --target aarch64-apple-darwin
       - name: assert no unbundled runtime dependency
         # See the same step in build-linux for why this exists.
         env:
@@ -258,7 +264,7 @@ jobs:
         run: |
           set -euo pipefail
           tag="${GITHUB_REF_NAME}"
-          version="${tag#publish-go-}"
+          version="${tag#go-release-}"
           if [[ ! "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Tag '${tag}' does not carry a valid vX.Y.Z suffix" >&2
             exit 1
