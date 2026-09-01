@@ -3,7 +3,7 @@ use dengjen_tts_core::{DengjenError, DengjenResult, Phonemes};
 use std::path::Path;
 
 #[cfg(feature = "tashkeel")]
-pub(crate) type TashkeelEngine = libtashkeel_core::DynamicInferenceEngine;
+pub(crate) type TashkeelEngine = dengjen_tashkeel::DynamicInferenceEngine;
 #[cfg(not(feature = "tashkeel"))]
 pub(crate) type TashkeelEngine = ();
 
@@ -76,7 +76,7 @@ pub(crate) fn create_tashkeel_engine(
     if !should_diacritize(&config.espeak.voice) {
         return Ok(None);
     }
-    libtashkeel_core::create_inference_engine(None)
+    dengjen_tashkeel::create_inference_engine(None)
         .map(Some)
         .map_err(|msg| {
             DengjenError::InferenceError(format!(

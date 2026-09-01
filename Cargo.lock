@@ -489,6 +489,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "dengjen-tashkeel"
+version = "1.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "638c64749ad0054363ff8dc87d516f8c15bf10ea93004a63bc6fb61a677bcb81"
+dependencies = [
+ "libtqsm",
+ "log",
+ "ndarray",
+ "once_cell",
+ "ort",
+ "rayon",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "dengjen-tts"
 version = "0.2.0"
 dependencies = [
@@ -582,10 +599,10 @@ dependencies = [
 name = "dengjen-tts-piper"
 version = "0.2.0"
 dependencies = [
+ "dengjen-tashkeel",
  "dengjen-tts-core",
  "espeak-phonemizer",
  "hebrew-phonemizer",
- "libtashkeel_core",
  "ndarray",
  "ort",
  "pinyin-phonemizer",
@@ -597,6 +614,7 @@ dependencies = [
 name = "dengjen-tts-python"
 version = "0.2.0"
 dependencies = [
+ "dengjen-tashkeel",
  "dengjen-tts",
  "dengjen-tts-core",
  "dengjen-tts-kokoro",
@@ -604,7 +622,6 @@ dependencies = [
  "dengjen-tts-piper",
  "espeak-phonemizer",
  "fs_extra",
- "libtashkeel_core",
  "once_cell",
  "ort",
  "pyo3",
@@ -1158,21 +1175,6 @@ checksum = "754ca22de805bb5744484a5b151a9e1a8e837d5dc232c2d7d8c2e3492edc8b60"
 dependencies = [
  "cfg-if",
  "windows-link",
-]
-
-[[package]]
-name = "libtashkeel_core"
-version = "1.5.1"
-dependencies = [
- "libtqsm",
- "log",
- "ndarray",
- "once_cell",
- "ort",
- "rayon",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
 ]
 
 [[package]]

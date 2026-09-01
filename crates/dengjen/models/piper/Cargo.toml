@@ -9,7 +9,7 @@ workspace = true
 
 [features]
 default = ["tashkeel", "espeak"]
-tashkeel = ["dep:libtashkeel_core"]
+tashkeel = ["dep:dengjen-tashkeel"]
 hebrew = ["dep:hebrew-phonemizer"]
 pinyin = ["dep:pinyin-phonemizer"]
 # espeak-ng is GPL-3.0-or-later. Default-on for now to avoid breaking existing users.
@@ -29,7 +29,7 @@ ndarray = "0.17"
 serde = { version = "1.0.160", features = ["derive"] }
 serde_json = "1.0.89"
 
-[dependencies.libtashkeel_core]
+[dependencies.dengjen-tashkeel]
 version = "1.5.1"
 default-features = false
 features = ["ort", "rayon"]

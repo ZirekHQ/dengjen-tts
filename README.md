@@ -34,7 +34,7 @@ this engine's neural-ONNX pipeline and isn't planned.
 
 # Building
 
-Dengjen pulls its native dependencies (eSpeak-ng, Sonic, libtashkeel, ...) in as git submodules, so clone recursively:
+Dengjen pulls its native dependencies (eSpeak-ng, Sonic, ...) in as git submodules, so clone recursively:
 
 ```sh
 git clone --recurse-submodules https://github.com/ZirekHQ/dengjen-tts.git

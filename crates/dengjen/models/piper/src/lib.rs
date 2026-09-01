@@ -1,10 +1,10 @@
 #![forbid(unsafe_code)]
 
+#[cfg(feature = "tashkeel")]
+use dengjen_tashkeel::do_tashkeel;
 use dengjen_tts_core::{AudioInfo, DengjenError, DengjenModel, DengjenResult, Phonemes};
 #[cfg(feature = "espeak")]
 use espeak_phonemizer::text_to_phonemes;
-#[cfg(feature = "tashkeel")]
-use libtashkeel_core::do_tashkeel;
 #[cfg(feature = "espeak")]
 use std::borrow::Cow;
 use std::collections::HashMap;

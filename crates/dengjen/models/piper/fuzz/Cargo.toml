@@ -15,9 +15,9 @@ libfuzzer-sys = "0.4"
 
 [dependencies.dengjen-tts-piper]
 path = ".."
-# `map_phonemes_to_ids` needs neither; skipping them avoids the workspace-only
-# `[patch.crates-io]` for `libtashkeel_core` (this fuzz crate has its own `[workspace]`,
-# so it doesn't inherit the root's patch table) and the espeak-ng/cmake build dependency.
+# `map_phonemes_to_ids` needs neither; skipping them avoids the espeak-ng/cmake
+# build dependency and the `[patch.crates-io]` entry for espeak-rs-sys (this fuzz
+# crate has its own `[workspace]`, so it doesn't inherit the root's patch table).
 default-features = false
 
 [[bin]]
