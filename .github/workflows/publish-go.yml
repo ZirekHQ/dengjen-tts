@@ -112,28 +112,38 @@ jobs:
     steps:
       - name: git-submodule-fix
         run: git config --global protocol.file.allow always
-      - name: install-clang-and-mingw
-        run: choco install llvm mingw
+      - name: install-clang
+        run: choco install llvm
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
         with:
           submodules: recursive
           persist-credentials: false
+      # MSVC, not MinGW: ort-sys has no prebuilt ONNX Runtime binaries for
+      # x86_64-pc-windows-gnu at all (confirmed by a real failed run —
+      # "no prebuilt binaries available for target x86_64-pc-windows-gnu"),
+      # only for -msvc. cgo itself still needs a GCC-family Go toolchain on
+      # the consumer's machine regardless — that's a property of the
+      # *Go build*, not this Rust build, and is unaffected by this target.
+      - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+        with:
+          arch: x64
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           toolchain: "1.97.1"
-          targets: x86_64-pc-windows-gnu
+          targets: x86_64-pc-windows-msvc
       - name: cargo build (release)
-        run: cargo build --release -p libdengjen --target x86_64-pc-windows-gnu
+        run: cargo build --release -p libdengjen --target x86_64-pc-windows-msvc
       - name: assert no unbundled runtime dependency
-        # See the same step in build-linux for why this exists. objdump comes
-        # from the MinGW toolchain installed above.
+        # See the same step in build-linux for why this exists. llvm-objdump
+        # (from the LLVM install above) is used instead of MinGW's objdump,
+        # since this job no longer installs MinGW.
         shell: bash
         env:
-          OUT_DIR: target/x86_64-pc-windows-gnu/release
+          OUT_DIR: target/x86_64-pc-windows-msvc/release
         run: |
           set -euo pipefail
           lib="${OUT_DIR}/libdengjen.dll"
-          deps="$(objdump -p "$lib" | sed -n 's/^[[:space:]]*DLL Name:[[:space:]]*//p')"
+          deps="$(llvm-objdump -p "$lib" | sed -n 's/^[[:space:]]*DLL Name:[[:space:]]*//p')"
           echo "Imported DLLs of ${lib}:"
           echo "$deps"
           rc=0
@@ -152,15 +162,17 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: libdengjen-windows-amd64
-          # Both the DLL and rustc's import library are needed: cgo's
-          # -llibdengjen must resolve to liblibdengjen.dll.a (GNU ld searches
-          # lib%s.dll.a first), not to the DLL directly, because linking
-          # straight against a DLL takes the runtime import name from the
-          # DLL's own export directory. Globbed so a companion runtime dylib
-          # ships too — see the assertion step above.
-          path: |
-            target/x86_64-pc-windows-gnu/release/*.dll
-            target/x86_64-pc-windows-gnu/release/*.dll.a
+          # Only the DLL — no import library. rustc's MSVC-format .lib import
+          # library isn't consumable by the Go side's GCC-family (MinGW)
+          # linker, so it would be dead weight; instead cgo's -llibdengjen
+          # resolves via GNU ld's PE search order falling through to a
+          # direct link against libdengjen.dll itself (its last-resort
+          # `lib%s.dll` step, which matches this file's real name exactly) —
+          # correct and reliable here specifically because libdengjen is a
+          # plain C-ABI DLL, not because direct-DLL-linking is generally
+          # preferred. Globbed so a companion runtime dylib ships too — see
+          # the assertion step above.
+          path: target/x86_64-pc-windows-msvc/release/*.dll
   build-macos:
     runs-on: macos-latest
     permissions:
@@ -270,16 +282,17 @@ jobs:
 
           # Copied under their real rustc output names, globbed so that any
           # companion runtime dylib the build jobs bundled comes along. On
-          # Windows that means libdengjen.dll (Windows cdylibs get no
-          # automatic "lib" prefix) plus rustc's import library, which *is*
-          # lib-prefixed: liblibdengjen.dll.a. Renaming the DLL would break
-          # it — the import name a consumer resolves at run time comes from
-          # the DLL's own export directory, not from its filename on disk.
-          cp artifacts/libdengjen-linux-amd64/*.so*    "$dst/lib/linux_amd64/"
-          cp artifacts/libdengjen-linux-arm64/*.so*    "$dst/lib/linux_arm64/"
-          cp artifacts/libdengjen-windows-amd64/*.dll   "$dst/lib/windows_amd64/"
-          cp artifacts/libdengjen-windows-amd64/*.dll.a "$dst/lib/windows_amd64/"
-          cp artifacts/libdengjen-macos-arm64/*.dylib  "$dst/lib/darwin_arm64/"
+          # Windows that means only libdengjen.dll (Windows cdylibs get no
+          # automatic "lib" prefix) — no import library ships, since it's
+          # MSVC-format and not consumable by the Go side's MinGW linker
+          # anyway (see build-windows's upload-artifact comment). Renaming
+          # the DLL would break it — the import name a consumer resolves at
+          # run time comes from the DLL's own export directory, not from its
+          # filename on disk.
+          cp artifacts/libdengjen-linux-amd64/*.so*   "$dst/lib/linux_amd64/"
+          cp artifacts/libdengjen-linux-arm64/*.so*   "$dst/lib/linux_arm64/"
+          cp artifacts/libdengjen-windows-amd64/*.dll "$dst/lib/windows_amd64/"
+          cp artifacts/libdengjen-macos-arm64/*.dylib "$dst/lib/darwin_arm64/"
           cp artifacts/libdengjen-header/libdengjen.h "$dst/include/"
 
           # The globs above are permissive by design; assert the files the
@@ -287,7 +300,6 @@ jobs:
           for expected in lib/linux_amd64/liblibdengjen.so \
                           lib/linux_arm64/liblibdengjen.so \
                           lib/windows_amd64/libdengjen.dll \
-                          lib/windows_amd64/liblibdengjen.dll.a \
                           lib/darwin_arm64/liblibdengjen.dylib \
                           include/libdengjen.h; do
             if [[ ! -f "$dst/$expected" ]]; then
@@ -343,11 +355,13 @@ jobs:
           gen_cgo linux   amd64 lib/linux_amd64   libdengjen "-Wl,-rpath,\${SRCDIR}/lib/linux_amd64"   cgo_linux_amd64.go
           gen_cgo linux   arm64 lib/linux_arm64   libdengjen "-Wl,-rpath,\${SRCDIR}/lib/linux_arm64"   cgo_linux_arm64.go
           gen_cgo darwin  arm64 lib/darwin_arm64  libdengjen "-Wl,-rpath,\${SRCDIR}/lib/darwin_arm64"  cgo_darwin_arm64.go
-          # -llibdengjen, not -ldengjen: rustc names the Windows import
-          # library liblibdengjen.dll.a (staticlib "lib" prefix + the crate
-          # name "libdengjen"), and GNU ld searches lib%s.dll.a first, so
-          # this resolves to the import library rather than to libdengjen.dll
-          # directly. Same flag as the other three platforms.
+          # Same -llibdengjen flag as the other three platforms, but on
+          # Windows it resolves differently: there's no import library (see
+          # build-windows's upload-artifact comment — MSVC-format .lib isn't
+          # usable by this MinGW-toolchain flag), so GNU ld falls through its
+          # PE search order to a direct link against libdengjen.dll, which
+          # matches this real filename exactly (its last-resort lib%s.dll
+          # step). Correct here because libdengjen exports a plain C ABI.
           gen_cgo windows amd64 lib/windows_amd64 libdengjen ""                                        cgo_windows_amd64.go
 
           # Plain Go, no cgo and no build tags: it behaves identically on
