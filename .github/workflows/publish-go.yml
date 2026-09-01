@@ -51,7 +51,10 @@ jobs:
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.6.0
       - if: matrix.platform.target != 'x86_64'
         name: install aarch64 cross toolchain
-        run: sudo apt-get install -y gcc-aarch64-linux-gnu libc6-dev-arm64-cross
+        # g++ (not just gcc) is required: espeak-rs-sys's CMake build needs a
+        # C++ cross-compiler, confirmed by a real failed run
+        # ("ToolNotFound: failed to find tool aarch64-linux-gnu-g++").
+        run: sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross
       - name: cargo build (release)
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
