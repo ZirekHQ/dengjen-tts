@@ -283,6 +283,11 @@ configure<org.jreleaser.gradle.plugin.JReleaserExtension> {
             // tag/release instead of matching the actual tag, and changelog commit-range
             // resolution breaks too.
             tagName = "java-v{{projectVersion}}"
+            // GitHub's immutable-releases rollout finalizes a release as soon as it's published,
+            // so JReleaser's own follow-up upload of the untrimmed changelog asset (README.md)
+            // 422s against the now-immutable release. This flag makes JReleaser create the
+            // release as a draft, attach all assets, then publish -- the sequence GitHub requires.
+            immutableRelease = true
             changelog {
                 formatted = org.jreleaser.model.Active.ALWAYS
                 preset = "conventional-commits"
