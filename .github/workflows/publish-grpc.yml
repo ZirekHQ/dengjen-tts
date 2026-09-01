@@ -74,6 +74,14 @@ jobs:
             echo "Tag '${tag}' does not carry a valid vX.Y.Z suffix" >&2
             exit 1
           fi
+          # Catches a tag that drifted from the crate it's meant to name —
+          # otherwise this workflow happily publishes e.g. grpc-release-v0.4.1
+          # while Cargo.toml still says 0.4.0, mislabeling the release asset.
+          crate_version="$(awk -F '"' '/^version = / { print $2; exit }' crates/frontends/grpc/Cargo.toml)"
+          if [[ "$version" != "v${crate_version}" ]]; then
+            echo "Tag version '${version}' does not match package version 'v${crate_version}'" >&2
+            exit 1
+          fi
           echo "version=${version}" >> "$GITHUB_OUTPUT"
       - name: package release asset
         # Globbed onnxruntime copy so a companion DLL (see the assertion
