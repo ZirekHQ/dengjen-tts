@@ -1,0 +1,116 @@
+name: Publish Java bindings
+
+on:
+  push:
+    tags:
+      - "java-v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build-natives:
+    runs-on: ${{ matrix.platform.runner }}
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        platform:
+          - classifier: linux-x86_64
+            runner: ubuntu-22.04
+          - classifier: linux-aarch64
+            runner: ubuntu-22.04-arm
+          - classifier: windows-x64
+            runner: windows-2022
+          - classifier: macos-aarch64
+            runner: macos-latest
+    steps:
+      - name: git-submodule-fix
+        run: git config --global protocol.file.allow always
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Set CMAKE_GENERATOR for Windows
+        if: runner.os == 'Windows'
+        shell: bash
+        run: echo "CMAKE_GENERATOR=Ninja" >> "$GITHUB_ENV"
+      - name: install libclang (linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y llvm llvm-dev llvm-runtime libclang-dev
+      - name: install libclang (windows)
+        if: runner.os == 'Windows'
+        run: choco install llvm
+      - if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+        with:
+          arch: x64
+      - name: install libclang (macos)
+        if: runner.os == 'macOS'
+        run: |
+          brew install llvm
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: "1.97.1"
+      - name: Build libdengjen
+        run: cargo build --release --manifest-path Cargo.toml -p libdengjen
+      - name: Stage native library
+        shell: bash
+        run: |
+          mkdir -p "native-artifacts/${{ matrix.platform.classifier }}"
+          case "${{ runner.os }}" in
+            Linux) lib="target/release/liblibdengjen.so" ;;
+            macOS) lib="target/release/liblibdengjen.dylib" ;;
+            Windows) lib="target/release/libdengjen.dll" ;;
+          esac
+          cp "$lib" "native-artifacts/${{ matrix.platform.classifier }}/"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: native-${{ matrix.platform.classifier }}
+          path: native-artifacts/${{ matrix.platform.classifier }}
+
+  release:
+    needs: build-natives
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+        with:
+          fetch-depth: 0 # needed for JReleaser's conventional-commits changelog; VERSIONING_GIT_TAG (below) drives the actual version resolution
+          persist-credentials: false
+      - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        with:
+          java-version: 25
+          distribution: temurin
+          cache: gradle
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: bindings/java/native-artifacts
+          pattern: "native-*"
+      - name: Flatten downloaded native artifacts
+        working-directory: bindings/java/native-artifacts
+        run: for d in native-*; do mv "$d" "${d#native-}"; done
+      - name: Publish
+        working-directory: bindings/java
+        env:
+          # git-versioning reads GITHUB_REF on Actions, so checking the tag out does not change
+          # the version. Naming the tag is what makes the steps below build the release version
+          # instead of a snapshot of the branch they run on.
+          VERSIONING_GIT_TAG: ${{ github.ref_name }}
+          JRELEASER_MAVENCENTRAL_USERNAME: ${{ secrets.JRELEASER_MAVENCENTRAL_USERNAME }}
+          JRELEASER_MAVENCENTRAL_PASSWORD: ${{ secrets.JRELEASER_MAVENCENTRAL_PASSWORD }}
+          JRELEASER_GPG_PASSPHRASE: ${{ secrets.JRELEASER_GPG_PASSPHRASE }}
+          JRELEASER_GPG_SECRET_KEY: ${{ secrets.JRELEASER_GPG_SECRET_KEY }}
+          JRELEASER_GPG_PUBLIC_KEY: ${{ secrets.JRELEASER_GPG_PUBLIC_KEY }}
+          JRELEASER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./gradlew publish jreleaserFullRelease --no-daemon --stacktrace
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: jreleaser-release
+          path: |
+            bindings/java/build/jreleaser/trace.log
+            bindings/java/build/jreleaser/output.properties
+          if-no-files-found: ignore
