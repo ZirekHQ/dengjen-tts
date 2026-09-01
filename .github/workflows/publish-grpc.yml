@@ -1,0 +1,109 @@
+name: Publish gRPC server release
+
+on:
+  push:
+    tags:
+      # Not "publish-*" (crates.io, publish.yml) or "go-release-v*"
+      # (publish-go.yml) — a prefix collision has already bitten this repo
+      # once (see publish-go.yml's own comment on the same issue).
+      - "grpc-release-v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+    permissions:
+      contents: write
+    env:
+      CMAKE_GENERATOR: Ninja
+    steps:
+      - name: git-submodule-fix
+        run: git config --global protocol.file.allow always
+      - name: install-clang
+        run: choco install llvm -y --no-progress
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+        with:
+          arch: x64
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: "1.97.1"
+          targets: x86_64-pc-windows-msvc
+      - name: cargo build (release)
+        run: cargo build --release --locked -p dengjen-tts-grpc --target x86_64-pc-windows-msvc
+      - name: assert no unbundled runtime dependency
+        # Same check as publish-go.yml's build-windows job for libdengjen:
+        # ort's copy-dylibs feature can drop a companion ONNX Runtime DLL
+        # next to the build output instead of statically linking it. If that
+        # happens here, the release archive below must include it too, or
+        # dengjen-nvda's vendored binary silently fails to start for users.
+        shell: bash
+        env:
+          OUT_DIR: target/x86_64-pc-windows-msvc/release
+        run: |
+          set -euo pipefail
+          exe="${OUT_DIR}/dengjen-tts-grpc.exe"
+          deps="$(llvm-objdump -p "$exe" | sed -n 's/^[[:space:]]*DLL Name:[[:space:]]*//p')"
+          echo "Imported DLLs of ${exe}:"
+          echo "$deps"
+          rc=0
+          while IFS= read -r dep; do
+            case "$dep" in
+              *onnxruntime*|*ONNXRUNTIME*)
+                if [[ ! -e "${OUT_DIR}/${dep}" ]]; then
+                  echo "::error::${exe} imports ${dep}, which is not produced alongside it and would not be bundled" >&2
+                  rc=1
+                fi
+                ;;
+            esac
+          done <<< "$deps"
+          exit "$rc"
+      - name: extract target version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#grpc-release-}"
+          if [[ ! "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Tag '${tag}' does not carry a valid vX.Y.Z suffix" >&2
+            exit 1
+          fi
+          # Catches a tag that drifted from the crate it's meant to name —
+          # otherwise this workflow happily publishes e.g. grpc-release-v0.4.1
+          # while Cargo.toml still says 0.4.0, mislabeling the release asset.
+          crate_version="$(awk -F '"' '/^version = / { print $2; exit }' crates/frontends/grpc/Cargo.toml)"
+          if [[ "$version" != "v${crate_version}" ]]; then
+            echo "Tag version '${version}' does not match package version 'v${crate_version}'" >&2
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+      - name: package release asset
+        # Globbed onnxruntime copy so a companion DLL (see the assertion
+        # step above) ships in the same archive as the exe, if one exists.
+        # Compress-Archive (built into the windows-2022 image) is used
+        # instead of 7z to avoid depending on a tool this workflow never
+        # verifies is present.
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force -Path release | Out-Null
+          Copy-Item target/x86_64-pc-windows-msvc/release/dengjen-tts-grpc.exe release/
+          Get-ChildItem target/x86_64-pc-windows-msvc/release/*onnxruntime* -ErrorAction SilentlyContinue |
+            Copy-Item -Destination release/
+          Copy-Item NOTICE release/
+          $zipName = "dengjen-tts-grpc-${{ steps.version.outputs.version }}-windows-x64.zip"
+          Compress-Archive -Path release/* -DestinationPath $zipName
+          echo "zip_name=$zipName" >> $env:GITHUB_OUTPUT
+        id: package
+      - name: create release
+        uses: softprops/action-gh-release@e598afbe1493e6b1bafb1f389cabb956eab91231 # v3.0.3
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: dengjen-tts-grpc ${{ steps.version.outputs.version }}
+          files: ${{ steps.package.outputs.zip_name }}
