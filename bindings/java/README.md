@@ -55,13 +55,22 @@ be undefined behavior at this FFI boundary.
 
 ## Known limitations
 
-- This module is usable only from within a checkout of the parent
-  [dengjen-tts](https://github.com/ZirekHQ/dengjen-tts) repository today —
-  `DengjenLib` resolves the built native library via a path relative to the
-  process's working directory (`../../target/release`), which only exists
-  inside that checkout. It is not a published, standalone dependency. No
-  prebuilt binaries are published either way — every consumer builds
-  `libdengjen` from source (see `Makefile`).
+- **Not yet published** — the coordinates below apply once the first `java-v*`
+  release lands; Central Portal namespace verification and release secrets
+  are still pending prerequisites. Published artifacts ship the native `libdengjen` library as per-platform
+  classifier jars (`linux-x86_64`, `linux-aarch64`, `windows-x64`,
+  `macos-aarch64`). Consumers need both the main dependency and a
+  `runtimeOnly` dependency on the classifier matching their platform:
+
+  ```kotlin
+  implementation("io.github.zirekhq.dengjen:dengjen-java-bindings:<version>")
+  runtimeOnly("io.github.zirekhq.dengjen:dengjen-java-bindings:<version>:linux-x86_64")
+  ```
+
+  `DengjenLib` (via `NativeLibraryLoader`) detects the running platform and
+  loads the matching classifier's native library automatically; set
+  `-Ddengjen.native.library.path=<file>` to override with a library you
+  built or placed yourself.
 - Every JVM invocation of a consumer built against this module needs
   `--enable-native-access=ALL-UNNAMED` (or the module-qualified equivalent)
   to avoid a native-access warning — `build.gradle.kts` already adds this

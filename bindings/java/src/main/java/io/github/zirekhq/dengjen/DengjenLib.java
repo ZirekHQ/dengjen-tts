@@ -5,29 +5,18 @@ import static java.lang.foreign.ValueLayout.JAVA_BOOLEAN;
 import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 import static java.lang.foreign.ValueLayout.JAVA_FLOAT;
 
-import java.lang.foreign.Arena;
 import java.lang.foreign.FunctionDescriptor;
 import java.lang.foreign.Linker;
 import java.lang.foreign.SymbolLookup;
 import java.lang.invoke.MethodHandle;
-import java.nio.file.Path;
 
 /**
  * MethodHandles for every libdengjen* C function (crates/frontends/capi/libdengjen.h). Loading this
- * class loads the native library; see {@link #load()} for the search path convention (mirrors
- * bindings/go/dengjen.go's cgo LDFLAGS: relative to the built module, resolving
- * ../../target/release from the process's working directory).
+ * class loads the native library; see {@link NativeLibraryLoader} for how it's found.
  */
 final class DengjenLib {
   private static final Linker LINKER = Linker.nativeLinker();
-  private static final SymbolLookup LOOKUP = load();
-
-  private static SymbolLookup load() {
-    String override = System.getProperty("dengjen.native.library.path");
-    Path dir = override != null ? Path.of(override) : Path.of("..", "..", "target", "release");
-    Path libPath = dir.resolve(System.mapLibraryName("libdengjen"));
-    return SymbolLookup.libraryLookup(libPath, Arena.global());
-  }
+  private static final SymbolLookup LOOKUP = NativeLibraryLoader.load();
 
   private static MethodHandle handle(String symbol, FunctionDescriptor descriptor) {
     return LINKER.downcallHandle(
