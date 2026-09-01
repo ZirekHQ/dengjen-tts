@@ -119,7 +119,7 @@ jobs:
       - name: git-submodule-fix
         run: git config --global protocol.file.allow always
       - name: install-clang
-        run: choco install llvm
+        run: choco install llvm -y --no-progress
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
         with:
           submodules: recursive
@@ -245,6 +245,7 @@ jobs:
       contents: read
     outputs:
       version: ${{ steps.version.outputs.version }}
+      release_sha: ${{ steps.push-release.outputs.release_sha }}
     steps:
       - name: git-submodule-fix
         run: git config --global protocol.file.allow always
@@ -484,6 +485,7 @@ jobs:
           	@test -z "$$(gofmt -l .)" || (gofmt -l . && exit 1)
           EOF
       - name: commit and push release snapshot
+        id: push-release
         working-directory: dengjen-tts-go
         run: |
           set -euo pipefail
@@ -514,6 +516,14 @@ jobs:
           git tag "${{ steps.version.outputs.version }}"
           git push --force origin HEAD:main
           git push origin "${{ steps.version.outputs.version }}"
+
+          # Emitted only after the tag push succeeds, specifically so
+          # rollback-on-failure (below) can tell "this run's own tag push
+          # failed because the version already existed" apart from "this
+          # run's tag push succeeded but verify failed afterward" — in the
+          # first case there is no release_sha to compare against, so
+          # rollback must not delete anything.
+          echo "release_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   verify:
     needs: assemble-and-push
@@ -600,11 +610,33 @@ jobs:
         # bad tag sitting in dengjen-tts-go forever — that permanently
         # burns the version number. Deleting it here lets the same version
         # be retried once the underlying problem is fixed.
+        #
+        # But: assemble-and-push's tag push has no --force, so if this run
+        # instead re-published an *already-released* version, that push
+        # step itself fails (assemble-and-push fails, we run) while
+        # version's earlier-set output still propagates — deleting by name
+        # alone would then delete a real, pre-existing, already-shipped
+        # release. release_sha is only set (in the "commit and push release
+        # snapshot" step) after this run's own tag push succeeds, so its
+        # absence means this run never got that far — nothing to roll back.
+        # If it IS set, confirm the tag on origin still resolves to this
+        # run's own commit before deleting, in case of a race with another
+        # run or a manual retag in between.
         run: |
           set -euo pipefail
           version="${{ needs.assemble-and-push.outputs.version }}"
           if [[ -z "$version" ]]; then
             echo "assemble-and-push produced no version output; nothing was tagged, nothing to roll back" >&2
+            exit 0
+          fi
+          expected_sha="${{ needs.assemble-and-push.outputs.release_sha }}"
+          if [[ -z "$expected_sha" ]]; then
+            echo "This run's own tag push never succeeded; nothing to roll back" >&2
+            exit 0
+          fi
+          actual_sha="$(git ls-remote --refs origin "refs/tags/${version}" | awk '{print $1}')"
+          if [[ "$actual_sha" != "$expected_sha" ]]; then
+            echo "::warning::tag ${version} does not point to this run's release commit (expected ${expected_sha}, found ${actual_sha:-<absent>}) — not deleting, to avoid removing an unrelated release"
             exit 0
           fi
           if git push --delete origin "$version"; then

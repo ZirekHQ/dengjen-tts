@@ -80,7 +80,10 @@ if there's any chance it might panic.
   pointing at the directory holding the built `libdengjen` shared
   library at *run time*, not just at build/test time — `make test`'s
   `LD_LIBRARY_PATH=$(TARGET_DIR)` wiring only covers the test binary.
-  (`dengjen-tts-go` doesn't have this limitation — it bakes an rpath in.)
+  (`dengjen-tts-go` doesn't have this limitation on Linux and macOS — it
+  bakes an rpath in. Windows has no rpath equivalent; its consumers still
+  need `libdengjen.dll` next to their built executable, or its directory
+  on `PATH`.)
 - This is a thin wrapper: `Speak`'s callback shape mirrors the C API
   closely rather than offering a fully idiomatic Go redesign (channels,
   `context.Context`-driven cancellation).
