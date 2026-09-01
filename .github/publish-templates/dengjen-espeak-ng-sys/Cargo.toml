@@ -27,9 +27,10 @@ include = [
     "!espeak-ng/dictsource/extra/**",
     "!espeak-ng/dictsource/fo_list",
     "!espeak-ng/src/windows/Debug/*.wav",
-    # Not referenced by CMakeLists.txt (ENABLE_TESTS is forced OFF in build.rs) or needed to
-    # build the library -- editor syntax files, WASM glue, and espeak-ng's own test suite.
-    # Trimmed to stay clear of crates.io's 10MB .crate size cap; see #154.
+    # vim/ and tests/ dropped: neither is referenced by CMakeLists.txt (ENABLE_TESTS is forced
+    # OFF in build.rs), trimmed to stay clear of crates.io's 10MB .crate size cap; see #154.
+    # Their README.md stubs still end up packaged regardless -- cargo force-includes any
+    # README*/LICENSE* file it finds, independent of this include list.
 ]
 
 [build-dependencies]
