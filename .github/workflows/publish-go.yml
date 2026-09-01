@@ -4,10 +4,12 @@
 #   1. The ZirekHQ/dengjen-tts-go repository must already exist and have a
 #      `main` branch. Every release force-pushes an orphan commit onto it, so
 #      it must be checkout-able (i.e. not an empty, never-initialised repo).
-#   2. secrets.DENGJEN_TTS_GO_DEPLOY_TOKEN must hold a PAT (or deploy key)
-#      with push access to that repository, including permission to push and
-#      to delete tags — the rollback job deletes the release tag when
-#      verification fails.
+#   2. secrets.DENGJEN_TTS_GO_DEPLOY_TOKEN must hold a fine-grained PAT
+#      (passed as actions/checkout's `token:`, which requires HTTPS-style PAT
+#      auth — an SSH deploy key will not work here), scoped to
+#      ZirekHQ/dengjen-tts-go only, with Contents: Read and write — that one
+#      permission covers checkout, the orphan-commit push to `main`, pushing
+#      the release tag, and deleting it on rollback when verification fails.
 name: Publish Go bindings release
 
 on:
