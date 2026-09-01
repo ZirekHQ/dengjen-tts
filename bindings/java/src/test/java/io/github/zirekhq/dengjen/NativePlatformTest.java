@@ -41,4 +41,11 @@ class NativePlatformTest {
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("SunOS");
   }
+
+  @Test
+  void rejectsMacosOnIntel() {
+    assertThatThrownBy(() -> NativePlatform.classifier("Mac OS X", "x86_64"))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("x86_64");
+  }
 }

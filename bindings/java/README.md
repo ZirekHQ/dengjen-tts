@@ -55,7 +55,9 @@ be undefined behavior at this FFI boundary.
 
 ## Known limitations
 
-- Published artifacts ship the native `libdengjen` library as per-platform
+- **Not yet published** — the coordinates below apply once the first `java-v*`
+  release lands; Central Portal namespace verification and release secrets
+  are still pending prerequisites. Published artifacts ship the native `libdengjen` library as per-platform
   classifier jars (`linux-x86_64`, `linux-aarch64`, `windows-x64`,
   `macos-aarch64`). Consumers need both the main dependency and a
   `runtimeOnly` dependency on the classifier matching their platform:

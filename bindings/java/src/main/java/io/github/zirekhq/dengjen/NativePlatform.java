@@ -42,6 +42,13 @@ final class NativePlatform {
       throw new IllegalStateException(
           "unsupported Windows architecture for a dengjen native library: " + osArch);
     }
+    if (os.equals("macos")) {
+      if (isArm64) {
+        return "aarch64";
+      }
+      throw new IllegalStateException(
+          "unsupported macOS architecture for a dengjen native library: " + osArch);
+    }
     if (isArm64) {
       return "aarch64";
     }

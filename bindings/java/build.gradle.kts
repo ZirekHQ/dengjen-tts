@@ -34,6 +34,9 @@ gitVersioning.apply {
         branch("main") { version = snapshotVersion }
         tag("java-v(?<version>.*)") { version = "\${ref.version}" }
     }
+    // Without this, the snapshot fallback's `git describe` matches ANY tag in the repo -- including
+    // the unrelated crates.io release tags -- instead of just the java-v* tags this module owns.
+    describeTagPattern = "java-v.*"
     rev { version = snapshotVersion }
 }
 
@@ -234,6 +237,15 @@ val nativeClassifierJars =
             val sourceDir = nativeArtifactsDir.dir(classifier)
             from(sourceDir) { into("natives/$classifier") }
             onlyIf { sourceDir.asFile.exists() }
+            // Maven Central is immutable -- an empty or wrong-content classifier jar would burn
+            // that version forever with a native library nobody can load, so fail loudly instead
+            // of silently publishing whatever (or nothing) happens to be in the directory.
+            doFirst {
+                val files = sourceDir.asFile.listFiles().orEmpty()
+                check(files.size == 1) {
+                    "expected exactly one native library file in $sourceDir, found ${files.toList()}"
+                }
+            }
         }
     }
 
@@ -255,6 +267,11 @@ configure<org.jreleaser.gradle.plugin.JReleaserExtension> {
             // The java-v* tag is pushed manually before this workflow ever runs (see Task 9) --
             // JReleaser must not try to create it again.
             skipTag = true
+            // JReleaser defaults tagName to "v{{projectVersion}}", but this workflow's tags are
+            // java-v* -- without this, a real tag push creates a stray v<version> GitHub
+            // tag/release instead of matching the actual tag, and changelog commit-range
+            // resolution breaks too.
+            tagName = "java-v{{projectVersion}}"
             changelog {
                 formatted = org.jreleaser.model.Active.ALWAYS
                 preset = "conventional-commits"
