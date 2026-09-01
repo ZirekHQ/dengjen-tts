@@ -12,10 +12,8 @@ categories = ["external-ffi-bindings", "api-bindings"]
 
 include = [
     "espeak-ng/CMakeLists.txt",
-    "espeak-ng/vim/",
     "espeak-ng/cmake/",
     "espeak-ng/phsource/",
-    "espeak-ng/tests/",
     "espeak-ng/src/",
     "espeak-ng/espeak-ng-data/",
     "espeak-ng/dictsource/**",
@@ -29,6 +27,9 @@ include = [
     "!espeak-ng/dictsource/extra/**",
     "!espeak-ng/dictsource/fo_list",
     "!espeak-ng/src/windows/Debug/*.wav",
+    # Not referenced by CMakeLists.txt (ENABLE_TESTS is forced OFF in build.rs) or needed to
+    # build the library -- editor syntax files, WASM glue, and espeak-ng's own test suite.
+    # Trimmed to stay clear of crates.io's 10MB .crate size cap; see #154.
 ]
 
 [build-dependencies]
