@@ -23,6 +23,12 @@ jobs:
         run: git config --global protocol.file.allow always
       - name: install-clang
         run: choco install llvm -y --no-progress
+      - name: install-protoc
+        # dengjen-tts-grpc's build.rs runs tonic-build/prost-build against
+        # proto/dengjen_grpc.proto, which shells out to protoc — unlike
+        # libdengjen (the crate publish-go.yml's build-windows job builds),
+        # which compiles no proto and never needed this.
+        run: choco install protoc -y --no-progress
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
         with:
           submodules: recursive
