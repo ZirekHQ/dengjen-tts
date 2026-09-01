@@ -83,7 +83,11 @@ if there's any chance it might panic.
   (`dengjen-tts-go` doesn't have this limitation on Linux and macOS — it
   bakes an rpath in. Windows has no rpath equivalent; its consumers still
   need `libdengjen.dll` next to their built executable, or its directory
-  on `PATH`.)
+  on `PATH`. `dengjen-tts-go`'s Windows DLL also needs the
+  [Visual C++ Redistributable](https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist)
+  on the target machine, since it's built with MSVC's default dynamic C
+  runtime — usually already present, but not guaranteed on a minimal
+  install.)
 - This is a thin wrapper: `Speak`'s callback shape mirrors the C API
   closely rather than offering a fully idiomatic Go redesign (channels,
   `context.Context`-driven cancellation).

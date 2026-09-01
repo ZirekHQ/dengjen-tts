@@ -470,6 +470,12 @@ jobs:
           \`lib/windows_amd64/libdengjen.dll\` next to your built executable
           (or put that directory on \`PATH\`) before running it. The name
           matters — that is the import name baked into the linked binary.
+          \`libdengjen.dll\` is built with the MSVC toolchain's default
+          dynamic C runtime, so it also needs the
+          [Visual C++ Redistributable](https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist)
+          (VCRUNTIME140.dll, MSVCP140.dll) installed on the target machine —
+          already present on most Windows systems, but not guaranteed on a
+          minimal one.
           EOF
 
           cat > "$dst/Makefile" <<'EOF'
