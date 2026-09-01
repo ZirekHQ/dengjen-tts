@@ -299,6 +299,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev llvm-dev cmake protobuf-compiler
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
         with:
+          fetch-depth: 0 # needed so git-versioning's `git describe` can find the java-v* tag; shallow clones have no tags
           submodules: recursive
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable

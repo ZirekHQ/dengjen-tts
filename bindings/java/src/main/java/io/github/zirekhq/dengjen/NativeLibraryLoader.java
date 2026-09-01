@@ -5,9 +5,12 @@ import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.SymbolLookup;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.FileAttribute;
+import java.nio.file.attribute.PosixFilePermissions;
 
 /**
  * Resolves the native {@code libdengjen} shared library for {@link DengjenLib}. Two paths:
@@ -25,6 +28,16 @@ import java.nio.file.StandardCopyOption;
  */
 final class NativeLibraryLoader {
   private NativeLibraryLoader() {}
+
+  // Owner-only permissions for the extracted native library: the system temp directory is
+  // world-writable on multi-user hosts, and this file gets loaded and executed. POSIX permissions
+  // aren't supported on Windows, so fall back to the platform default there.
+  private static final FileAttribute<?>[] OWNER_ONLY_PERMISSIONS =
+      FileSystems.getDefault().supportedFileAttributeViews().contains("posix")
+          ? new FileAttribute<?>[] {
+            PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------"))
+          }
+          : new FileAttribute<?>[0];
 
   static SymbolLookup load() {
     String override = System.getProperty("dengjen.native.library.path");
@@ -56,7 +69,8 @@ final class NativeLibraryLoader {
                 + "yourself");
       }
       Path extracted =
-          Files.createTempFile("dengjen-native-", "-" + resourcePath.replace('/', '_'));
+          Files.createTempFile(
+              "dengjen-native-", "-" + resourcePath.replace('/', '_'), OWNER_ONLY_PERMISSIONS);
       extracted.toFile().deleteOnExit();
       Files.copy(in, extracted, StandardCopyOption.REPLACE_EXISTING);
       return extracted;

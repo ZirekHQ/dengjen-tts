@@ -54,7 +54,7 @@ jobs:
         with:
           toolchain: "1.97.1"
       - name: Build libdengjen
-        run: cargo build --release --manifest-path Cargo.toml -p libdengjen
+        run: cargo build --release --manifest-path Cargo.toml -p libdengjen --locked
       - name: Stage native library
         shell: bash
         run: |

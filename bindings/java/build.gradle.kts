@@ -227,6 +227,16 @@ tasks.named("check") {
 
 val nativeClassifiers = listOf("linux-x86_64", "linux-aarch64", "windows-x64", "macos-aarch64")
 
+// Matches what java-publish.yml's "Stage native library" step produces per classifier, and what
+// System.mapLibraryName("libdengjen") returns on each OS.
+fun expectedNativeLibraryFileName(classifier: String): String =
+    when (classifier) {
+        "linux-x86_64", "linux-aarch64" -> "liblibdengjen.so"
+        "windows-x64" -> "libdengjen.dll"
+        "macos-aarch64" -> "liblibdengjen.dylib"
+        else -> throw GradleException("unknown classifier: $classifier")
+    }
+
 val nativeArtifactsDir: Directory =
     layout.projectDirectory.dir((findProperty("nativeArtifactsDir") as String?) ?: "native-artifacts")
 
@@ -241,9 +251,10 @@ val nativeClassifierJars =
             // that version forever with a native library nobody can load, so fail loudly instead
             // of silently publishing whatever (or nothing) happens to be in the directory.
             doFirst {
+                val expectedName = expectedNativeLibraryFileName(classifier)
                 val files = sourceDir.asFile.listFiles().orEmpty()
-                check(files.size == 1) {
-                    "expected exactly one native library file in $sourceDir, found ${files.toList()}"
+                check(files.size == 1 && files[0].isFile && files[0].name == expectedName) {
+                    "expected exactly one file named '$expectedName' in $sourceDir, found ${files.toList()}"
                 }
             }
         }
