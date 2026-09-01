@@ -14,7 +14,7 @@ crate-type = ["cdylib"]
 [features]
 default = ["tashkeel", "espeak"]
 ort-dylib = ["ort/load-dynamic"]
-tashkeel = ["dep:libtashkeel_core", "dengjen-tts-piper/tashkeel"]
+tashkeel = ["dep:dengjen-tashkeel", "dengjen-tts-piper/tashkeel"]
 espeak = ["dep:espeak-phonemizer", "dengjen-tts-piper/espeak", "dengjen-tts-kokoro/espeak", "dengjen-tts-melotts/espeak"]
 # Forwards to both model backends; ort/cuda alone (the previous wiring) never reached a
 # Session::builder() call, so enabling it did nothing.
@@ -31,7 +31,7 @@ dengjen-tts-kokoro = { version = "0.1.0", path = "../../dengjen/models/kokoro", 
 dengjen-tts-melotts = { version = "0.1.0", path = "../../dengjen/models/melotts", default-features = false }
 once_cell = "1.18.0"
 
-[dependencies.libtashkeel_core]
+[dependencies.dengjen-tashkeel]
 version = "1.5.1"
 default-features = false
 features = ["ort", "rayon"]

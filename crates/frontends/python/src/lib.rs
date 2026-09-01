@@ -5,17 +5,17 @@
 #![allow(non_local_definitions)]
 #![forbid(unsafe_code)]
 
+#[cfg(feature = "tashkeel")]
+use dengjen_tashkeel::{
+    create_inference_engine, do_tashkeel, DynamicInferenceEngine as TashkeelInferenceEngine,
+    LibtashkeelResult,
+};
 use dengjen_tts::{
     detect_model_type, AudioOutputConfig, DengjenSpeechStreamLazy, DengjenSpeechStreamParallel,
     DengjenSpeechSynthesizer, RealtimeSpeechStream,
 };
 use dengjen_tts_core::{
     Audio, AudioInfo, CancellationToken, DengjenError, DengjenModel, DengjenResult, SynthesisConfig,
-};
-#[cfg(feature = "tashkeel")]
-use libtashkeel_core::{
-    create_inference_engine, do_tashkeel, DynamicInferenceEngine as TashkeelInferenceEngine,
-    LibtashkeelResult,
 };
 #[cfg(feature = "tashkeel")]
 use once_cell::sync::Lazy;

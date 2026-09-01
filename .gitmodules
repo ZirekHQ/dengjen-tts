@@ -2,9 +2,6 @@
 	path = deps/sonic
 	url = https://github.com/ZirekHQ/waywardgeek-sonic
 	branch = master
-[submodule "deps/libtashkeel"]
-	path = deps/libtashkeel
-	url = https://github.com/ZirekHQ/libtashkeel
 [submodule "deps/espeak-rs-piper"]
 	path = deps/espeak-rs-piper
 	url = https://github.com/ZirekHQ/piper-rs
