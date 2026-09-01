@@ -3,7 +3,7 @@ name = "dengjen-espeak-ng-sys"
 version = "0.2.1"
 edition = "2021"
 description = "Rust bindings to espeak-ng, vendoring and building it from source"
-license = "MIT"
+license = "MIT AND GPL-3.0-or-later"
 repository = "https://github.com/ZirekHQ/dengjen-tts"
 homepage = "https://github.com/ZirekHQ/dengjen-tts"
 readme = "README.md"
@@ -20,6 +20,7 @@ include = [
     "espeak-ng/espeak-ng-data/",
     "espeak-ng/dictsource/**",
     "espeak-ng/espeak-ng.pc.in",
+    "espeak-ng/COPYING",
     "src/*.rs",
     "build.rs",
     "wrapper.h",
