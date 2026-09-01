@@ -5,11 +5,23 @@ plugins {
     jacoco
     `jvm-test-suite`
     `maven-publish`
+    alias(libs.plugins.git.version)
     alias(libs.plugins.spotless)
 }
 
 group = "io.github.zirekhq.dengjen"
-version = "0.1.0"
+version = "0.0.0-SNAPSHOT"
+
+val snapshotVersion =
+    "\${describe.tag.version.major}.\${describe.tag.version.minor}.\${describe.tag.version.patch.next}-SNAPSHOT"
+
+gitVersioning.apply {
+    refs {
+        branch("main") { version = snapshotVersion }
+        tag("java-v(?<version>.*)") { version = "\${ref.version}" }
+    }
+    rev { version = snapshotVersion }
+}
 
 fun currentNativeClassifier(): String {
     val os = OperatingSystem.current()
