@@ -19,11 +19,12 @@ class NativeLibraryLoaderTest {
 
   @Test
   void failsClearlyWhenTheResourceIsMissing() {
+    var classLoader = NativeLibraryLoaderTest.class.getClassLoader();
+
     assertThatThrownBy(
             () ->
                 NativeLibraryLoader.extractResource(
-                    "natives/does-not-exist/libdengjen.so",
-                    NativeLibraryLoaderTest.class.getClassLoader()))
+                    "natives/does-not-exist/libdengjen.so", classLoader))
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("natives/does-not-exist/libdengjen.so");
   }
