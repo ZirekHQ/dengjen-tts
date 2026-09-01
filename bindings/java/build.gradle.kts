@@ -1,11 +1,25 @@
 import org.gradle.internal.os.OperatingSystem
 
+// Spotless (8.10.1) pulls jgit 7.7.1 onto this project's shared plugin classpath, which wins
+// Gradle's default "highest version" conflict resolution over the jgit 5.13.5 that
+// jreleaser-git-java-sdk actually declares -- but jgit 7.x removed org.eclipse.jgit.lib
+// .GpgObjectSigner, which JReleaser's ModelConfigurer still references, so jreleaserConfig fails
+// with NoClassDefFoundError unless jgit is pinned back to a version that still has it.
+buildscript {
+    configurations.classpath {
+        resolutionStrategy {
+            force("org.eclipse.jgit:org.eclipse.jgit:5.13.5.202508271544-r")
+        }
+    }
+}
+
 plugins {
     java
     jacoco
     `jvm-test-suite`
     `maven-publish`
     alias(libs.plugins.git.version)
+    alias(libs.plugins.jreleaser)
     alias(libs.plugins.spotless)
 }
 
@@ -227,6 +241,42 @@ publishing {
     publications {
         named<MavenPublication>("maven") {
             nativeClassifierJars.values.forEach { jarTask -> artifact(jarTask) }
+        }
+    }
+}
+
+configure<org.jreleaser.gradle.plugin.JReleaserExtension> {
+    // bindings/java is a subdirectory of the dengjen-tts monorepo, not the git root -- without
+    // this, JReleaser's git detection only looks at basedir and fails with
+    // "repository not found: .../bindings/java" instead of walking up to find the repo's .git.
+    gitRootSearch = true
+    release {
+        github {
+            // The java-v* tag is pushed manually before this workflow ever runs (see Task 9) --
+            // JReleaser must not try to create it again.
+            skipTag = true
+            changelog {
+                formatted = org.jreleaser.model.Active.ALWAYS
+                preset = "conventional-commits"
+                links = true
+            }
+        }
+    }
+    signing {
+        pgp {
+            active = org.jreleaser.model.Active.ALWAYS
+            armored = true
+        }
+    }
+    deploy {
+        maven {
+            mavenCentral {
+                register("sonatype") {
+                    active = org.jreleaser.model.Active.ALWAYS
+                    url = "https://central.sonatype.com/api/v1/publisher"
+                    stagingRepository(stagingDir.get().toString())
+                }
+            }
         }
     }
 }
