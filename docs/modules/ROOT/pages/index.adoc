@@ -1,0 +1,6 @@
+= dengjen-tts
+
+A cross-platform inference engine for neural TTS models.
+
+Docs spike: this component is aggregated into the org-wide
+https://zirekhq.github.io[ZirekHQ documentation site].
