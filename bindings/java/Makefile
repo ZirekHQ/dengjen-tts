@@ -1,12 +1,17 @@
 CARGO_MANIFEST := ../../Cargo.toml
 
-.PHONY: native test coverage fmt-check clean
+.PHONY: native test coverage fmt-check clean verify-native-jar
 
 native:
 	cargo build --release --manifest-path $(CARGO_MANIFEST) -p libdengjen
 
 test: native
 	./gradlew test integrationTest e2e
+
+# Proves the classifier-jar native-loading path (see NativeLibraryLoader) against the current
+# platform's real native library, without any Maven Central publishing infrastructure.
+verify-native-jar: native
+	./gradlew nativeLoaderTest
 
 # jacocoTestReport depends on test/integrationTest/e2e (see build.gradle.kts) and merges all
 # three into the XML sonar.coverage.jacoco.xmlReportPaths (see ../../sonar-project.properties)
