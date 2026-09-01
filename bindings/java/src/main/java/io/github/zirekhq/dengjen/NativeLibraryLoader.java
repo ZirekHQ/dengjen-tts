@@ -47,7 +47,10 @@ final class NativeLibraryLoader {
     String classifier =
         NativePlatform.classifier(System.getProperty("os.name"), System.getProperty("os.arch"));
     String libraryName = System.mapLibraryName("libdengjen");
-    String resourcePath = "natives/" + classifier + "/" + libraryName;
+    // NOSONAR(java:S1075): this is a classpath/JAR-entry path, not a filesystem path -- it must
+    // always use '/' per the JAR/ZIP spec and ClassLoader.getResourceAsStream's contract,
+    // regardless of the host OS. File.separator would be wrong here (and break on Windows).
+    String resourcePath = "natives/" + classifier + "/" + libraryName; // NOSONAR
     Path extracted;
     try {
       extracted = extractResource(resourcePath, NativeLibraryLoader.class.getClassLoader());
