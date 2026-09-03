@@ -12,10 +12,8 @@ categories = ["external-ffi-bindings", "api-bindings"]
 
 include = [
     "espeak-ng/CMakeLists.txt",
-    "espeak-ng/vim/",
     "espeak-ng/cmake/",
     "espeak-ng/phsource/",
-    "espeak-ng/tests/",
     "espeak-ng/src/",
     "espeak-ng/espeak-ng-data/",
     "espeak-ng/dictsource/**",
@@ -29,6 +27,10 @@ include = [
     "!espeak-ng/dictsource/extra/**",
     "!espeak-ng/dictsource/fo_list",
     "!espeak-ng/src/windows/Debug/*.wav",
+    # vim/ and tests/ dropped: neither is referenced by CMakeLists.txt (ENABLE_TESTS is forced
+    # OFF in build.rs), trimmed to stay clear of crates.io's 10MB .crate size cap; see #154.
+    # Their README.md stubs still end up packaged regardless -- cargo force-includes any
+    # README*/LICENSE* file it finds, independent of this include list.
 ]
 
 [build-dependencies]
