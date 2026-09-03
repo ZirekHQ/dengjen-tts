@@ -188,6 +188,42 @@ impl AudioOutputConfig {
     }
 }
 
+/// Which of the three synthesis strategies to run, and the parameters each needs.
+/// `synthesize_samples` matches this to decide which of `synthesize_lazy`/
+/// `synthesize_parallel`/`synthesize_streamed` to call.
+pub enum StreamMode {
+    Lazy,
+    Parallel,
+    Realtime {
+        chunk_size: usize,
+        chunk_padding: usize,
+        cancel_token: CancellationToken,
+    },
+}
+
+/// Wraps whichever of the three stream types `synthesize_samples` produced behind one
+/// `Iterator`, so callers stop matching on mode after construction. Lazy and parallel
+/// streams yield `Audio` (which carries per-chunk metadata callers here don't need);
+/// this strips both down to `AudioSamples` to match what the realtime stream already
+/// yields directly.
+pub enum AudioChunkStream {
+    Lazy(DengjenSpeechStreamLazy),
+    Parallel(DengjenSpeechStreamParallel),
+    Realtime(RealtimeSpeechStream),
+}
+
+impl Iterator for AudioChunkStream {
+    type Item = DengjenResult<AudioSamples>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Lazy(stream) => stream.next().map(|res| res.map(|audio| audio.samples)),
+            Self::Parallel(stream) => stream.next().map(|res| res.map(|audio| audio.samples)),
+            Self::Realtime(stream) => stream.next(),
+        }
+    }
+}
+
 /// Wraps a backend model behind the higher-level synthesis entry points
 /// (`synthesize_lazy`/`synthesize_parallel`/`synthesize_streamed`/`synthesize_to_file`).
 pub struct DengjenSpeechSynthesizer {
@@ -249,6 +285,35 @@ impl DengjenSpeechSynthesizer {
             info.num_channels,
             cancel_token,
         )
+    }
+
+    /// Runs `mode`'s corresponding synthesis strategy and returns its output as one
+    /// `AudioChunkStream`, so callers don't need their own match-on-mode dispatch.
+    pub fn synthesize_samples(
+        &self,
+        text: String,
+        output_config: Option<AudioOutputConfig>,
+        mode: StreamMode,
+    ) -> DengjenResult<AudioChunkStream> {
+        match mode {
+            StreamMode::Lazy => Ok(AudioChunkStream::Lazy(
+                self.synthesize_lazy(text, output_config)?,
+            )),
+            StreamMode::Parallel => Ok(AudioChunkStream::Parallel(
+                self.synthesize_parallel(text, output_config)?,
+            )),
+            StreamMode::Realtime {
+                chunk_size,
+                chunk_padding,
+                cancel_token,
+            } => Ok(AudioChunkStream::Realtime(self.synthesize_streamed(
+                text,
+                output_config,
+                chunk_size,
+                chunk_padding,
+                cancel_token,
+            )?)),
+        }
     }
 
     pub fn synthesize_to_file(
@@ -1359,6 +1424,84 @@ mod lazy_parallel_tests {
             .collect();
         assert_eq!(results.len(), 3);
         assert_eq!(results.iter().filter(|r| r.is_err()).count(), 1);
+    }
+
+    #[test]
+    fn synthesize_samples_lazy_strips_audio_down_to_samples() {
+        let model: Arc<dyn DengjenModel + Send + Sync> = Arc::new(CannedSentenceModel {
+            sentences: vec!["a", "bb"],
+            fail_on: None,
+        });
+        let synth = DengjenSpeechSynthesizer::new(model).unwrap();
+        let results: Vec<_> = synth
+            .synthesize_samples("irrelevant".to_string(), None, StreamMode::Lazy)
+            .unwrap()
+            .collect();
+        let lens: Vec<usize> = results.into_iter().map(|r| r.unwrap().len()).collect();
+        assert_eq!(
+            lens,
+            vec![1, 2],
+            "lazy mode must yield one AudioSamples per sentence, in order"
+        );
+    }
+
+    #[test]
+    fn synthesize_samples_parallel_strips_audio_down_to_samples() {
+        let model: Arc<dyn DengjenModel + Send + Sync> = Arc::new(CannedSentenceModel {
+            sentences: vec!["a", "bb", "ccc"],
+            fail_on: None,
+        });
+        let synth = DengjenSpeechSynthesizer::new(model).unwrap();
+        let results: Vec<_> = synth
+            .synthesize_samples("irrelevant".to_string(), None, StreamMode::Parallel)
+            .unwrap()
+            .collect();
+        let lens: Vec<usize> = results.into_iter().map(|r| r.unwrap().len()).collect();
+        assert_eq!(
+            lens,
+            vec![1, 2, 3],
+            "parallel mode must preserve sentence order in its output"
+        );
+    }
+
+    #[test]
+    fn synthesize_samples_propagates_a_sentence_level_error() {
+        let model: Arc<dyn DengjenModel + Send + Sync> = Arc::new(CannedSentenceModel {
+            sentences: vec!["a", "bb"],
+            fail_on: Some("bb"),
+        });
+        let synth = DengjenSpeechSynthesizer::new(model).unwrap();
+        let results: Vec<_> = synth
+            .synthesize_samples("irrelevant".to_string(), None, StreamMode::Lazy)
+            .unwrap()
+            .collect();
+        assert!(results[0].is_ok());
+        assert!(results[1].is_err());
+    }
+
+    #[test]
+    fn synthesize_samples_realtime_routes_through_synthesize_streamed() {
+        let model: Arc<dyn DengjenModel + Send + Sync> = Arc::new(CannedSentenceModel {
+            sentences: vec!["a"],
+            fail_on: None,
+        });
+        let synth = DengjenSpeechSynthesizer::new(model).unwrap();
+        let mut stream = synth
+            .synthesize_samples(
+                "irrelevant".to_string(),
+                None,
+                StreamMode::Realtime {
+                    chunk_size: 10,
+                    chunk_padding: 0,
+                    cancel_token: CancellationToken::new(),
+                },
+            )
+            .unwrap();
+        // CannedSentenceModel doesn't implement stream_synthesis, so DengjenModel's default
+        // impl surfaces UnsupportedOperation — this is what proves the Realtime arm actually
+        // dispatched to synthesize_streamed rather than silently no-op'ing.
+        let first = stream.next().unwrap();
+        assert!(matches!(first, Err(DengjenError::UnsupportedOperation(_))));
     }
 }
 
