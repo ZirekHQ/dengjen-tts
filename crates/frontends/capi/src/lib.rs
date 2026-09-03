@@ -1,4 +1,4 @@
-use dengjen_tts::{AudioOutputConfig, DengjenSpeechSynthesizer, SYNTHESIS_THREAD_POOL};
+use dengjen_tts::{AudioOutputConfig, DengjenSpeechSynthesizer, StreamMode, SYNTHESIS_THREAD_POOL};
 use dengjen_tts_core::{
     AudioSamples, CancellationToken, DengjenError, DengjenModel, DengjenResult,
 };
@@ -809,39 +809,33 @@ fn _do_synthesize(
 
     let output_config = Some(params.as_synth_output_config());
     let user_data = params.user_data;
-    match params.mode {
-        synth_mode::SYNTH_MODE_LAZY => {
-            let stream = synth
-                .synthesize_lazy(text, output_config)?
-                .map(|item| item.map(|audio| audio.samples));
-            iterate_stream(stream, callback, user_data)
-        }
-        synth_mode::SYNTH_MODE_PARALLEL => {
-            let stream = synth
-                .synthesize_parallel(text, output_config)?
-                .map(|item| item.map(|audio| audio.samples));
-            iterate_stream(stream, callback, user_data)
-        }
+
+    let mut _release_slot_on_drop = None;
+    let mode = match params.mode {
+        synth_mode::SYNTH_MODE_LAZY => StreamMode::Lazy,
+        synth_mode::SYNTH_MODE_PARALLEL => StreamMode::Parallel,
         synth_mode::SYNTH_MODE_REALTIME => {
             let cancel_token = CancellationToken::new();
             *cancel_slot
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(cancel_token.clone());
-            let _release_slot_on_drop = CancelSlotGuard {
+            _release_slot_on_drop = Some(CancelSlotGuard {
                 slot: cancel_slot,
                 token: cancel_token.clone(),
-            };
-            let stream = synth.synthesize_streamed(
-                text,
-                output_config,
-                REALTIME_CHUNK_SIZE,
-                REALTIME_CHUNK_PADDING,
+            });
+            StreamMode::Realtime {
+                chunk_size: REALTIME_CHUNK_SIZE,
+                chunk_padding: REALTIME_CHUNK_PADDING,
                 cancel_token,
-            )?;
-            iterate_stream(stream, callback, user_data)
+            }
         }
-        _ => Err(DengjenFFIError::invalid_synthesis_mode()),
-    }
+        _ => return Err(DengjenFFIError::invalid_synthesis_mode()),
+    };
+
+    let stream = synth
+        .synthesize_samples(text, output_config, mode)
+        .map_err(DengjenFFIError::from)?;
+    iterate_stream(stream, callback, user_data)
 }
 
 fn iterate_stream(

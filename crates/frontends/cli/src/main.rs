@@ -3,7 +3,7 @@
 use clap::Parser;
 use dengjen_tts::{
     AudioOutputConfig, AudioSamples, CancellationToken, DengjenModel, DengjenResult,
-    DengjenSpeechSynthesizer, SynthesisConfig,
+    DengjenSpeechSynthesizer, StreamMode, SynthesisConfig,
 };
 #[cfg(test)]
 use dengjen_tts_piper::PiperSynthesisConfig;
@@ -202,32 +202,17 @@ fn process_synthesis_request<W: Write>(
             .map_err(anyhow::Error::from);
     }
 
-    match req.mode.unwrap_or_default() {
-        SynthesisMode::Lazy => {
-            let samples = synth
-                .synthesize_lazy(req.text, output_config)?
-                .map(|res| res.map(|aud| aud.samples));
-            consume_stream(samples, writer)
-        }
-        SynthesisMode::Parallel => {
-            let samples = synth
-                .synthesize_parallel(req.text, output_config)?
-                .map(|res| res.map(|aud| aud.samples));
-            consume_stream(samples, writer)
-        }
-        SynthesisMode::Realtime => {
-            let chunk_size = req.chunk_size.unwrap_or(100);
-            let chunk_padding = req.chunk_padding.unwrap_or(3);
-            let samples = synth.synthesize_streamed(
-                req.text,
-                output_config,
-                chunk_size,
-                chunk_padding,
-                CancellationToken::new(),
-            )?;
-            consume_stream(samples, writer)
-        }
-    }
+    let mode = match req.mode.unwrap_or_default() {
+        SynthesisMode::Lazy => StreamMode::Lazy,
+        SynthesisMode::Parallel => StreamMode::Parallel,
+        SynthesisMode::Realtime => StreamMode::Realtime {
+            chunk_size: req.chunk_size.unwrap_or(100),
+            chunk_padding: req.chunk_padding.unwrap_or(3),
+            cancel_token: CancellationToken::new(),
+        },
+    };
+    let samples = synth.synthesize_samples(req.text, output_config, mode)?;
+    consume_stream(samples, writer)
 }
 
 fn consume_stream(
