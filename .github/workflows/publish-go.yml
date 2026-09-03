@@ -241,6 +241,7 @@ jobs:
   assemble-and-push:
     needs: [build-linux, build-windows, build-macos]
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       contents: read
     outputs:

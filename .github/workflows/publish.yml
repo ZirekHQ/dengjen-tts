@@ -11,10 +11,9 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       contents: read
-    env:
-      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
     steps:
       - name: git-submodule-fix
         run: git config --global protocol.file.allow always
@@ -28,24 +27,45 @@ jobs:
         with:
           toolchain: "1.97.1"
 
-      - name: publish tier 1 (audio-ops, sonic-sys)
+      # Verify (build + package) each crate before CARGO_REGISTRY_TOKEN ever
+      # enters the environment, so a malicious build.rs/proc-macro in the
+      # crate or its dependencies has no token to exfiltrate. --dry-run does
+      # the same build/verify cargo publish would, without uploading and
+      # without requiring the token.
+      - name: verify tier 1 (audio-ops, sonic-sys)
         run: |
-          cargo publish -p audio-ops --locked
-          cargo publish -p sonic-sys --locked
+          cargo publish --dry-run --locked -p audio-ops
+          cargo publish --dry-run --locked -p sonic-sys
+      - name: publish tier 1 (audio-ops, sonic-sys)
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          cargo publish -p audio-ops --locked --no-verify
+          cargo publish -p sonic-sys --locked --no-verify
       - name: wait for tier 1 to index
         run: |
           bash .github/scripts/wait-for-crate.sh audio-ops 1.0.0
           bash .github/scripts/wait-for-crate.sh sonic-sys 1.0.0
 
+      - name: verify tier 2 (dengjen-tts-core)
+        run: cargo publish --dry-run --locked -p dengjen-tts-core
       - name: publish tier 2 (dengjen-tts-core)
-        run: cargo publish -p dengjen-tts-core --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish -p dengjen-tts-core --locked --no-verify
       - name: wait for tier 2 to index
         run: bash .github/scripts/wait-for-crate.sh dengjen-tts-core 0.2.0
 
-      - name: publish tier 3 (hebrew-phonemizer, pinyin-phonemizer)
+      - name: verify tier 3 (hebrew-phonemizer, pinyin-phonemizer)
         run: |
-          cargo publish -p hebrew-phonemizer --locked
-          cargo publish -p pinyin-phonemizer --locked
+          cargo publish --dry-run --locked -p hebrew-phonemizer
+          cargo publish --dry-run --locked -p pinyin-phonemizer
+      - name: publish tier 3 (hebrew-phonemizer, pinyin-phonemizer)
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          cargo publish -p hebrew-phonemizer --locked --no-verify
+          cargo publish -p pinyin-phonemizer --locked --no-verify
       - name: wait for tier 3 to index
         run: |
           bash .github/scripts/wait-for-crate.sh hebrew-phonemizer 0.1.0
