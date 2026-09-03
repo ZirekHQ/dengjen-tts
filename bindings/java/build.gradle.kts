@@ -23,7 +23,7 @@ plugins {
     alias(libs.plugins.spotless)
 }
 
-group = "io.github.zirekhq.dengjen"
+group = "io.github.zirekhq"
 version = "0.0.0-SNAPSHOT"
 
 val snapshotVersion =
@@ -191,7 +191,7 @@ publishing {
         create<MavenPublication>("maven") {
             from(components["java"])
             pom {
-                name.set("dengjen-java-bindings")
+                name.set("dengjen-tts")
                 description.set("Java bindings for libdengjen, the C API for dengjen-tts.")
                 url.set("https://github.com/ZirekHQ/dengjen-tts")
                 licenses {

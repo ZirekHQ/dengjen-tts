@@ -63,8 +63,8 @@ be undefined behavior at this FFI boundary.
   `runtimeOnly` dependency on the classifier matching their platform:
 
   ```kotlin
-  implementation("io.github.zirekhq.dengjen:dengjen-java-bindings:<version>")
-  runtimeOnly("io.github.zirekhq.dengjen:dengjen-java-bindings:<version>:linux-x86_64")
+  implementation("io.github.zirekhq:dengjen-tts:<version>")
+  runtimeOnly("io.github.zirekhq:dengjen-tts:<version>:linux-x86_64")
   ```
 
   `DengjenLib` (via `NativeLibraryLoader`) detects the running platform and
