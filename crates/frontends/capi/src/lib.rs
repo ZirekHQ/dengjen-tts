@@ -832,7 +832,9 @@ fn _do_synthesize(
         _ => return Err(DengjenFFIError::invalid_synthesis_mode()),
     };
 
-    let stream = synth.synthesize_samples(text, output_config, mode)?;
+    let stream = synth
+        .synthesize_samples(text, output_config, mode)
+        .map_err(DengjenFFIError::from)?;
     iterate_stream(stream, callback, user_data)
 }
 
