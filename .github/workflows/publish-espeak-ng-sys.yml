@@ -16,10 +16,9 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       contents: read
-    env:
-      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
     steps:
       - name: git-submodule-fix
         run: git config --global protocol.file.allow always
@@ -50,9 +49,16 @@ jobs:
 
           echo "STAGE_DIR=$stage" >> "$GITHUB_ENV"
 
+      # Build/verify before CARGO_REGISTRY_TOKEN enters the environment, so a
+      # malicious build.rs in the assembled crate (or a dependency) has no
+      # token to exfiltrate — see publish.yml for the same pattern.
+      - name: verify dengjen-espeak-ng-sys
+        run: cargo publish --dry-run --manifest-path "${STAGE_DIR}/Cargo.toml"
       - name: publish dengjen-espeak-ng-sys
         # No --locked: the staged crate has no pre-existing Cargo.lock to validate against
         # (it's assembled fresh each release, not a committed workspace member).
-        run: cargo publish --manifest-path "${STAGE_DIR}/Cargo.toml"
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --manifest-path "${STAGE_DIR}/Cargo.toml" --no-verify
       - name: wait for crate to index
         run: bash .github/scripts/wait-for-crate.sh dengjen-espeak-ng-sys 0.2.1
