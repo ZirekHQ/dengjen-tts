@@ -1,6 +1,6 @@
 [package]
 name = "audio-ops"
-version = "1.0.0"
+version.workspace = true
 edition = "2021"
 license.workspace = true
 description = "Audio post-processing primitives shared across dengjen-tts's speech synthesis pipeline: sample buffers, Hann windowing, and WAV encoding"

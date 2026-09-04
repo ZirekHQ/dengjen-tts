@@ -19,9 +19,28 @@ members = [
 ]
 
 [workspace.package]
+# Single source of truth for every workspace crate's version (each member
+# sets `version.workspace = true`) — see scripts/next-version.sh and
+# scripts/bump-version.sh for how this gets bumped.
+version = "1.1.0"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/ZirekHQ/dengjen-tts"
 homepage = "https://github.com/ZirekHQ/dengjen-tts"
+
+# Internal path dependencies, versioned so `cargo publish` on a dependent
+# crate resolves against a real published version instead of a bare path.
+# `version` here is kept at the workspace version by the same bump script.
+[workspace.dependencies]
+dengjen-tts-core = { path = "crates/dengjen/core", version = "1.1.0" }
+dengjen-tts = { path = "crates/dengjen/synth", version = "1.1.0" }
+dengjen-tts-piper = { path = "crates/dengjen/models/piper", version = "1.1.0" }
+dengjen-tts-kokoro = { path = "crates/dengjen/models/kokoro", version = "1.1.0", default-features = false }
+dengjen-tts-melotts = { path = "crates/dengjen/models/melotts", version = "1.1.0", default-features = false }
+espeak-phonemizer = { path = "crates/text/espeak-phonemizer", version = "1.1.0" }
+hebrew-phonemizer = { path = "crates/text/hebrew-phonemizer", version = "1.1.0" }
+pinyin-phonemizer = { path = "crates/text/pinyin-phonemizer", version = "1.1.0" }
+sonic-sys = { path = "crates/audio/sonic-sys", version = "1.1.0" }
+audio-ops = { path = "crates/audio/ops", version = "1.1.0" }
 
 # Applies to every member crate that opts in with `[lints] workspace = true`.
 # CI (.github/workflows/rust-lint.yml) already runs `cargo clippy -- -D warnings`, which

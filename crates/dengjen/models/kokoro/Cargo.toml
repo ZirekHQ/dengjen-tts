@@ -1,6 +1,6 @@
 [package]
 name = "dengjen-tts-kokoro"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 license.workspace = true
 description = "Kokoro neural TTS model backend for the dengjen-tts speech synthesis engine"
@@ -20,8 +20,8 @@ coreml = ["ort/coreml"]
 directml = ["ort/directml"]
 
 [dependencies]
-dengjen-tts-core = { path = "../../core", version = "0.2.0" }
-espeak-phonemizer = { path = "../../../text/espeak-phonemizer", optional = true, version = "1.0.0" }
+dengjen-tts-core.workspace = true
+espeak-phonemizer = { workspace = true, optional = true }
 serde = { version = "1.0.160", features = ["derive"] }
 serde_json = "1.0.89"
 ndarray = "0.17"

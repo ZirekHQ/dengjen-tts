@@ -1,6 +1,6 @@
 [package]
 name = "dengjen-tts-python"
-version = "0.2.0"
+version.workspace = true
 edition = "2021"
 license.workspace = true
 
@@ -23,12 +23,16 @@ coreml = ["dengjen-tts-piper/coreml", "dengjen-tts-kokoro/coreml", "dengjen-tts-
 directml = ["dengjen-tts-piper/directml", "dengjen-tts-kokoro/directml", "dengjen-tts-melotts/directml"]
 
 [dependencies]
-espeak-phonemizer = { path = "../../text/espeak-phonemizer", optional = true }
-dengjen-tts-core = { path = "../../dengjen/core" }
-dengjen-tts = { path = "../../dengjen/synth" }
-dengjen-tts-piper = { path = "../../dengjen/models/piper", default-features = false }
-dengjen-tts-kokoro = { version = "0.1.0", path = "../../dengjen/models/kokoro", default-features = false }
-dengjen-tts-melotts = { version = "0.1.0", path = "../../dengjen/models/melotts", default-features = false }
+espeak-phonemizer = { workspace = true, optional = true }
+dengjen-tts-core.workspace = true
+dengjen-tts.workspace = true
+# Not workspace-inherited: Cargo silently ignores a member's attempt to
+# narrow `default-features` (true -> false) on a workspace-inherited
+# dependency, so this needs its own path+version pin, kept in sync with
+# [workspace.package].version by scripts/bump-version.sh.
+dengjen-tts-piper = { path = "../../dengjen/models/piper", version = "1.1.0", default-features = false }
+dengjen-tts-kokoro.workspace = true
+dengjen-tts-melotts.workspace = true
 once_cell = "1.18.0"
 
 [dependencies.dengjen-tashkeel]

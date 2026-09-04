@@ -27,6 +27,16 @@ jobs:
         with:
           toolchain: "1.97.1"
 
+      - name: Resolve workspace version
+        # Read from [workspace.package] rather than hardcoding it per crate
+        # below, so this file doesn't silently go stale (and wait for the
+        # wrong version to index) the next time the workspace version bumps.
+        id: version
+        run: |
+          set -euo pipefail
+          version="$(awk '/^\[workspace\.package\]/{f=1;next} /^\[/{f=0} f && /^version = /{gsub(/version = "|"/,""); print; exit}' Cargo.toml)"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
       # Verify (build + package) each crate before CARGO_REGISTRY_TOKEN ever
       # enters the environment, so a malicious build.rs/proc-macro in the
       # crate or its dependencies has no token to exfiltrate. --dry-run does
@@ -44,8 +54,8 @@ jobs:
           cargo publish -p sonic-sys --locked --no-verify
       - name: wait for tier 1 to index
         run: |
-          bash .github/scripts/wait-for-crate.sh audio-ops 1.0.0
-          bash .github/scripts/wait-for-crate.sh sonic-sys 1.0.0
+          bash .github/scripts/wait-for-crate.sh audio-ops "${{ steps.version.outputs.version }}"
+          bash .github/scripts/wait-for-crate.sh sonic-sys "${{ steps.version.outputs.version }}"
 
       - name: verify tier 2 (dengjen-tts-core)
         run: cargo publish --dry-run --locked -p dengjen-tts-core
@@ -54,7 +64,7 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: cargo publish -p dengjen-tts-core --locked --no-verify
       - name: wait for tier 2 to index
-        run: bash .github/scripts/wait-for-crate.sh dengjen-tts-core 0.2.0
+        run: bash .github/scripts/wait-for-crate.sh dengjen-tts-core "${{ steps.version.outputs.version }}"
 
       - name: verify tier 3 (hebrew-phonemizer, pinyin-phonemizer)
         run: |
@@ -68,5 +78,5 @@ jobs:
           cargo publish -p pinyin-phonemizer --locked --no-verify
       - name: wait for tier 3 to index
         run: |
-          bash .github/scripts/wait-for-crate.sh hebrew-phonemizer 0.1.0
-          bash .github/scripts/wait-for-crate.sh pinyin-phonemizer 0.1.0
+          bash .github/scripts/wait-for-crate.sh hebrew-phonemizer "${{ steps.version.outputs.version }}"
+          bash .github/scripts/wait-for-crate.sh pinyin-phonemizer "${{ steps.version.outputs.version }}"
