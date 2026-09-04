@@ -65,41 +65,55 @@ jobs:
       - name: Push release tag
         env:
           VERSION: ${{ steps.version.outputs.version }}
+        # Idempotent: a retry after this job fails partway through (e.g. a
+        # transient failure in the dispatch step below) must not hard-fail
+        # here just because v${VERSION} already exists from the first
+        # attempt. Checked against origin directly, not the local clone --
+        # checkout's default fetch-depth wouldn't reliably reflect a tag
+        # pushed by an earlier attempt.
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag "v${VERSION}"
-          git push origin "v${VERSION}"
+          existing="$(git ls-remote origin "refs/tags/v${VERSION}" | cut -f1)"
+          if [ -n "$existing" ]; then
+            if [ "$existing" != "$GITHUB_SHA" ]; then
+              echo "::error::v${VERSION} already exists on origin and points at ${existing}, not this commit (${GITHUB_SHA})" >&2
+              exit 1
+            fi
+            echo "v${VERSION} already exists on origin and points at this commit -- reusing it"
+          else
+            git tag "v${VERSION}"
+            git push origin "v${VERSION}"
+          fi
 
       - name: Trigger downstream releases
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
-        # No -e: the tag above is already pushed and can't be re-pushed on a
-        # retry (git rejects an existing tag), so a transient failure on one
-        # `gh workflow run` call must not abort the rest -- every dispatch
-        # gets attempted regardless, and the step only fails at the end,
-        # after every workflow that COULD be dispatched was.
+        # No -e: a transient failure on one `gh workflow run` call must not
+        # abort the rest -- every dispatch gets attempted regardless, and
+        # the step only fails at the end, after every workflow that COULD
+        # be dispatched was.
         #
-        # CI.yml is dispatched against the real vX.Y.Z tag ref (its release
-        # job gates on `startsWith(github.ref, 'refs/tags/')`, so it needs
-        # an actual tag ref to run against); publish.yml needs no tag at
-        # all (it reads the version straight from Cargo.toml); the other
-        # three carry their own historically-prefixed tag NAME as a
-        # workflow_dispatch input string, matching what a human's manual
-        # tag push would have named, without requiring that tag to actually
-        # exist on this repo beforehand (each workflow either only reads it
-        # as a string, or -- publish-grpc.yml -- creates it itself as part
-        # of publishing the GitHub Release).
+        # Every dispatch below runs against the real v${VERSION} tag ref
+        # (just pushed above), not `main` -- main can move between the tag
+        # push and this step (another PR merging in that gap), and
+        # dispatching against `main` would build and publish whatever
+        # commit main happens to be at by then, not the one actually
+        # tagged. java-publish.yml/publish-grpc.yml/publish-go.yml also
+        # take their own historically-prefixed tag NAME as a
+        # workflow_dispatch input string -- used only for Maven
+        # Central/GitHub Release naming, not for resolving what to check
+        # out, which the `--ref` below already pins.
         run: |
           set -uo pipefail
           failed=0
           gh workflow run CI.yml --ref "v${VERSION}" || failed=1
-          gh workflow run publish.yml --ref main || failed=1
-          gh workflow run java-publish.yml --ref main -f "tag=java-v${VERSION}" || failed=1
-          gh workflow run publish-grpc.yml --ref main -f "tag=grpc-release-v${VERSION}" || failed=1
-          gh workflow run publish-go.yml --ref main -f "tag=go-release-v${VERSION}" || failed=1
+          gh workflow run publish.yml --ref "v${VERSION}" || failed=1
+          gh workflow run java-publish.yml --ref "v${VERSION}" -f "tag=java-v${VERSION}" || failed=1
+          gh workflow run publish-grpc.yml --ref "v${VERSION}" -f "tag=grpc-release-v${VERSION}" || failed=1
+          gh workflow run publish-go.yml --ref "v${VERSION}" -f "tag=go-release-v${VERSION}" || failed=1
           if [ "$failed" -eq 1 ]; then
             echo "::error::One or more downstream workflow dispatches failed -- check the Actions tab and manually dispatch any that didn't fire (safe to re-dispatch any of these five for the same version: CI.yml/publish.yml/java-publish.yml/publish-grpc.yml are version-checked or idempotent, and publish-go.yml's own assemble-and-push step refuses to overwrite an already-released version's tag on ZirekHQ/dengjen-tts-go). dengjen-espeak-ng-sys is never dispatched here -- it has its own separate, manually-tagged release process (publish-espeak-ng-sys-*), unrelated to this version."
             exit 1

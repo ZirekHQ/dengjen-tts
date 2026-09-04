@@ -134,5 +134,12 @@ jobs:
         uses: softprops/action-gh-release@e598afbe1493e6b1bafb1f389cabb956eab91231 # v3.0.3
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
+          # action-gh-release defaults an unset target_commitish to the
+          # repo's default branch, not the commit this run actually
+          # checked out -- on a workflow_dispatch run (this tag doesn't
+          # exist yet), that would create grpc-release-vX.Y.Z pointing at
+          # whatever main is by the time this step runs, not the tagged
+          # release commit. Pin it explicitly.
+          target_commitish: ${{ github.sha }}
           name: dengjen-tts-grpc ${{ steps.version.outputs.version }}
           files: ${{ steps.package.outputs.zip_name }}
