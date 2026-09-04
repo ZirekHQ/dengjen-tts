@@ -32,10 +32,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          compare=$(gh api "repos/${{ github.repository }}/compare/main...mush42:main")
-          ahead_by=$(echo "$compare" | jq -r '.ahead_by')
+          compare=$(gh api --paginate --slurp "repos/${{ github.repository }}/compare/main...mush42:main")
+          ahead_by=$(echo "$compare" | jq -r '.[0].ahead_by')
           echo "ahead_by=$ahead_by" >> "$GITHUB_OUTPUT"
-          echo "$compare" | jq -r '.commits[] | "- [\(.sha[0:7])](\(.html_url)) \(.commit.message | split("\n")[0])"' > commits.md
+          echo "$compare" | jq -r '[.[].commits[]] | .[] | "- [\(.sha[0:7])](\(.html_url)) \(.commit.message | split("\n")[0])"' > commits.md
 
       - name: Ensure tracking label exists
         if: steps.compare.outputs.ahead_by != '0'
