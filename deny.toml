@@ -1,6 +1,6 @@
-# cargo-deny configuration.
-# Run `cargo deny check` locally, or see CI job `deny` in .github/workflows/rust-lint.yml.
-# Docs: https://embarkstudios.github.io/cargo-deny/
+
+
+
 
 [graph]
 targets = []
@@ -16,11 +16,11 @@ ignore = []
 
 [licenses]
 version = 2
-# GPL-3.0-or-later is this workspace's own license (see [workspace.package] in
-# the root Cargo.toml) — not a third-party risk. Everything else here is the
-# permissive set actually present in the dependency tree as of this writing;
-# `cargo deny check licenses` will flag anything new so additions are reviewed
-# instead of silently passing.
+
+
+
+
+
 allow = [
     "MIT",
     "Apache-2.0",

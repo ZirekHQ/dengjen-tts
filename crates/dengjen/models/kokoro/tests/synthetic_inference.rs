@@ -3,10 +3,10 @@ use dengjen_tts_kokoro::{KokoroModel, KokoroVoiceConfig};
 use std::io::Write;
 use std::path::PathBuf;
 
-// This test exercises the real inference plumbing (tensor construction, session.run,
-// output extraction) against the checked-in synthetic fixture - it does not assert
-// anything about real speech quality, only that the pipeline runs and produces the
-// expected shape/type of output.
+
+
+
+
 
 const STYLE_DIM: usize = 256;
 const MAX_TOKEN_LEN: usize = 510;
@@ -51,7 +51,7 @@ fn synthesizes_against_synthetic_fixture_without_panicking() {
     };
     let model = KokoroModel::from_config(config).expect("failed to load synthetic Kokoro model");
 
-    // "tɛst" phonemes (U+025B is ɛ), tokenizes against the minimal vocab above.
+    
     let audio = model
         .speak_one_sentence("t\u{025b}st".to_string())
         .expect("synthesis against synthetic fixture failed");
@@ -59,8 +59,8 @@ fn synthesizes_against_synthetic_fixture_without_panicking() {
     assert_eq!(audio.info.sample_rate, 24000);
     let samples = audio.samples.into_vec();
     assert!(!samples.is_empty(), "expected non-empty output samples");
-    // The synthetic graph always outputs exactly 16000 samples - not asserting sample
-    // VALUES, since they're an arbitrary placeholder computation, not real audio.
+    
+    
     assert_eq!(samples.len(), 16000);
 
     std::fs::remove_dir_all(&dir).ok();

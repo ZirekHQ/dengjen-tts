@@ -20,12 +20,12 @@ fn can_niqqud(letter: char) -> bool {
         .contains(letter)
 }
 
-/// Rebuilds diacritized text from per-position class ids. Model class id 0 is
-/// the mask token ("" upstream — emit nothing); id N (N>=1) is
-/// `*_classes()[N - 1]`. Do not prepend another RAFE here —
-/// `niqqud_classes()`/`dagesh_classes()`/`sin_classes()` already start with
-/// their own real RAFE entry at index 0 of the *class* list, which is
-/// distinct from the mask id.
+
+
+
+
+
+
 fn merge_diacritics(
     letters: &[char],
     niqqud_ids: &[usize],
@@ -52,12 +52,12 @@ fn merge_diacritics(
     out.replace(RAFE, "")
 }
 
-/// A Nakdimon niqqud-restoration ONNX session. `Session::run` requires `&mut
-/// self`, so the session is behind a `Mutex` to keep `diacritize` callable
-/// from `&self` (matching the other inference engines in this workspace).
+
+
+
 pub struct NakdimonEngine(Mutex<Session>);
 
-/// Loads a Nakdimon ONNX model from `model_path` for niqqud restoration.
+
 pub fn create_nakdimon_engine(model_path: &Path) -> DengjenResult<NakdimonEngine> {
     let session = Session::builder()
         .map_err(session_init_error)?
@@ -76,19 +76,19 @@ fn inference_error(cause: impl std::fmt::Display) -> DengjenError {
     DengjenError::InferenceError(format!("Nakdimon inference failed: {cause}"))
 }
 
-/// Validates a `(1, seq_len, expected_classes)` output shape against the
-/// actual input `seq_len` and the calling table's class count, erroring
-/// instead of panicking if the model produced a tensor of an unexpected
-/// rank, a batch size other than 1, a sequence length that disagrees with
-/// the input we gave it, or a class-count axis that doesn't match
-/// `expected_classes` (the corresponding `*_classes()` table's length, plus
-/// one for the mask token). Checked in that order: rank first, since a
-/// wrong-rank tensor makes every later index meaningless to report on.
-///
-/// Tying the validated class count to `expected_classes` up front is what
-/// keeps `merge_diacritics`'s `table[id - 1]` indexing in bounds: every id
-/// `argmax_per_position` can produce is `< expected_classes`, so `id - 1` is
-/// always a valid index into a table of length `expected_classes - 1`.
+
+
+
+
+
+
+
+
+
+
+
+
+
 pub fn num_classes(shape: &Shape, seq_len: usize, expected_classes: usize) -> DengjenResult<usize> {
     if shape.len() != 3 {
         return Err(inference_error(format!(
@@ -110,9 +110,9 @@ pub fn num_classes(shape: &Shape, seq_len: usize, expected_classes: usize) -> De
             "expected output sequence length {seq_len}, model produced shape {shape:?}"
         )));
     }
-    // ort::value::Shape stores dimensions as i64 and permits -1 to mark a dynamic dimension;
-    // `as usize` would wrap a negative value instead of rejecting it, and could then compare
-    // equal to a caller-supplied expected_classes of usize::MAX.
+    
+    
+    
     let num_classes = usize::try_from(num_classes).map_err(|_| {
         inference_error(format!(
             "expected a non-negative class dimension, model produced shape {shape:?}"
@@ -126,17 +126,17 @@ pub fn num_classes(shape: &Shape, seq_len: usize, expected_classes: usize) -> De
     Ok(num_classes)
 }
 
-/// Argmaxes the last axis of a flattened `(seq_len, num_classes)` logits
-/// buffer, returning one class id per sequence position.
+
+
 fn argmax_per_position(data: &[f32], seq_len: usize, num_classes: usize) -> Vec<usize> {
     (0..seq_len)
         .map(|pos| {
             let row = &data[pos * num_classes..(pos + 1) * num_classes];
             row.iter()
                 .enumerate()
-                // Ties break toward the LAST max value here, vs. upstream's
-                // `np.argmax` (first); accepted as unlikely to matter for
-                // real float32 model logits.
+                
+                
+                
                 .max_by(|a, b| a.1.total_cmp(b.1))
                 .map(|(idx, _)| idx)
                 .unwrap_or(0)
@@ -144,12 +144,12 @@ fn argmax_per_position(data: &[f32], seq_len: usize, num_classes: usize) -> Vec<
         .collect()
 }
 
-/// Strips any pre-existing niqqud/cantillation marks so the model always
-/// sees bare consonants, matching upstream's `remove_niqqud`, which its own
-/// `diacritize` calls first for exactly this reason. Without this, points
-/// already present in the input would fall through `normalize()`'s
-/// unknown-character fallback (`'O'`) instead of being recognized, silently
-/// degrading model input rather than erroring.
+
+
+
+
+
+
 fn remove_niqqud(text: &str) -> String {
     text.chars()
         .filter(|&c| !(0x05B0..=0x05C7).contains(&(c as u32)))
@@ -157,7 +157,7 @@ fn remove_niqqud(text: &str) -> String {
 }
 
 impl NakdimonEngine {
-    /// Restores niqqud (vowel points) in `text` using the loaded Nakdimon model.
+    
     pub fn diacritize(&self, text: &str) -> DengjenResult<String> {
         let text = remove_niqqud(text);
         let letters: Vec<char> = text.chars().collect();
@@ -230,20 +230,20 @@ mod tests {
 
     #[test]
     fn merge_diacritics_appends_dagesh_sin_niqqud_in_that_order() {
-        // "ב" (bet) with dagesh class 1 (DAGESH_LETTER) and niqqud class for
-        // PATAH — expect dagesh mark, then niqqud mark, appended after the
-        // letter (bet cannot take a sin dot, so sin class must be ignored).
-        let letters = vec!['\u{05D1}']; // bet
-        let niqqud_ids = vec![find_niqqud_class_id('\u{05B7}')]; // patah
+        
+        
+        
+        let letters = vec!['\u{05D1}']; 
+        let niqqud_ids = vec![find_niqqud_class_id('\u{05B7}')]; 
         let dagesh_ids = dagesh_id_for_dagesh_letter();
-        let sin_ids = vec![2usize]; // would be sin-dot if bet could take one
+        let sin_ids = vec![2usize]; 
         let merged = merge_diacritics(&letters, &niqqud_ids, &dagesh_ids, &sin_ids);
         assert_eq!(merged, "\u{05D1}\u{05BC}\u{05B7}");
     }
 
     #[test]
     fn merge_diacritics_skips_niqqud_for_letters_that_cannot_take_it() {
-        // Latin/space characters are not in `can_niqqud`'s letter set.
+        
         let letters = vec![' '];
         let merged = merge_diacritics(&letters, &[0], &[0], &[0]);
         assert_eq!(merged, " ");
@@ -254,20 +254,20 @@ mod tests {
             .iter()
             .position(|&c| c == target)
             .expect("target must be a real niqqud class")
-            + 1 // +1 for the prepended mask token, matching _NIQQUD_CHARS
+            + 1 
     }
 
-    // dagesh_ids uses the same "+1 for the prepended mask token" convention as
-    // niqqud_ids above (verified against upstream's `_DAGESH_CHARS = [""] +
-    // DAGESH`, where `DAGESH = [RAFE, DAGESH_LETTER]`): model id 2 maps to
-    // `dagesh_classes()[2 - 1]` == DAGESH_LETTER.
+    
+    
+    
+    
     fn dagesh_id_for_dagesh_letter() -> Vec<usize> {
         vec![2]
     }
 
     #[test]
     fn remove_niqqud_strips_points_and_leaves_base_letters_untouched() {
-        // shalom fully pointed: shin-yemanit + patah, lamed + holam, vav, mem-sofit + qamats
+        
         let pointed = "\u{05E9}\u{05C1}\u{05B7}\u{05DC}\u{05B9}\u{05D5}\u{05DD}\u{05B8}";
         assert_eq!(remove_niqqud(pointed), "\u{05E9}\u{05DC}\u{05D5}\u{05DD}");
     }
@@ -286,8 +286,8 @@ mod tests {
             (Shape::new(vec![2, 4, 7]), 4, 7),
             (Shape::new(vec![1, 3, 7]), 4, 7),
             (Shape::new(vec![1, 4, 6]), 4, 7),
-            // Rank 4, but axes 0-2 happen to match batch/seq/class: `shape.get(2)` alone would
-            // have silently accepted this and returned a plausible-looking wrong class count.
+            
+            
             (Shape::new(vec![1, 4, 7, 1]), 4, 7),
         ];
 
@@ -298,9 +298,9 @@ mod tests {
 
     #[test]
     fn num_classes_rejects_a_negative_class_dimension_instead_of_wrapping_to_usize_max() {
-        // ort::value::Shape permits -1 to mark a dynamic dimension. `as usize` would wrap -1
-        // to usize::MAX, which then compares equal to an expected_classes of usize::MAX --
-        // exactly the value this regression case supplies.
+        
+        
+        
         let shape = Shape::new(vec![1, 4, -1]);
         assert!(num_classes(&shape, 4, usize::MAX).is_err());
     }

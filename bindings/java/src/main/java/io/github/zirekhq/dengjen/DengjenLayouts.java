@@ -10,10 +10,10 @@ import java.lang.foreign.GroupLayout;
 import java.lang.foreign.MemoryLayout;
 import java.lang.foreign.MemoryLayout.PathElement;
 
-/**
- * MemoryLayouts mirroring the C structs in libdengjen.h (crates/frontends/capi/libdengjen.h). Pure
- * metadata -- constructing these does not load the native library, unlike DengjenLib.
- */
+
+
+
+
 final class DengjenLayouts {
   static final GroupLayout EXTERN_ERROR =
       MemoryLayout.structLayout(

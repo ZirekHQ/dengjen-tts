@@ -68,11 +68,6 @@ where
         sample_width,
     )?;
 
-    // Written to a temp sibling and renamed into place on success, so a write failure never
-    // truncates or deletes a pre-existing file already at `path` (`File::create` truncates).
-    // The temp path is unique per call and opened with exclusive creation, so two concurrent
-    // writes to the same destination can never truncate, overwrite, or race on each other's
-    // temp file.
     let temp_path = temp_sibling_path(path);
 
     let mut file = File::options()
@@ -86,7 +81,7 @@ where
             ))
         })?;
 
-    // write_all (not write) avoids silently truncating on a short write.
+    
     file.write_all(&encoded).map_err(|source| {
         let _ = std::fs::remove_file(&temp_path);
         WaveWriterError::new(format!(
@@ -105,8 +100,8 @@ where
     })
 }
 
-/// Process-local counter making each call's temp filename unique, combined with the process
-/// ID so distinct processes writing to the same destination path also can't collide.
+
+
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 fn temp_sibling_path(path: &Path) -> std::path::PathBuf {
@@ -300,8 +295,8 @@ mod tests {
         let path = dir.join("existing.wav");
         std::fs::write(&path, b"pre-existing content").unwrap();
 
-        // A read-only directory makes creating the temp sibling file fail, standing in for
-        // any failure between temp-file creation and the final rename.
+        
+        
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).unwrap();
         let root_can_bypass_permissions = std::fs::OpenOptions::new()
             .write(true)
@@ -327,9 +322,9 @@ mod tests {
 
     #[test]
     fn temp_sibling_path_is_unique_across_repeated_calls_for_the_same_destination() {
-        // The bug this fixes: a fixed temp filename let two concurrent writes to the same
-        // destination race on the same .tmp file, corrupting one or both. Each call must now
-        // get its own path.
+        
+        
+        
         let dest = Path::new("/tmp/dengjen-wave-writer-uniqueness-test.wav");
         let first = temp_sibling_path(dest);
         let second = temp_sibling_path(dest);
@@ -357,9 +352,6 @@ mod tests {
             handle.join().unwrap().unwrap();
         }
 
-        // Whichever write landed last, the destination must be a single complete,
-        // uncorrupted WAV file (correct header, no leftover partial/temp bytes) -- not a mix
-        // of two writers' bytes.
         let bytes = std::fs::read(&path).unwrap();
         assert_eq!(&bytes[0..4], b"RIFF");
         assert_eq!(&bytes[8..12], b"WAVE");
@@ -395,7 +387,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn to_file_errors_when_the_write_fails() {
-        // /dev/full always accepts open() but fails every write() with ENOSPC.
+        
         if this_process_can_write_into_dev() {
             eprintln!(
                 "skipping: this process can write into /dev (likely root), so the \

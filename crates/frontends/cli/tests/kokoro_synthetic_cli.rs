@@ -1,11 +1,11 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-// Regression test for the CLI panicking on every Kokoro voice: the CLI downcast
-// `get_default_synthesis_config()` to a Piper config and `.expect(...)`ed it, which
-// blew up right after `load_voice` succeeded, before any synthesis ran. This drives
-// the real `dengjen` binary against a synthetic Kokoro voice so the panic - not just
-// its absence in the source - is what the test observes.
+
+
+
+
+
 
 const STYLE_DIM: usize = 256;
 const MAX_TOKEN_LEN: usize = 510;

@@ -1,6 +1,6 @@
 use dengjen_tts_core::{DengjenError, DengjenResult};
 
-/// Ordered longest-pattern-first. Each entry is (espeak IPA substring, Kokoro phoneme symbol).
+
 #[cfg_attr(not(feature = "espeak"), allow(dead_code))]
 const SUBSTITUTIONS: &[(&str, &str)] = &[
     ("aɪ", "I"),
@@ -51,38 +51,36 @@ mod tests {
 
     #[test]
     fn espeak_ipa_to_kokoro_composes_ai_diphthong() {
-        // espeak IPA for "time" is "tˈaɪm" (verified against real espeak-ng)
+        
         assert_eq!(espeak_ipa_to_kokoro("tˈaɪm"), "tˈIm");
     }
 
     #[test]
     fn espeak_ipa_to_kokoro_composes_dz_affricate() {
-        // espeak IPA for "job" is "dʒˈɑːb" (verified against real espeak-ng);
-        // the length mark on ɑː is also stripped.
+        
         assert_eq!(espeak_ipa_to_kokoro("dʒˈɑːb"), "ʤˈɑb");
     }
 
     #[test]
     fn espeak_ipa_to_kokoro_composes_oi_diphthong() {
-        // espeak IPA for "toy" is "tˈɔɪ" (verified against real espeak-ng)
+        
         assert_eq!(espeak_ipa_to_kokoro("tˈɔɪ"), "tˈY");
     }
 
     #[test]
     fn espeak_ipa_to_kokoro_composes_au_diphthong() {
-        // espeak IPA for "house" is "hˈaʊs" (verified against real espeak-ng)
+        
         assert_eq!(espeak_ipa_to_kokoro("hˈaʊs"), "hˈWs");
     }
 
     #[test]
     fn espeak_ipa_to_kokoro_leaves_plain_phonemes_unchanged() {
-        // espeak IPA for "test" is "tˈɛst" (verified against real espeak-ng) - no
-        // diphthongs/affricates/length-marks present, so nothing should change.
+        
         assert_eq!(espeak_ipa_to_kokoro("tˈɛst"), "tˈɛst");
     }
 
-    // espeak-ng keeps the selected voice in process-global state, so concurrent
-    // tests calling it clobber each other's voice selection.
+    
+    
     #[cfg(feature = "espeak")]
     static ESPEAK_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
@@ -122,7 +120,7 @@ mod tests {
     fn text_to_kokoro_phonemes_returns_one_entry_per_sentence() {
         let _guard = lock_espeak();
         // Real espeak-ng output for this input:
-        // ["həlˈO ðˈɛɹ.", "ʤˈɛnəɹɹəl kɛnˈObI."] - two entries, one per sentence.
+        // ["həlˈO ðˈɛɹ.", "ʤˈɛnəɹɹəl kɛnˈObI."]
         let Some(result) = phonemize_or_skip("Hello there. General Kenobi.", "en-US") else {
             return;
         };
@@ -139,10 +137,10 @@ mod tests {
     fn text_to_kokoro_phonemes_strips_language_switch_flags() {
         let _guard = lock_espeak();
         // Same mixed-script input as espeak-phonemizer's own test_lang_switch_flags,
-        // which emits `(en)`/`(ar)` switch markers; they must be stripped before
-        // reaching the tokenizer, where they would become audible garbage. Asserting
-        // on the parentheses rather than the literal flags, since the IPA-to-Kokoro
-        // substitutions rewrite the letters inside them.
+        
+        
+        
+        
         let Some(result) = phonemize_or_skip("Hello معناها مرحباً", "ar") else {
             return;
         };
@@ -156,18 +154,17 @@ mod tests {
     #[cfg(not(feature = "espeak"))]
     #[test]
     fn text_to_kokoro_phonemes_returns_error_when_espeak_disabled() {
-        // With the `espeak` feature off, the crate must still compile and fail
-        // cleanly at call time rather than being unable to build at all.
+        
+        
         let result = text_to_kokoro_phonemes("hello", "en-US");
         assert!(matches!(result, Err(DengjenError::PhonemizationError(_))));
     }
 
     #[test]
     fn espeak_ipa_to_kokoro_composes_syllabic_consonant() {
-        // espeak IPA for "button" is "bˈʌʔn\u{0329}." (verified against real
-        // espeak-ng) - the trailing combining U+0329 marks the syllabic nasal;
-        // it composes with the preceding "n" into Kokoro's "ᵊn" convention, and
-        // the glottal stop is also mapped to "t" by the existing rule.
+        
+        
+        
         assert_eq!(espeak_ipa_to_kokoro("bˈʌʔn\u{0329}."), "bˈʌtᵊn.");
     }
 }

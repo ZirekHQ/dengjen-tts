@@ -1,6 +1,6 @@
 package io.github.zirekhq.dengjen;
 
-/** An error reported by libdengjen: an {@link ErrorCode} plus a human-readable message. */
+
 public final class DengjenException extends RuntimeException {
   private final ErrorCode errorCode;
 

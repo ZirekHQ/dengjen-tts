@@ -27,13 +27,13 @@ where
         .collect()
 }
 
-/// GPU execution providers to try before falling back to CPU, in priority order. Each entry's
-/// presence is gated at compile time by its matching Cargo feature; a provider that fails to
-/// initialize at runtime (missing driver, unsupported hardware) is silently skipped by ort — see
-/// `ExecutionProviderDispatch`'s `error_on_failure` default — so no explicit fallback logic is
-/// needed here.
-// Each push is behind its own #[cfg], so clippy's `vec![]` suggestion doesn't apply: cfg
-// attributes aren't permitted per-element inside a `vec![]` invocation on stable.
+
+
+
+
+
+
+
 #[allow(clippy::vec_init_then_push)]
 pub(crate) fn execution_providers() -> Vec<ort::ep::ExecutionProviderDispatch> {
     #[allow(unused_mut)]
@@ -64,9 +64,9 @@ pub(crate) fn inference_error(cause: impl std::fmt::Display) -> DengjenError {
     DengjenError::InferenceError(format!("Failed to run model inference. Error: {}", cause))
 }
 
-/// Builds the positional input list every VITS graph expects: the phoneme ids,
-/// their length, the three synthesis scales, and — for multi-speaker voices
-/// only — the speaker id.
+
+
+
 pub(crate) fn build_vits_inputs(
     phoneme_ids: Vec<i64>,
     scales: [f32; 3],
@@ -90,8 +90,8 @@ pub(crate) fn build_vits_inputs(
     inputs
 }
 
-/// Snapshots the values the graph needs out of the synthesis config, so the
-/// read lock is not held for the duration of the inference run.
+
+
 pub(crate) fn snapshot_scales_and_speaker(
     synth_config: &RwLock<PiperSynthesisConfig>,
     num_speakers: u32,

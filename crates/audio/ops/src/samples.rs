@@ -6,8 +6,8 @@ const I16_MIN_AS_F32: f32 = i16::MIN as f32;
 const I16_MAX_AS_F32: f32 = i16::MAX as f32;
 const WAV_PEAK_MAGNITUDE: f32 = 32767.0;
 
-/// Format metadata for a raw PCM sample stream: rate, channel count, and
-/// per-sample byte width.
+
+
 #[derive(Debug, Clone)]
 pub struct AudioInfo {
     pub sample_rate: usize,
@@ -15,9 +15,9 @@ pub struct AudioInfo {
     pub sample_width: usize,
 }
 
-/// A newtype around a `Vec<f32>` PCM buffer (samples normally fall in
-/// `[-1.0, 1.0]`), with the shaping operations (fades, filters, normalization)
-/// applied before the buffer is encoded to WAV.
+
+
+
 #[derive(Clone, Debug, Default)]
 #[must_use]
 pub struct AudioSamples(Vec<f32>);
@@ -65,10 +65,10 @@ impl AudioSamples {
         if self.0.is_empty() {
             return Vec::new();
         }
-        // A NaN or +-Infinity sample (model inference can emit either) is excluded from peak
-        // detection -- f32::max ignores NaN, but not Infinity, which would otherwise drive gain
-        // to 0.0 and silence every OTHER sample too -- and degrades to silence in the output
-        // rather than corrupting the scale for the rest of the buffer.
+        
+        
+        
+        
         let peak_magnitude = self
             .0
             .iter()
@@ -104,9 +104,9 @@ impl AudioSamples {
         if self.0.is_empty() {
             return;
         }
-        // Same non-finite handling as to_i16_vec: excluded from peak detection, degraded to
-        // silence in the output, so one corrupted sample can't zero (or NaN-poison) every
-        // other sample via an Infinity-inflated divisor.
+        
+        
+        
         let peak_magnitude = self
             .0
             .iter()
@@ -135,17 +135,17 @@ impl AudioSamples {
         Ok(())
     }
 
-    /// Crossfades the last `overlap_len` samples of `self` with the first `overlap_len` samples
-    /// of `other` (linear ramp, complementary gains summing to exactly 1.0 at every sample) and
-    /// appends the rest of `other`. A linear ramp, not an equal-power (sin/cos) one, because
-    /// `self`/`other` are adjacent chunks of the same continuous signal, not independent
-    /// sources: for phase-aligned/correlated samples, equal-power gains sum to more than 1.0
-    /// (up to sqrt(2) at the midpoint), producing an audible bump at the seam.
+    
+    
+    
+    
+    
+    
     pub fn overlap_with(&mut self, other: &mut Self, overlap_len: usize) {
         let overlap_len = overlap_len.min(self.0.len()).min(other.0.len());
         if overlap_len == 1 {
-            // No meaningful ramp over a single sample; blend evenly rather than picking an
-            // arbitrary endpoint of a degenerate 0..=1 range.
+            
+            
             let tail_start = self.0.len() - 1;
             self.0[tail_start] = (self.0[tail_start] + other.0[0]) * 0.5;
         } else if overlap_len > 1 {
@@ -189,8 +189,8 @@ impl AudioSamples {
     pub fn crossfade(&mut self, fade_samples: usize) {
         let length = self.0.len();
         let span = fade_samples.min(length / 2);
-        // A span under 2 samples has nothing to fade and would divide by
-        // zero below (span - 1 would underflow at 0 or hit 0 at 1).
+        
+        
         if span < 2 {
             return;
         }
@@ -202,7 +202,7 @@ impl AudioSamples {
         }
     }
 
-    /// Zeroes every sample at or above `cutoff` within `sample_range`. Not a frequency filter.
+    
     pub fn zero_samples_above(&mut self, sample_range: std::ops::Range<usize>, cutoff: f32) {
         let end = sample_range.end.min(self.0.len());
         let clamped = sample_range.start.min(end)..end;
@@ -211,7 +211,7 @@ impl AudioSamples {
         });
     }
 
-    /// Zeroes every sample at or below `cutoff` within `sample_range`. Not a frequency filter.
+    
     pub fn zero_samples_below(&mut self, sample_range: std::ops::Range<usize>, cutoff: f32) {
         let end = sample_range.end.min(self.0.len());
         let clamped = sample_range.start.min(end)..end;
@@ -220,7 +220,7 @@ impl AudioSamples {
         });
     }
 
-    /// Removes samples whose magnitude is at or below `silence_threshold`.
+    
     pub fn strip_silence(&mut self, sample_range: std::ops::Range<usize>, silence_threshold: f32) {
         let end = sample_range.end.min(self.0.len());
         let clamped = sample_range.start.min(end)..end;
@@ -264,8 +264,8 @@ impl IntoIterator for AudioSamples {
     }
 }
 
-/// One decoded utterance: its sample buffer, format metadata, and (if known)
-/// how long the model took to produce it.
+
+
 #[derive(Debug, Clone)]
 #[must_use]
 pub struct Audio {
@@ -410,9 +410,9 @@ mod tests {
 
     #[test]
     fn zero_samples_above_clamps_a_range_that_would_reverse_after_independent_end_clamping() {
-        // start=10 and end=1: clamping each independently to len() (3) leaves 3..1, still
-        // reversed, and indexing a reversed range panics. Clamping start to the
-        // already-clamped end instead collapses this to the valid empty range 1..1.
+        
+        
+        
         let mut buffer = AudioSamples::from(vec![1.0, 2.0, 3.0]);
         buffer.zero_samples_above(10..1, 0.0);
         assert_eq!(buffer.into_vec(), vec![1.0, 2.0, 3.0]);
@@ -495,8 +495,6 @@ mod tests {
 
     #[test]
     fn normalize_degrades_an_infinite_sample_to_silence_without_poisoning_the_rest() {
-        // An infinite sample is excluded from peak detection, so it no longer inflates
-        // `divisor` to Infinity and zeroes (or NaNs) every other sample in the buffer.
         let mut buffer = AudioSamples::from(vec![f32::INFINITY, 0.5]);
         buffer.normalize(1.0);
         let samples = buffer.into_vec();
@@ -506,9 +504,6 @@ mod tests {
 
     #[test]
     fn to_i16_vec_degrades_an_infinite_sample_to_silence_without_poisoning_the_rest() {
-        // peak_magnitude is computed from the finite 0.5 sample alone (Infinity excluded), so
-        // gain reflects the real finite peak instead of collapsing to 0.0 and silencing the
-        // whole buffer.
         let buffer = AudioSamples::from(vec![f32::INFINITY, 0.5]);
         assert_eq!(buffer.to_i16_vec(), vec![0, 32767]);
     }
@@ -662,7 +657,7 @@ mod tests {
 
     #[test]
     fn real_time_factor_divides_inference_ms_by_duration_ms() {
-        // 100 samples at 100Hz span 1000ms; a 50ms inference gives rtf 0.05.
+        
         let clip = Audio::new(AudioSamples::from(vec![0.0; 100]), 100, Some(50.0));
         assert_eq!(clip.real_time_factor(), Some(0.05));
     }
@@ -682,8 +677,8 @@ mod tests {
         let mut head = AudioSamples::from(vec![1.0, 2.0]);
         let mut tail = AudioSamples::from(vec![3.0, 4.0]);
         head.overlap_with(&mut tail, 2);
-        // offset=0: gain_out=1.0, gain_in=0.0 -> 1.0*1.0 + 3.0*0.0 = 1.0 (unchanged boundary).
-        // offset=1: gain_out=0.0, gain_in=1.0 -> 2.0*0.0 + 4.0*1.0 = 4.0 (fully "other").
+        
+        
         assert_eq!(head.as_vec(), &vec![1.0, 4.0]);
     }
 
@@ -697,10 +692,10 @@ mod tests {
 
     #[test]
     fn overlap_with_gains_sum_to_exactly_one_at_every_offset() {
-        // The bug this fixes: an equal-power (sin/cos) ramp sums to more than 1.0 for
-        // correlated/phase-aligned samples, producing an audible bump at the seam. Verify the
-        // complementary property directly by crossfading two buffers of 1.0s -- the result at
-        // every overlap position must stay exactly 1.0, never overshoot.
+        
+        
+        
+        
         let mut head = AudioSamples::from(vec![1.0; 8]);
         let mut tail = AudioSamples::from(vec![1.0; 8]);
         head.overlap_with(&mut tail, 8);
@@ -719,9 +714,9 @@ mod proptest_tests {
     use super::*;
     use proptest::prelude::*;
 
-    // Finite, non-degenerate f32s: bounded so results stay well away from f32's own limits,
-    // letting these properties test structure/logic rather than accidentally rediscovering
-    // float overflow (already covered by the dedicated NaN/infinity unit tests above).
+    
+    
+    
     fn sample() -> impl Strategy<Value = f32> {
         -1000.0f32..1000.0f32
     }

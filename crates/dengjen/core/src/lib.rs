@@ -139,10 +139,7 @@ pub trait DengjenModel {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // Minimal stand-in for `DengjenModel` so this crate's default trait-method
-    // logic (speaker lookup, stream_synthesis fallback) can be tested without a
-    // real ONNX-backed implementor. Not the shared Tier 2 mock fixture.
+    
     struct NullModel;
 
     impl DengjenModel for NullModel {

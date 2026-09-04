@@ -159,8 +159,7 @@ trait VitsModelCommons {
         } else {
             Cow::Borrowed(text)
         };
-        // Downstream crates match the inner error's `Failed to initialize eSpeak-ng` substring,
-        // so it must reach the wrapped message intact.
+
         text_to_phonemes(&source, voice, None, true, false)
             .map(Phonemes::from)
             .map_err(|e| {
@@ -187,8 +186,8 @@ trait VitsModelCommons {
     #[cfg(feature = "tashkeel")]
     #[cfg_attr(not(feature = "espeak"), allow(dead_code))]
     fn diacritize_text(&self, text: &str) -> DengjenResult<String> {
-        // Reachable only after should_diacritize() confirmed the voice, which is also what
-        // guarantees the engine was built.
+        
+        
         let engine = self
             .get_tashkeel_engine()
             .expect("tashkeel engine missing for a voice that needs diacritization");
@@ -198,7 +197,7 @@ trait VitsModelCommons {
             ))
         })
     }
-    // should_diacritize() is always false without this feature, so this is unreachable.
+    
     #[cfg(not(feature = "tashkeel"))]
     #[cfg_attr(not(feature = "espeak"), allow(dead_code))]
     fn diacritize_text(&self, _text: &str) -> DengjenResult<String> {
@@ -388,19 +387,19 @@ mod tests {
     #[cfg(feature = "espeak")]
     #[test]
     fn do_phonemize_text_wraps_the_full_espeak_init_error_message() {
-        // Force espeak-ng's init to fail deterministically, regardless of the ambient
-        // environment: a system-wide espeak-ng-data install, or an earlier CI step in the same
-        // job exporting this same env var for the rest of the job (see #85). This is the only
-        // test in this crate gated on the `espeak` feature and the only one touching this env
-        // var, so mutating it here races with nothing else in this test binary.
-        // espeak_phonemizer::resolve_data_directory only checks whether this directory's
-        // `espeak-ng-data` subdirectory exists, so the path need not exist on disk at all.
+        
+        
+        
+        
+        
+        
+        
         std::env::set_var(
             "DENGJEN_ESPEAKNG_DATA_DIRECTORY",
             "/nonexistent/dengjen-test-guaranteed-missing-espeak-ng-data",
         );
-        // kokoro/phonemize.rs, synth/tests.rs, and cli/tests/kokoro_synthetic_cli.rs all guard
-        // on this exact substring, so truncating the wrapped error would silently break them.
+        
+        
         let commons = TestVitsCommons {
             synth_config: RwLock::new(PiperSynthesisConfig::default()),
             config: ModelConfig::default(),

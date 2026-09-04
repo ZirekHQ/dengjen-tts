@@ -9,11 +9,11 @@ import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-/**
- * Exercises the bindings end-to-end against a real trained voice, following the Rust convention
- * (e.g. dengjen-tts-kokoro's e2e_real_voice.rs and the CLI's kokoro_e2e.rs): gated behind
- * DENGJEN_KOKORO_TEST_VOICE_CONFIG, soft-skipping when it's unset rather than failing the build.
- */
+
+
+
+
+
 class RealVoiceE2ETest {
   @Test
   void synthesizesRealAudioFromARealVoice(@TempDir Path tempDir) throws IOException {

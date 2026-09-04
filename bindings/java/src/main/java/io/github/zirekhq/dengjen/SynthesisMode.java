@@ -1,6 +1,6 @@
 package io.github.zirekhq.dengjen;
 
-/** Mirrors the SYNTH_MODE_* constants in libdengjen.h. */
+
 public enum SynthesisMode {
   LAZY(0),
   PARALLEL(1),

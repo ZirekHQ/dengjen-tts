@@ -1,9 +1,9 @@
-//! Hebrew grapheme-to-phoneme dispatch: diacritizes `text` first (if it
-//! carries no niqqud already), then converts the result to IPA. Ported from
-//! OHF-Voice/piper1-gpl's `src/piper/phonemize_hebrew.py` — the top-level
-//! Hebrew phonemizer module, not the `hebrew/` subpackage it calls into
-//! (which only holds `hebrew/__init__.py`'s Nakdimon tables, ported in
-//! `chars.rs`, and `hebrew/hebrew_ipa.py`'s IPA rules, ported in `ipa.rs`).
+
+
+
+
+
+
 
 #![forbid(unsafe_code)]
 
@@ -12,17 +12,17 @@ mod ipa;
 mod nakdimon;
 
 pub use nakdimon::{create_nakdimon_engine, NakdimonEngine};
-// Exposed only so crates/text/hebrew-phonemizer/fuzz can fuzz this pure, no-model-required
-// tensor-shape validation directly, matching dengjen-tts-piper's map_phonemes_to_ids
-// convention.
+
+
+
 pub use nakdimon::num_classes;
 
 use dengjen_tts_core::{DengjenResult, Phonemes};
 
-// Source of truth: `phonemize_hebrew.py`'s niqqud-detection regex
-// `[ְ-ׇּֿׁׂ]`, i.e. `\u{05B0}` (SHEVA, the first niqqud mark) through
-// `\u{05C7}` (QAMATS_QATAN, the last one used in this port), plus the
-// dagesh/shin/sin dots which fall inside that same contiguous range.
+
+
+
+
 const NIQQUD_RANGE_START: u32 = 0x05B0;
 const NIQQUD_RANGE_END: u32 = 0x05C7;
 
@@ -31,22 +31,22 @@ fn already_diacritized(text: &str) -> bool {
         .any(|c| (NIQQUD_RANGE_START..=NIQQUD_RANGE_END).contains(&(c as u32)))
 }
 
-/// Converts Hebrew text to IPA phonemes, diacritizing first (via `engine`)
-/// if `text` carries no niqqud already.
-///
-/// Returns the whole utterance's IPA as a single joined string
-/// (`Phonemes::from(vec![ipa])`), re-tokenized downstream by
-/// `map_phonemes_to_ids`'s longest-match lookup against a voice's
-/// `phoneme_id_map`. This was flagged (#83) as a possible collision risk —
-/// verified against a real he-IL voice (`he_IL-saspeech-medium`,
-/// rhasspy/piper-voices): its `phoneme_id_map` has only 5 multi-codepoint
-/// keys, all Latin-script English diphthongs (`aɪ`, `aʊ`, `eɪ`, `oʊ`, `ɔɪ`)
-/// that this module's IPA output never produces, and no `"ts"` key at all.
-/// No collision; no fix needed.
-///
-/// # Errors
-///
-/// Returns an error if diacritization via `engine` fails.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 pub fn text_to_hebrew_phonemes(engine: &NakdimonEngine, text: &str) -> DengjenResult<Phonemes> {
     let diacritized = if already_diacritized(text) {
         text.to_string()
@@ -68,7 +68,7 @@ mod tests {
 
     #[test]
     fn text_to_hebrew_phonemes_skips_diacritization_when_already_pointed() {
-        let pointed = "\u{05E9}\u{05B8}\u{05DC}\u{05D5}\u{05DD}"; // shalom, pointed
+        let pointed = "\u{05E9}\u{05B8}\u{05DC}\u{05D5}\u{05DD}"; 
         assert!(already_diacritized(pointed));
         let ipa = hebrew_to_ipa_or_error(pointed).unwrap();
         assert!(!ipa.is_empty());
@@ -76,7 +76,7 @@ mod tests {
 
     #[test]
     fn already_diacritized_is_false_for_undotted_consonants_only() {
-        let undotted = "\u{05E9}\u{05DC}\u{05D5}\u{05DD}"; // shalom, no niqqud
+        let undotted = "\u{05E9}\u{05DC}\u{05D5}\u{05DD}"; 
         assert!(!already_diacritized(undotted));
     }
 
@@ -87,9 +87,9 @@ mod tests {
     }
 
     fn hebrew_to_ipa_or_error(text: &str) -> DengjenResult<String> {
-        // Exercises the niqqud-check + ipa::hebrew_to_ipa path directly,
-        // without needing a real NakdimonEngine (this helper only exists in
-        // the test module to isolate the already-pointed-text path).
+        
+        
+        
         Ok(ipa::hebrew_to_ipa(text))
     }
 

@@ -1,8 +1,8 @@
-//! Chinese number-to-words normalization, scoped to the common patterns named
-//! in the design spec (plain digit sequences, percentages, temperatures) —
-//! not a general RBNF-equivalent formatter. No Rust crate provides
-//! RBNF-grade Chinese number formatting (upstream uses Python's
-//! `unicode_rbnf`), so this is original code, not a port.
+
+
+
+
+
 
 const DIGITS: [char; 10] = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
 
@@ -10,8 +10,8 @@ fn digit_to_word(d: u32) -> char {
     DIGITS[d as usize]
 }
 
-/// Formats an unsigned integer 0-99 using standard Chinese two-digit
-/// composition (`十位` + `十` + `个位`, dropping the leading 一 for 10-19).
+
+
 fn format_small_number(n: u32) -> String {
     if n < 10 {
         return digit_to_word(n).to_string();
@@ -29,10 +29,10 @@ fn format_small_number(n: u32) -> String {
     out
 }
 
-/// Formats an arbitrary non-negative integer string as Chinese words,
-/// digit-by-digit for anything outside the 0-99 range this backend actually
-/// needs (percentages/temperatures never exceed two digits in practice, but
-/// this stays correct rather than panicking on a longer input).
+
+
+
+
 fn format_integer(digits: &str) -> String {
     if let Ok(n) = digits.parse::<u64>() {
         if n < 100 {
@@ -46,8 +46,8 @@ fn format_integer(digits: &str) -> String {
         .collect()
 }
 
-/// Reads a decimal fraction digit-by-digit (`76` -> `七六`, never `七十六`): unlike the whole
-/// part, digits after the point are always spoken individually.
+
+
 fn format_fraction_digits(digits: &str) -> String {
     digits
         .chars()

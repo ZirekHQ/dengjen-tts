@@ -27,8 +27,8 @@ pub(crate) fn should_diacritize(_voice: &str) -> bool {
     false
 }
 
-// Returns `None` when the caller should fall through to the espeak-based phonemization
-// path; `Some(_)` when this phoneme_type is fully handled here.
+
+
 pub(crate) fn phonemize_dispatch(
     phoneme_type: PhonemeType,
     text: &str,
@@ -106,10 +106,10 @@ pub(crate) fn create_hebrew_engine(
                 .to_string(),
         ));
     };
-    // Resolved relative to the config file's own directory, matching every
-    // other model path in this crate (e.g. `onnx_path`/`encoder_path`, which
-    // use `config_path.with_file_name(..)` the same way), rather than the
-    // process's current working directory.
+    
+    
+    
+    
     let resolved_model_path = resolve_hebrew_model_path(config_path, model_path);
     hebrew_phonemizer::create_nakdimon_engine(&resolved_model_path).map(Some)
 }
@@ -140,9 +140,9 @@ pub(crate) fn create_pinyin_engine(
                 .to_string(),
         ));
     };
-    // Resolved relative to the config file's own directory, matching every
-    // other model path in this crate (see resolve_hebrew_model_path above),
-    // rather than the process's current working directory.
+    
+    
+    
     let resolved_model_dir = resolve_pinyin_model_dir(config_path, model_dir);
     pinyin_phonemizer::create_pinyin_engine(&resolved_model_dir).map(Some)
 }
@@ -191,10 +191,10 @@ mod tests {
     #[cfg(feature = "hebrew")]
     #[test]
     fn phonemize_dispatch_delegates_hebrew_to_the_hebrew_engine_when_present() {
-        // No real model available in this sandbox — assert on the *absence*
-        // path instead: dispatch must return a clear error, not panic, when
-        // this voice is configured for Hebrew but no engine was constructed
-        // (e.g. a caller-supplied model path that failed to load earlier).
+        
+        
+        
+        
         let result = phonemize_dispatch(
             PhonemeType::Hebrew,
             "\u{05E9}\u{05DC}\u{05D5}\u{05DD}",
@@ -207,9 +207,9 @@ mod tests {
     #[cfg(not(feature = "hebrew"))]
     #[test]
     fn phonemize_dispatch_still_errors_on_hebrew_when_feature_disabled() {
-        // Third/fourth params stay `Option<&HebrewEngine>`/`Option<&PinyinEngine>`
-        // regardless of feature flags — only what each type resolves to changes.
-        // Pass `None`, never `()`.
+        
+        
+        
         let result = phonemize_dispatch(PhonemeType::Hebrew, "hello", None, None).unwrap();
         assert!(result.is_err());
     }
@@ -217,9 +217,9 @@ mod tests {
     #[cfg(feature = "pinyin")]
     #[test]
     fn phonemize_dispatch_delegates_pinyin_to_the_pinyin_engine_when_present() {
-        // No real model available in this sandbox — assert on the *absence*
-        // path instead: dispatch must return a clear error, not panic, when
-        // this voice is configured for pinyin but no engine was constructed.
+        
+        
+        
         let result = phonemize_dispatch(PhonemeType::Pinyin, "\u{4F60}\u{597D}", None, None);
         assert!(result.unwrap().is_err());
     }

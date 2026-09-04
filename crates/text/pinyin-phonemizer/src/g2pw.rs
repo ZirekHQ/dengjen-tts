@@ -1,7 +1,7 @@
-//! g2pW ONNX polyphone-disambiguation inference, ported from
-//! OHF-Voice/piper1-gpl's `src/piper/g2pw_onnx.py`, itself an inference-only
-//! port of GitYCC/g2pW (Apache-2.0). See `tokenize.rs`'s module doc for the
-//! same attribution.
+
+
+
+
 
 use crate::tokenize::tokenize_and_map;
 use dengjen_tts_core::{DengjenError, DengjenResult};
@@ -22,8 +22,8 @@ pub(crate) fn build_phoneme_mask(labels: &[String], candidates: &[usize]) -> Vec
     mask
 }
 
-/// Mirrors `_FeatureBuilder._truncate_texts`: `start = max(0, query - window/2)`,
-/// `end = min(len, query + window/2)`. Integer division matches Python's `//`.
+
+
 pub(crate) fn truncate_window(
     text_len: usize,
     query_id: usize,
@@ -87,12 +87,12 @@ pub(crate) fn create_g2pw_engine(
 }
 
 impl G2pwEngine {
-    /// Resolves the bopomofo label for the character at `query_char_index` (a
-    /// character index, not byte index) within `text`. Callers must have already
-    /// confirmed that character is genuinely polyphonic (present in
-    /// `config.char2phonemes`) — the three-tier resolution stage this crate
-    /// builds on top of this module is responsible for only calling this for
-    /// characters that actually need it.
+    
+    
+    
+    
+    
+    
     pub fn resolve_polyphonic(&self, text: &str, query_char_index: usize) -> DengjenResult<String> {
         let chars: Vec<char> = text.chars().collect();
         let query_char = *chars.get(query_char_index).ok_or_else(|| {
@@ -123,7 +123,7 @@ impl G2pwEngine {
                 ))
             })?;
 
-        // [CLS] occupies position 0, shifting every real token index by one.
+        
         let truncate_len = self.config.max_len.saturating_sub(2);
         let (final_tokens, position_id) = if tokens.len() > truncate_len {
             let token_start =
@@ -176,13 +176,13 @@ impl G2pwEngine {
         let (shape, probs) = outputs[0]
             .try_extract_tensor::<f32>()
             .map_err(inference_error)?;
-        // Validate the model's own reported output shape completely before indexing into
-        // `self.config.labels` or the probability buffer, rather than trusting a
-        // caller-supplied model's output width matches the caller-supplied label list — the
-        // same "no panics on model-shape-dependent data" principle applied throughout this
-        // engine (e.g. hebrew-phonemizer's nakdimon.rs). Checking only the last dimension
-        // would silently accept a wrong-rank tensor whose last dimension happens to match, or
-        // a negative (ONNX dynamic-dimension) label count that wraps to a huge usize.
+        
+        
+        
+        
+        
+        
+        
         if shape.len() != 2 {
             return Err(inference_error(format!(
                 "expected a rank-2 (batch, num_labels) output tensor, got shape {shape:?}"
@@ -222,7 +222,7 @@ impl G2pwEngine {
         self.tokenizer.token_to_id("[SEP]").unwrap_or(102) as i64
     }
     fn token_to_id(&self, token: &str) -> i64 {
-        // 100 = [UNK] in bert-base-chinese's real vocab; verify at integration time.
+        
         self.tokenizer.token_to_id(token).unwrap_or(100) as i64
     }
 }
@@ -266,9 +266,9 @@ mod tests {
             );
             return;
         };
-        // Building a real G2pwConfig needs `dictionary.rs`'s loader wired in here;
-        // this test is a documented placeholder without that wiring, not a real
-        // assertion yet, kept explicit so it isn't silently forgotten.
+        
+        
+        
         eprintln!(
             "resolve_polyphonic_disambiguates_a_known_polyphonic_character_with_a_real_model \
              requires the crate's dictionary loader to be wired up before it can run for real: \

@@ -215,9 +215,6 @@ impl EncoderOutputs {
         };
         let z = extract_named_array(&values, "z")?;
         let y_mask = extract_named_array(&values, "y_mask")?;
-        // `z`/`y_mask` are later indexed and sliced on axis 2, which requires rank >= 3. The
-        // ONNX graph's output shape is not guaranteed by this crate, so validate it here rather
-        // than panicking downstream.
         for (name, array) in [("z", &z), ("y_mask", &y_mask)] {
             if array.ndim() < 3 {
                 return Err(DengjenError::with_message(format!(
@@ -230,9 +227,9 @@ impl EncoderOutputs {
             z,
             y_mask,
             p_duration: optional("p_duration")?,
-            // Single-speaker graphs emit no `g`. An empty array stands in for
-            // "absent" — every decoder call keys off `g.is_empty()` to decide
-            // whether the speaker embedding is part of its input list at all.
+            
+            
+            
             g: optional("g")?.unwrap_or_else(|| Array1::<f32>::from_iter([]).into_dyn()),
         })
     }
@@ -282,8 +279,8 @@ impl SpeechStreamer {
         cancel_token: CancellationToken,
     ) -> Self {
         let num_frames = encoder_outputs.z.shape()[2];
-        // Too few frames to be worth splitting: chunking here would cost more
-        // decoder passes than it saves in latency, so decode the lot at once.
+        
+        
         let one_shot = num_frames <= (chunk_size * 2 + chunk_padding * 2);
         Self {
             mel_chunker: AdaptiveMelChunker::new(
@@ -299,8 +296,8 @@ impl SpeechStreamer {
         }
     }
 
-    /// Runs the decoder over one padded frame slice, then cuts the padding back
-    /// off the waveform and crossfades the seam with the neighbouring chunk.
+    
+    
     fn synthesize_chunk(
         &self,
         mel_index: ndarray::Slice,
@@ -348,8 +345,8 @@ impl Iterator for SpeechStreamer {
         }
         let (mel_index, audio_index) = self.mel_chunker.next()?;
         if self.one_shot {
-            // Emit the whole utterance as a single un-crossfaded item, then let
-            // the exhausted chunker end the stream on the following call.
+            
+            
             self.mel_chunker.consume();
             return Some(self.encoder_outputs.infer_decoder(&self.decoder_model));
         }
@@ -357,20 +354,20 @@ impl Iterator for SpeechStreamer {
     }
 }
 
-/// Walks the encoder's frame axis, handing out one (mel slice, audio slice)
-/// pair per decoder pass. Each mel slice is widened by `padding` frames on both
-/// sides so the decoder has context across the seam; the paired audio slice
-/// says how much of the resulting waveform to throw away again, in samples.
-///
-/// Successive chunks get progressively wider (up to `MAX_CHUNK_SIZE`): the
-/// first chunk stays small so audio starts playing quickly, later ones grow so
-/// the decoder is invoked less often once the stream is already flowing.
+
+
+
+
+
+
+
+
 struct AdaptiveMelChunker {
     num_frames: isize,
     base_chunk_size: usize,
     padding: isize,
     hop_length: isize,
-    /// Start of the next chunk's unpadded region; `None` once exhausted.
+    
     cursor: Option<isize>,
     chunks_emitted: usize,
 }
@@ -392,9 +389,9 @@ impl AdaptiveMelChunker {
     }
 
     fn current_chunk_width(&self) -> isize {
-        // `chunk_size` reaches here from the public `stream_synthesis` API; clamping the
-        // effective width to at least one frame prevents a caller-supplied 0 from stalling the
-        // cursor and looping forever.
+        
+        
+        
         self.base_chunk_size
             .max(1)
             .saturating_mul(self.chunks_emitted + 1)
@@ -408,8 +405,8 @@ impl Iterator for AdaptiveMelChunker {
     fn next(&mut self) -> Option<Self::Item> {
         let region_start = self.cursor?;
 
-        // The opening chunk has no predecessor to overlap with, so it needs no
-        // leading padding and nothing trimmed off its front.
+        
+        
         let (mel_start, lead_trim) = if region_start == 0 {
             (0, 0)
         } else {
@@ -417,8 +414,8 @@ impl Iterator for AdaptiveMelChunker {
         };
 
         let padded_end = region_start + self.current_chunk_width() + self.padding;
-        // A remainder this short doesn't justify another decoder pass, so the
-        // current chunk swallows it by running open-ended to the sequence end.
+        
+        
         let is_final = self.num_frames - padded_end <= MIN_CHUNK_SIZE;
 
         let (mel_end, tail_trim) = if is_final {
@@ -465,28 +462,28 @@ mod tests {
 
     #[test]
     fn adaptive_mel_chunker_clamps_chunk_width_at_max() {
-        // base_chunk_size=600: the first chunk's width is 600*1=600
-        // (unclamped). Once it's emitted, chunks_emitted=1, so the second
-        // chunk's raw width would be 600*2=1200, which exceeds
-        // MAX_CHUNK_SIZE (1024) and must be clamped down before it's used to
-        // compute the mel slice.
+        
+        
+        
+        
+        
         let mut chunker = AdaptiveMelChunker::new(100_000, 600, 10, 256);
 
         let (first_mel, _) = chunker.next().unwrap();
-        assert_eq!(first_mel.end, Some(610)); // 0 + 600 + padding(10)
+        assert_eq!(first_mel.end, Some(610)); 
 
         let (second_mel, _) = chunker.next().unwrap();
-        // Without the clamp this would be 610 + 1200 + 10 = 1820.
+        
         assert_eq!(second_mel.end, Some(610 + MAX_CHUNK_SIZE as isize + 10));
         assert_eq!(chunker.current_chunk_width(), MAX_CHUNK_SIZE as isize);
     }
 
     #[test]
     fn adaptive_mel_chunker_terminates_when_remaining_frames_fall_below_minimum() {
-        // num_frames=50, chunk_size=10, chunk_padding=5, hop_length=10:
-        // chunk_end = 0 + 10 + 5 = 15; remaining = 50 - 15 = 35 <= MIN_CHUNK_SIZE (44),
-        // so this chunk is terminal (end_index/end_padding = None) and the next
-        // call must return None (iterator exhausted).
+        
+        
+        
+        
         let mut chunker = AdaptiveMelChunker::new(50, 10, 5, 10);
         let (mel_index, audio_index) = chunker.next().unwrap();
         assert_eq!(mel_index.end, None);
@@ -496,8 +493,8 @@ mod tests {
 
     #[test]
     fn adaptive_mel_chunker_terminates_when_chunk_size_and_padding_are_both_zero() {
-        // Before the fix, chunk_size=0 with chunk_padding=0 made current_chunk_width() return
-        // 0, so the cursor never advanced and the iterator yielded empty slices forever.
+        
+        
         let chunker = AdaptiveMelChunker::new(1000, 0, 0, 10);
         let chunks: Vec<_> = chunker.take(1000).collect();
         assert!(

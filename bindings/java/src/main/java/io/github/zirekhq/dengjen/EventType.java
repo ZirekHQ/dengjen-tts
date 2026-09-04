@@ -1,6 +1,6 @@
 package io.github.zirekhq.dengjen;
 
-/** Mirrors the SYNTH_EVENT_* constants in libdengjen.h. */
+
 public enum EventType {
   SPEECH(0),
   FINISHED(1),

@@ -10,22 +10,22 @@ import (
 	"unsafe"
 )
 
-// Voice is a loaded dengjen-tts voice model. The zero value is not usable;
-// construct one with LoadVoice. Callers must call Close when done; a
-// finalizer is registered as a backstop, not a substitute for explicit Close.
+
+
+
 type Voice struct {
 	ptr *C.struct_DengjenVoice
 }
 
-// AudioInfo describes a voice's output audio format.
+
 type AudioInfo struct {
 	SampleRate  uint32
 	NumChannels uint32
 	SampleWidth uint32
 }
 
-// LoadVoice loads a voice model from a manifest at configPath (the same
-// config.json/.onnx.json shape every other dengjen-tts frontend accepts).
+
+
 func LoadVoice(configPath string) (*Voice, error) {
 	cPath := C.CString(configPath)
 	defer C.free(unsafe.Pointer(cPath))
@@ -40,15 +40,15 @@ func LoadVoice(configPath string) (*Voice, error) {
 	return v, nil
 }
 
-// Close releases the voice's native resources. Safe to call more than once.
+
 func (v *Voice) Close() error {
 	if v.ptr == nil {
 		return nil
 	}
-	// SAFETY (Go side): libdengjenUnloadDengjenVoice requires voice_ptr to be
-	// non-null and well-aligned, which holds here since it was just produced
-	// by a successful libdengjenLoadVoiceFromConfigPath call and hasn't been
-	// freed yet (guarded by the nil-check above).
+	
+	
+	
+	
 	C.libdengjenUnloadDengjenVoice(v.ptr)
 	v.ptr = nil
 	runtime.SetFinalizer(v, nil)

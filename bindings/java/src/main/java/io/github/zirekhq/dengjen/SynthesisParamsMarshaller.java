@@ -4,7 +4,7 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
-/** Builds a native SynthesisParams struct segment from a SynthesisParams record. */
+
 final class SynthesisParamsMarshaller {
   private SynthesisParamsMarshaller() {}
 

@@ -10,8 +10,8 @@ import (
 	"unsafe"
 )
 
-// SynthConfig mirrors libdengjen's PiperSynthConfig: the tunable synthesis
-// parameters exposed by Piper-family voices.
+
+
 type SynthConfig struct {
 	Speaker     uint32
 	LengthScale float32
@@ -19,7 +19,7 @@ type SynthConfig struct {
 	NoiseW      float32
 }
 
-// PiperDefaultSynthConfig returns this voice's default synthesis parameters.
+
 func (v *Voice) PiperDefaultSynthConfig() (SynthConfig, error) {
 	if v.ptr == nil {
 		return SynthConfig{}, ErrVoiceClosed
@@ -39,7 +39,7 @@ func (v *Voice) PiperDefaultSynthConfig() (SynthConfig, error) {
 	}, nil
 }
 
-// SetPiperSynthConfig updates this voice's fallback synthesis parameters.
+
 func (v *Voice) SetPiperSynthConfig(cfg SynthConfig) error {
 	if v.ptr == nil {
 		return ErrVoiceClosed
@@ -56,9 +56,9 @@ func (v *Voice) SetPiperSynthConfig(cfg SynthConfig) error {
 	return checkError(cErr)
 }
 
-// SetSynthesisParameter sets a single named parameter on the voice's fallback
-// synthesis config (model-agnostic — works for any backend's own parameter
-// names, e.g. Piper's "length_scale" or MeloTTS's "noise_scale_w").
+
+
+
 func (v *Voice) SetSynthesisParameter(key string, value float32) error {
 	if v.ptr == nil {
 		return ErrVoiceClosed
@@ -71,8 +71,8 @@ func (v *Voice) SetSynthesisParameter(key string, value float32) error {
 	return checkError(cErr)
 }
 
-// SynthesisParameter reads a single named parameter from the voice's fallback
-// synthesis config. ok is false if the key was never set (not an error).
+
+
 func (v *Voice) SynthesisParameter(key string) (value float32, ok bool, err error) {
 	if v.ptr == nil {
 		return 0, false, ErrVoiceClosed

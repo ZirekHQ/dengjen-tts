@@ -9,12 +9,12 @@ use rayon::{prelude::*, ThreadPool, ThreadPoolBuilder};
 mod utils;
 pub use dengjen_tts_core::*;
 
-/// Reads the `model_type` field out of a VITS-family voice config's JSON,
-/// returning it verbatim if present. Real Piper `.onnx.json` configs never
-/// carry this field, so its absence defaults to `"piper"` rather than
-/// erroring. Pure JSON parsing — this crate has no awareness of, or
-/// dependency on, any concrete backend model crate; frontends use the
-/// returned string to pick which backend's `from_config_path` to call.
+
+
+
+
+
+
 pub fn detect_model_type(config_path: &Path) -> DengjenResult<String> {
     let raw = std::fs::read_to_string(config_path).map_err(|why| {
         DengjenError::FailedToLoadResource(format!(
@@ -37,8 +37,8 @@ pub fn detect_model_type(config_path: &Path) -> DengjenResult<String> {
     Ok(model_type.to_owned())
 }
 
-/// A closed interval that one of Sonic's post-processing knobs (speed,
-/// volume, pitch) is scaled onto from a `0..=100` percentage.
+
+
 struct ParamRange {
     min: f32,
     max: f32,
@@ -48,9 +48,9 @@ const SPEED_PARAM_RANGE: ParamRange = ParamRange { min: 0.5, max: 5.5 };
 const VOLUME_PARAM_RANGE: ParamRange = ParamRange { min: 0.0, max: 1.0 };
 const PITCH_PARAM_RANGE: ParamRange = ParamRange { min: 0.5, max: 1.5 };
 
-/// Rayon pool that synthesis work runs on, kept off whatever thread calls
-/// into this crate. Sized to a multiple of the core count so more
-/// synthesis requests can run concurrently than there are cores.
+
+
+
 pub static SYNTHESIS_THREAD_POOL: Lazy<ThreadPool> = Lazy::new(|| {
     let core_count = std::thread::available_parallelism()
         .map(usize::from)
@@ -62,9 +62,9 @@ pub static SYNTHESIS_THREAD_POOL: Lazy<ThreadPool> = Lazy::new(|| {
         .expect("thread pool construction only fails on invalid config, never at runtime")
 });
 
-/// Optional post-processing to run on synthesized audio before it reaches
-/// the caller: speed/volume/pitch adjustments (each a `0..=100` percentage
-/// of its own fixed range) and/or trailing silence to pad the clip with.
+
+
+
 #[derive(Clone)]
 pub struct AudioOutputConfig {
     pub rate: Option<u8>,
@@ -83,9 +83,9 @@ impl AudioOutputConfig {
         )?;
         audio.samples.merge(processed);
         if let Some(silence_ms) = self.appended_silence_ms {
-            // generate_silence already routes through apply_to_raw_samples, so appending its
-            // result here (rather than raw zeros merged before the call above) keeps the
-            // rate/volume/pitch scaling applied exactly once.
+            
+            
+            
             let silence = self.generate_silence(
                 silence_ms as usize,
                 audio.info.sample_rate,
@@ -96,9 +96,9 @@ impl AudioOutputConfig {
         Ok(audio)
     }
 
-    /// Runs `samples` through a fresh Sonic stream configured with whichever
-    /// of `rate`/`volume`/`pitch` are set, returning the transformed audio.
-    /// A no-op on empty input (Sonic has nothing meaningful to do with it).
+    
+    
+    
     fn apply_to_raw_samples(
         &self,
         samples: AudioSamples,
@@ -110,10 +110,10 @@ impl AudioOutputConfig {
         }
         let input = samples.into_vec();
 
-        // SAFETY: every libsonic call below targets the `stream` handle this
-        // block itself creates, and every exit from the block — the early
-        // error return on a zero-sample result included — destroys that
-        // same handle first, so no stream ever outlives this block.
+        
+        
+        
+        
         unsafe {
             let stream = sonic_sys::sonicCreateStream(sample_rate as i32, num_channels as i32);
 
@@ -122,9 +122,9 @@ impl AudioOutputConfig {
                     utils::percent_to_param(pct, SPEED_PARAM_RANGE.min, SPEED_PARAM_RANGE.max);
                 sonic_sys::sonicSetSpeed(stream, speed);
             }
-            // volume == 0 (exact mute) is handled below, after Sonic has run, rather than by
-            // calling sonicSetVolume(0.0): Sonic clamps its volume parameter to a minimum of
-            // 0.01 internally, so asking it for silence doesn't actually produce silence.
+            
+            
+            
             if let Some(pct) = self.volume.filter(|&pct| pct != 0) {
                 let volume =
                     utils::percent_to_param(pct, VOLUME_PARAM_RANGE.min, VOLUME_PARAM_RANGE.max);
@@ -136,11 +136,11 @@ impl AudioOutputConfig {
                 sonic_sys::sonicSetPitch(stream, pitch);
             }
 
-            // libsonic's numSamples/maxSamples parameters (and sonicSamplesAvailable's return)
-            // are always a per-channel frame count -- the library multiplies by numChannels
-            // itself to get the actual interleaved float count. `input`/`output` are
-            // interleaved buffers, so every frame count below is scaled by num_channels when
-            // sizing or indexing them.
+            
+            
+            
+            
+            
             let frame_count = input.len() / num_channels;
             sonic_sys::sonicWriteFloatToStream(stream, input.as_ptr(), frame_count as i32);
             sonic_sys::sonicFlushStream(stream);
@@ -154,8 +154,8 @@ impl AudioOutputConfig {
             }
 
             let mut output: Vec<f32> = Vec::with_capacity(available_frames as usize * num_channels);
-            // sonicReadFloatFromStream can return fewer frames than `available_frames`; set_len
-            // must reflect what was actually written, not the pre-read availability count.
+            
+            
             let frames_read = sonic_sys::sonicReadFloatFromStream(
                 stream,
                 output.spare_capacity_mut().as_mut_ptr().cast(),
@@ -173,9 +173,9 @@ impl AudioOutputConfig {
         }
     }
 
-    /// Builds `time_ms` worth of silence at the given rate/channel count and
-    /// routes it through [`Self::apply_to_raw_samples`], so appended silence
-    /// picks up the same rate/volume/pitch treatment as the real audio.
+    
+    
+    
     fn generate_silence(
         &self,
         time_ms: usize,
@@ -188,9 +188,9 @@ impl AudioOutputConfig {
     }
 }
 
-/// Which of the three synthesis strategies to run, and the parameters each needs.
-/// `synthesize_samples` matches this to decide which of `synthesize_lazy`/
-/// `synthesize_parallel`/`synthesize_streamed` to call.
+
+
+
 pub enum StreamMode {
     Lazy,
     Parallel,
@@ -201,11 +201,11 @@ pub enum StreamMode {
     },
 }
 
-/// Wraps whichever of the three stream types `synthesize_samples` produced behind one
-/// `Iterator`, so callers stop matching on mode after construction. Lazy and parallel
-/// streams yield `Audio` (which carries per-chunk metadata callers here don't need);
-/// this strips both down to `AudioSamples` to match what the realtime stream already
-/// yields directly.
+
+
+
+
+
 pub enum AudioChunkStream {
     Lazy(DengjenSpeechStreamLazy),
     Parallel(DengjenSpeechStreamParallel),
@@ -224,8 +224,8 @@ impl Iterator for AudioChunkStream {
     }
 }
 
-/// Wraps a backend model behind the higher-level synthesis entry points
-/// (`synthesize_lazy`/`synthesize_parallel`/`synthesize_streamed`/`synthesize_to_file`).
+
+
 pub struct DengjenSpeechSynthesizer {
     backend: Arc<dyn DengjenModel + Sync + Send>,
 }
@@ -287,8 +287,8 @@ impl DengjenSpeechSynthesizer {
         )
     }
 
-    /// Runs `mode`'s corresponding synthesis strategy and returns its output as one
-    /// `AudioChunkStream`, so callers don't need their own match-on-mode dispatch.
+    
+    
     pub fn synthesize_samples(
         &self,
         text: String,
@@ -432,7 +432,7 @@ impl SpeechSynthesisTaskProvider {
 }
 
 /// Pulls one sentence's audio out of the underlying model on each
-/// `Iterator::next` call, rather than synthesizing everything up front.
+
 pub struct DengjenSpeechStreamLazy {
     provider: SpeechSynthesisTaskProvider,
     pending_sentences: std::vec::IntoIter<String>,
@@ -458,11 +458,11 @@ impl Iterator for DengjenSpeechStreamLazy {
     }
 }
 
-/// Synthesizes every sentence up front via rayon's parallel iterator, then
-/// replays the finished results one at a time. `par_iter().map().collect()`
-/// preserves input order in its output `Vec`, so callers see results in the
-/// same order as the source sentences even though synthesis itself ran
-/// concurrently and completed in whatever order the thread pool finished.
+
+
+
+
+
 #[must_use]
 pub struct DengjenSpeechStreamParallel {
     finished: std::vec::IntoIter<DengjenAudioResult>,
@@ -489,28 +489,28 @@ impl Iterator for DengjenSpeechStreamParallel {
     }
 }
 
-/// Upper bound on the value `next_chunk_size` can return, in whatever unit
-/// the active backend's `chunk_size` parameter uses (mel frames for Piper,
-/// samples for Kokoro). A backstop against pathological growth, not a
-/// value any normal stream is expected to reach.
+
+
+
+
 const MAX_STREAM_CHUNK_SIZE: usize = 1_000_000;
 
-/// Delivers synthesized audio chunks as a background producer thread
-/// generates them, so a caller can start playback before the whole text
-/// finishes synthesizing.
+
+
+
 pub struct RealtimeSpeechStream {
     rx: Receiver<DengjenResult<AudioSamples>>,
     cancel_token: CancellationToken,
 }
 
 impl RealtimeSpeechStream {
-    /// Grows the chunk size by one extra multiple of `base_chunk_size` per
-    /// sentence already seen, capped at 4 extra multiples (5x base total),
-    /// then clamped to `MAX_STREAM_CHUNK_SIZE`. The growth is always relative
-    /// to the fixed `base_chunk_size`, never to a value this function
-    /// previously returned, so calling it repeatedly across a stream can
-    /// only ramp up and plateau — never compound past the cap and never
-    /// fall back down between sentences.
+    
+    
+    
+    
+    
+    
+    
     fn next_chunk_size(base_chunk_size: usize, sentences_seen: usize) -> usize {
         let extra_multiples = sentences_seen.min(4);
         let growth = base_chunk_size.saturating_mul(extra_multiples);
@@ -569,12 +569,12 @@ impl RealtimeSpeechStream {
         Ok(Self { rx, cancel_token })
     }
 
-    /// Drains one sentence's model stream into `tx`, applying the output
-    /// config to each successful chunk and forwarding both successes and
-    /// errors — a chunk is never silently dropped. Checks `cancel_token`
-    /// before pulling each item so a mid-sentence cancellation stops the
-    /// drain promptly. Appends one silence chunk after the sentence's own
-    /// chunks if the config asks for it and the stream wasn't cancelled.
+    
+    
+    
+    
+    
+    
     fn process_rt_stream(
         stream: AudioStreamIterator,
         tx: &Sender<DengjenResult<AudioSamples>>,
@@ -667,8 +667,6 @@ mod chunk_size_growth_tests {
 
     #[test]
     fn growth_never_decreases_across_a_multi_sentence_stream_issue_28_regression() {
-        // chunk_size is keyed on how many sentences have been seen, not on chunk
-        // counts, so it must never step backwards between sentences.
         let sizes: Vec<usize> = (0..20)
             .map(|sentences_seen| RealtimeSpeechStream::next_chunk_size(72, sentences_seen))
             .collect();
@@ -836,8 +834,6 @@ mod cancellation_tests {
 
     #[test]
     fn chunk_size_growth_stays_bounded_and_never_oscillates_across_many_sentences() {
-        // Growth must stay bounded across a long stream, and must ramp up and
-        // plateau, never dropping back toward `base` mid-stream.
         let produced = Arc::new(AtomicUsize::new(0));
         let chunk_sizes_seen = Arc::new(Mutex::new(Vec::new()));
         let model: Arc<dyn DengjenModel + Send + Sync> = Arc::new(CountingStreamModel {
@@ -922,8 +918,6 @@ mod cancellation_tests {
 
         let chunks: Vec<AudioSamples> = stream.map(|result| result.unwrap()).collect();
 
-        // Each sentence's stream drains, then gets its own trailing silence chunk
-        // appended (process_rt_stream sends it once per sentence, not once overall).
         let group_size = chunks_per_sentence + 1;
         assert_eq!(
             chunks.len(),
@@ -1537,7 +1531,6 @@ mod model_type_detection_tests {
 
     #[test]
     fn detect_model_type_defaults_to_piper_when_field_absent() {
-        // Real Piper .onnx.json configs have no model_type field at all.
         let dir = std::env::temp_dir().join("dengjen_synth_dispatch_test_piper_default");
         std::fs::create_dir_all(&dir).unwrap();
         let path = write_temp_config(&dir, "config.json", r#"{"audio": {"sample_rate": 22050}}"#);

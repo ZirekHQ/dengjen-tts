@@ -101,14 +101,14 @@ pub(crate) fn load_model_config(
     Ok((model_config, synth_config))
 }
 
-/// Tokenizes a phoneme string against the voice's phoneme table, emitting
-/// `bos, (id, pad)*, eos`. Longest match wins, so a multi-character cluster such
-/// as `aɪ` is preferred over the single characters spelling it; characters the
-/// table doesn't cover are dropped rather than failing the utterance.
-///
-/// `phoneme_id_map` comes straight from an on-disk voice config file and is untrusted beyond
-/// having deserialized successfully — see the `fuzz/` target in this crate, which exercises
-/// this function against arbitrary maps and phoneme strings.
+
+
+
+
+
+
+
+
 pub fn map_phonemes_to_ids(
     phoneme_id_map: &HashMap<String, Vec<i64>>,
     phonemes: &str,
@@ -116,8 +116,8 @@ pub fn map_phonemes_to_ids(
     bos_id: i64,
     eos_id: i64,
 ) -> Vec<i64> {
-    // Cap the match width per starting character, so one pathological long key in an untrusted
-    // config cannot make every cursor position scan the full key length.
+    
+    
     let mut longest_entry_by_first_char: HashMap<char, usize> = HashMap::new();
     for entry in phoneme_id_map.keys() {
         let mut entry_chars = entry.chars();
@@ -138,8 +138,8 @@ pub fn map_phonemes_to_ids(
             .copied()
             .unwrap_or(0);
         let widest = longest_entry.min(chars.len() - cursor);
-        // An entry with an empty id list is treated the same as no entry at all: the
-        // config claims to cover this cluster but supplies no id, so it can't be emitted.
+        
+        
         let matched = (1..=widest).rev().find_map(|width| {
             let candidate: String = chars[cursor..cursor + width].iter().collect();
             phoneme_id_map
@@ -307,8 +307,6 @@ mod tests {
 
     #[test]
     fn map_phonemes_to_ids_skips_an_entry_with_an_empty_id_list_instead_of_panicking() {
-        // A config where a key maps to `[]` (valid JSON, invalid in practice) must not
-        // crash the whole utterance.
         let mut map = single_char_phoneme_map();
         map.insert("z".to_string(), vec![]);
         let ids = map_phonemes_to_ids(&map, "azb", 3, 1, 2);
@@ -332,9 +330,9 @@ mod tests {
             ("ba".to_string(), vec![3]),
         ]);
         let ids = map_phonemes_to_ids(&map, "ba", 0, 100, 200);
-        // "ba" greedily matches the 2-char entry even though the longest key in the whole
-        // map ("aaaaaaaaaa") starts with an unrelated character: the per-starting-character
-        // width cap must not shrink 'b's own longest match below what it actually has.
+        
+        
+        
         assert_eq!(ids, vec![100, 3, 0, 200]);
     }
 

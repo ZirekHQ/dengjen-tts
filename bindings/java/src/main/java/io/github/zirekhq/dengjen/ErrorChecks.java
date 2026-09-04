@@ -3,10 +3,10 @@ package io.github.zirekhq.dengjen;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
-/**
- * Converts a native ExternError out-param into a thrown DengjenException, freeing the C-owned
- * message string.
- */
+
+
+
+
 final class ErrorChecks {
   private ErrorChecks() {}
 
@@ -21,9 +21,9 @@ final class ErrorChecks {
     throw new DengjenException(ErrorCode.fromCode(code), message);
   }
 
-  // A pointer returned from a native call comes back as a zero-length
-  // MemorySegment; it must be reinterpreted to a usable size before it can
-  // be dereferenced.
+  
+  
+  
   static String readAndFreeMessage(MemorySegment messagePtr) {
     if (messagePtr.equals(MemorySegment.NULL)) {
       return null;
@@ -37,9 +37,9 @@ final class ErrorChecks {
     return message;
   }
 
-  // Like readAndFreeMessage, but leaves the native string alone: for the SynthesisEvent
-  // path, where libdengjenFreeSynthesisEvent -- not this call site -- owns freeing the
-  // message, and freeing it here too would be a double-free.
+  
+  
+  
   static String readMessage(MemorySegment messagePtr) {
     if (messagePtr.equals(MemorySegment.NULL)) {
       return null;

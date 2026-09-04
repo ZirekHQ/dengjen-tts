@@ -90,14 +90,12 @@ mod tests {
 
     #[test]
     fn get_hann_window_lookup_table_matches_direct_computation() {
-        // 64 is one of the precomputed lengths; verify the cached table entry
-        // wasn't corrupted or stored under the wrong key.
         assert_eq!(get_hann_window(64).unwrap(), hann_window_values(64));
     }
 
     #[test]
     fn get_hann_window_computes_on_the_fly_for_a_length_not_in_the_lookup_table() {
-        // 10 is not one of the precomputed lengths (64, 128, 256, 512, 1024, 2048, 4096).
+        assert!(!PRECOMPUTED_HANN_WINDOW_LENGTHS.contains(&10));
         let window = get_hann_window(10).unwrap();
         assert_eq!(window.len(), 10);
         assert_eq!(window[0], 0.0);

@@ -1,12 +1,12 @@
-/// Linearly rescales a `0..=100` percentage onto `[min, max]`. A `value` above 100 (reachable
-/// from the C API's `uint8_t` range) clamps to 100 rather than extrapolating past `max`.
+
+
 pub fn percent_to_param(value: u8, min: f32, max: f32) -> f32 {
     let fraction = f32::from(value.min(100)) / 100.0;
     min + fraction * (max - min)
 }
 
-/// Inverse of [`percent_to_param`]: recovers the nearest whole percentage
-/// that produced `value` within `[min, max]`.
+
+
 #[allow(dead_code)]
 pub fn param_to_percent(value: f32, min: f32, max: f32) -> u8 {
     let span = max - min;
@@ -56,9 +56,9 @@ mod proptest_tests {
     use super::*;
     use proptest::prelude::*;
 
-    // min < max strictly: every real PARAM_RANGE constant in this crate (speed/volume/pitch)
-    // satisfies this, and param_to_percent divides by (max - min), so a zero span isn't a
-    // case worth modeling here.
+    
+    
+    
     fn param_range() -> impl Strategy<Value = (f32, f32)> {
         (-1000.0f32..1000.0, 0.01f32..1000.0).prop_map(|(min, span)| (min, min + span))
     }

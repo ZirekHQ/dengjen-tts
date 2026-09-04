@@ -252,24 +252,24 @@ mod tests {
         let pairs = vec![("a".to_string(), "_".to_string())];
         let (phone_ids, tone_ids) =
             map_phone_tone_pairs_to_ids(&test_phone_id_map(), &test_tone_id_map(), &pairs);
-        assert_eq!(phone_ids, vec![1, 6, 3, 2]); // bos, 'a', blank, eos
-        assert_eq!(tone_ids, vec![0, 0, 0, 0]); // blank tone throughout, since pair's tone is "_"
+        assert_eq!(phone_ids, vec![1, 6, 3, 2]);
+        assert_eq!(tone_ids, vec![0, 0, 0, 0]);
     }
 
     #[test]
     fn map_phone_tone_pairs_to_ids_assigns_a_syllables_tone_to_both_its_initial_and_finale() {
-        let pairs = vec![("zhang".to_string(), "2".to_string())]; // longest-match splits into "zh" + "ang"
+        let pairs = vec![("zhang".to_string(), "2".to_string())]; 
         let (phone_ids, tone_ids) =
             map_phone_tone_pairs_to_ids(&test_phone_id_map(), &test_tone_id_map(), &pairs);
-        assert_eq!(phone_ids, vec![1, 4, 3, 5, 3, 2]); // bos, zh, blank, ang, blank, eos
-        assert_eq!(tone_ids, vec![0, 2, 0, 2, 0, 0]); // both zh and ang carry tone 2; bos/eos/blanks carry 0
+        assert_eq!(phone_ids, vec![1, 4, 3, 5, 3, 2]);
+        assert_eq!(tone_ids, vec![0, 2, 0, 2, 0, 0]);
     }
 
     #[test]
     fn map_phone_tone_pairs_to_ids_drops_characters_with_no_matching_phone_id() {
-        let pairs = vec![("a!a".to_string(), "_".to_string())]; // '!' isn't in phone_id_map
+        let pairs = vec![("a!a".to_string(), "_".to_string())];
         let (phone_ids, _) =
             map_phone_tone_pairs_to_ids(&test_phone_id_map(), &test_tone_id_map(), &pairs);
-        assert_eq!(phone_ids, vec![1, 6, 3, 6, 3, 2]); // bos, a, blank, a, blank, eos -- '!' silently skipped
+        assert_eq!(phone_ids, vec![1, 6, 3, 6, 3, 2]);
     }
 }

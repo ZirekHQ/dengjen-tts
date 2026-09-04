@@ -1,6 +1,6 @@
-//! Rule-based Hebrew-to-IPA grapheme-to-phoneme conversion, ported from
-//! OHF-Voice/piper1-gpl's `src/piper/hebrew/hebrew_ipa.py` for exact
-//! compatibility with real piper1-gpl-trained he-IL voices.
+
+
+
 
 use std::collections::HashMap;
 use unicode_normalization::UnicodeNormalization;
@@ -311,17 +311,17 @@ pub(crate) fn word_to_segments(word: &str) -> Vec<Segment> {
         let is_final = i == glyphs.len() - 1;
 
         // Real upstream piper1-gpl's `_word_to_segments` has no special case
-        // for geresh-digraph placeholder glyphs (base like "<IPA:...>"):
-        // they fall through to the ordinary consonant/vowel handling below,
-        // where `map_consonant('<', ...)` matches no branch and returns "",
-        // silently dropping the digraph's sound. This is upstream's actual
-        // (bug-like but intentional-for-fidelity) behavior, so it is not
-        // special-cased here either — see word_to_segments_geresh_digraph_is_silently_dropped_matching_upstream.
-        //
-        // Every Glyph is built from exactly one base char
-        // (see Glyph::plain / iter_glyphs), so this is always Some; '\0'
-        // is an unreachable, harmless fallback that simply maps to no
-        // consonant rather than panicking.
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
         let base_char = g.base.chars().next().unwrap_or('\0');
 
         if is_shuruk(g) {
@@ -433,9 +433,9 @@ fn resolve_sheva_and_qamats(mut segs: Vec<Segment>) -> Vec<Segment> {
 }
 
 fn syllabify_to_ipa(segs: &[Segment]) -> String {
-    // Segholate-style exception: exactly two syllables where the last one
-    // is closed (has a coda) are stressed on the first syllable instead of
-    // the (otherwise default) last one.
+    
+    
+    
     let stress_index = match segs {
         [_, second] if !second.coda.is_empty() => 0,
         _ => segs.len().saturating_sub(1),
@@ -458,21 +458,21 @@ fn syllabify_to_ipa(segs: &[Segment]) -> String {
 const GLOTTAL: char = '\u{0294}';
 const STRESS: char = '\u{02C8}';
 
-// Real upstream uses three lookahead regex substitutions to clean up the
-// `<GLT>` glottal-stop placeholder:
-//   ʔ(?=ˈ?[aeiouə])  -> ʔ   (keep before a vowel: a no-op self-replace)
-//   (?<=^)ʔ          -> ʔ   (keep word-initial: also a no-op self-replace)
-//   ʔ(?=[^aeiouəˈ]|$) -> "" (drop before a consonant or at end of string)
-// Only the third substitution has any actual effect; the first two rewrite
-// a match to itself. Rust's `regex` crate has no lookaround support at all
-// (by design, for its linear-time guarantee), so this reproduces the net
-// effect directly: keep a glottal stop only when the character immediately
-// after it (skipping at most one stress mark) is a vowel or schwa; drop it
-// otherwise, including at end of string. `syllabify_to_ipa` only ever
-// places a stress mark directly before a (non-empty) vowel nucleus, so
-// "skip one stress mark, then check for a vowel" and upstream's literal
-// "next char is one of aeiouəˈ" are equivalent for every string this
-// function actually produces.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 fn strip_unrealized_glottal_stops(ipa: &str) -> String {
     let chars: Vec<char> = ipa.chars().collect();
     let mut out = String::with_capacity(ipa.len());
@@ -502,8 +502,8 @@ pub(crate) fn hebrew_word_to_ipa(word: &str) -> String {
     let ipa = syllabify_to_ipa(&segs);
     let ipa = strip_unrealized_glottal_stops(&ipa);
 
-    // Drop the affricate tie bar so t͡s/t͡ʃ/d͡ʒ become plain phoneme pairs
-    // that exist in Piper's default IPA id map.
+    
+    
     ipa.replace('\u{0361}', "")
 }
 
@@ -522,7 +522,7 @@ mod tests {
 
     #[test]
     fn iter_glyphs_groups_combining_marks_with_the_preceding_base_letter() {
-        let glyphs = iter_glyphs("\u{05D1}\u{05B7}"); // bet + patah
+        let glyphs = iter_glyphs("\u{05D1}\u{05B7}"); 
         assert_eq!(glyphs.len(), 1);
         assert_eq!(glyphs[0].base, "\u{05D1}");
         assert_eq!(glyphs[0].marks, vec!['\u{05B7}']);
@@ -530,7 +530,7 @@ mod tests {
 
     #[test]
     fn iter_glyphs_strips_cantillation_marks_first() {
-        let glyphs = iter_glyphs("\u{05D1}\u{0591}\u{05B7}"); // bet + etnahta + patah
+        let glyphs = iter_glyphs("\u{05D1}\u{0591}\u{05B7}"); 
         assert_eq!(glyphs.len(), 1);
         assert_eq!(glyphs[0].marks, vec!['\u{05B7}']);
     }
@@ -541,11 +541,11 @@ mod tests {
             Glyph {
                 base: "\u{05D2}".to_string(),
                 marks: vec![],
-            }, // gimel
+            }, 
             Glyph {
                 base: "\u{05F3}".to_string(),
                 marks: vec![],
-            }, // geresh
+            }, 
         ];
         let out = apply_geresh_digraphs(glyphs);
         assert_eq!(out.len(), 1);
@@ -566,7 +566,7 @@ mod tests {
 
     #[test]
     fn map_consonant_final_forms_map_to_their_base_letter_sound() {
-        assert_eq!(map_consonant('\u{05DA}', &[], true), "\u{03C7}"); // kaf-final, no dagesh
+        assert_eq!(map_consonant('\u{05DA}', &[], true), "\u{03C7}"); 
     }
 
     #[test]
@@ -584,16 +584,16 @@ mod tests {
     #[test]
     fn map_basic_vowel_reads_each_niqqud_mark() {
         let cases = [
-            ('\u{05B8}', "a"), // qamats
-            ('\u{05B7}', "a"), // patah
-            ('\u{05B4}', "i"), // hiriq
-            ('\u{05B5}', "e"), // tsere
-            ('\u{05B6}', "e"), // segol
-            ('\u{05B9}', ""),  // holam handled separately (mater cases), not here
+            ('\u{05B8}', "a"), 
+            ('\u{05B7}', "a"), 
+            ('\u{05B4}', "i"), 
+            ('\u{05B5}', "e"), 
+            ('\u{05B6}', "e"), 
+            ('\u{05B9}', ""),  
         ];
         for (mark, expected) in cases {
             if mark == '\u{05B9}' {
-                continue; // holam-on-consonant alone is not one of the basic cases
+                continue; 
             }
             let g = Glyph {
                 base: "x".to_string(),
@@ -682,18 +682,18 @@ mod tests {
 
     #[test]
     fn word_to_segments_bet_patah_is_one_segment_with_a_vowel() {
-        let segs = word_to_segments("\u{05D1}\u{05B7}"); // bet + patah, no dagesh
+        let segs = word_to_segments("\u{05D1}\u{05B7}"); 
         assert_eq!(segs.len(), 1);
-        assert_eq!(segs[0].onset, vec!["v".to_string()]); // no dagesh -> map_consonant gives "v"
+        assert_eq!(segs[0].onset, vec!["v".to_string()]); 
         assert_eq!(segs[0].nucleus, "a");
     }
 
     #[test]
     fn word_to_segments_shuruk_carries_the_preceding_onset_into_a_bare_u_nucleus() {
-        // Verified against piper1-gpl's real `_word_to_segments`: the he's "h"
-        // consonant has no vowel of its own, so it carries forward as the onset
-        // of the shuruk's "u" segment rather than forming its own segment.
-        let segs = word_to_segments("\u{05D4}\u{05D5}\u{05BC}"); // he + vav+dagesh (shuruk)
+        
+        
+        
+        let segs = word_to_segments("\u{05D4}\u{05D5}\u{05BC}"); 
         assert_eq!(segs.len(), 1);
         assert_eq!(segs[0].onset, vec!["h".to_string()]);
         assert_eq!(segs[0].nucleus, "u");
@@ -701,14 +701,14 @@ mod tests {
 
     #[test]
     fn word_to_segments_trailing_consonant_becomes_a_coda() {
-        let segs = word_to_segments("\u{05D1}\u{05B7}\u{05EA}"); // bet+patah, tav (no vowel)
+        let segs = word_to_segments("\u{05D1}\u{05B7}\u{05EA}"); 
         assert_eq!(segs.len(), 1);
         assert_eq!(segs[0].coda, vec!["t".to_string()]);
     }
 
     #[test]
     fn word_to_segments_sheva_creates_a_placeholder_segment_recording_dagesh() {
-        let segs = word_to_segments("\u{05D1}\u{05BC}\u{05B0}"); // bet+dagesh+sheva
+        let segs = word_to_segments("\u{05D1}\u{05BC}\u{05B0}"); 
         assert_eq!(segs.len(), 1);
         assert_eq!(segs[0].nucleus, "\u{0259}");
         assert!(segs[0].dagesh);
@@ -716,20 +716,20 @@ mod tests {
 
     #[test]
     fn word_to_segments_geresh_digraph_is_silently_dropped_matching_upstream() {
-        // Verified against real upstream piper1-gpl's `_word_to_segments`:
-        // it has no special case for the geresh-digraph placeholder glyph.
-        // The placeholder falls through to the ordinary consonant path,
-        // where `map_consonant` matches no branch on a multi-char base and
-        // returns "", so the digraph's sound is silently dropped rather
-        // than emitted anywhere in onset/coda.
-        let segs = word_to_segments("\u{05D2}\u{05F3}\u{05D1}\u{05B7}"); // gimel+geresh+bet+patah
+        
+        
+        
+        
+        
+        
+        let segs = word_to_segments("\u{05D2}\u{05F3}\u{05D1}\u{05B7}"); 
         let digraph_ipa = "d\u{0361}\u{0292}";
         for seg in &segs {
             assert!(!seg.onset.iter().any(|s| s == digraph_ipa));
             assert!(!seg.coda.iter().any(|s| s == digraph_ipa));
         }
-        // The bet+patah still produces its own "a" segment (onset "v",
-        // bet has no dagesh); the digraph itself contributes nothing.
+        
+        
         assert_eq!(segs.len(), 1);
         assert_eq!(segs[0].nucleus, "a");
         assert_eq!(segs[0].onset, vec!["v".to_string()]);
@@ -737,10 +737,10 @@ mod tests {
 
     #[test]
     fn hebrew_word_to_ipa_word_initial_sheva_is_realized_as_e() {
-        // bet+sheva, resh+patah, kaf-final (no dagesh anywhere). Bet has no
-        // dagesh, so `map_consonant` maps it to "v" (begadkefat
-        // spirantization), not "b": this word yields "vˈeʁaχ", with the
-        // word-initial sheva resolving to "e" per the `na` (i == 0) rule.
+        
+        
+        
+        
         let ipa = hebrew_word_to_ipa("\u{05D1}\u{05B0}\u{05E8}\u{05B7}\u{05DA}");
         assert!(ipa.starts_with('v'));
         assert!(
@@ -751,14 +751,14 @@ mod tests {
 
     #[test]
     fn hebrew_word_to_ipa_stresses_the_final_syllable_by_default() {
-        // "shalom" is exactly two syllables with a closed (consonant-final)
-        // last syllable, which trips `syllabify_to_ipa`'s segholate-style
-        // exception (stress the *first* syllable instead) rather than
-        // exercising the default rule this test names. That exception only
-        // fires at exactly two syllables, so "shamayim" (three syllables:
-        // sha-ma-yim) is used here instead.
+        
+        
+        
+        
+        
+        
         let ipa = hebrew_word_to_ipa(
-            "\u{05E9}\u{05B8}\u{05DE}\u{05B7}\u{05D9}\u{05B4}\u{05DD}", // shamayim
+            "\u{05E9}\u{05B8}\u{05DE}\u{05B7}\u{05D9}\u{05B4}\u{05DD}", 
         );
         assert!(ipa.contains('\u{02C8}'), "expected a stress mark somewhere");
         let Some(stress_pos) = ipa.find('\u{02C8}') else {
@@ -772,7 +772,7 @@ mod tests {
 
     #[test]
     fn hebrew_word_to_ipa_keeps_glottal_stop_immediately_before_a_vowel() {
-        // ayin, vav+holam (o), lamed+qamats (a), mem-final: "olam".
+        
         let ipa = hebrew_word_to_ipa("\u{05E2}\u{05D5}\u{05B9}\u{05DC}\u{05B8}\u{05DD}");
         assert!(
             ipa.starts_with('\u{0294}'),
@@ -782,9 +782,9 @@ mod tests {
 
     #[test]
     fn hebrew_word_to_ipa_drops_glottal_stop_before_a_consonant() {
-        // alef (no vowel of its own), then bet+patah: the alef's glottal
-        // placeholder is carried into the bet's onset ("ʔv"), immediately
-        // followed by a consonant rather than a vowel, so it is dropped.
+        
+        
+        
         let ipa = hebrew_word_to_ipa("\u{05D0}\u{05D1}\u{05B7}");
         assert!(
             !ipa.contains('\u{0294}'),
@@ -795,7 +795,7 @@ mod tests {
 
     #[test]
     fn hebrew_word_to_ipa_drops_affricate_tie_bars() {
-        let ipa = hebrew_word_to_ipa("\u{05E6}\u{05B7}\u{05DC}\u{05DD}"); // tsadi-initial word
+        let ipa = hebrew_word_to_ipa("\u{05E6}\u{05B7}\u{05DC}\u{05DD}"); 
         assert!(
             !ipa.contains('\u{0361}'),
             "tie bar must be stripped for Piper's IPA map"

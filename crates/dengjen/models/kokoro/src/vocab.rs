@@ -68,10 +68,10 @@ impl Vocab {
         self.bos_id
     }
 
-    /// Longest-match tokenization: at each position, try the longest possible
-    /// substring first so multi-character phoneme symbols (e.g. the composed
-    /// diphthong tokens produced by the espeak-to-Kokoro conversion) are matched
-    /// whole rather than split into unknown single characters.
+    
+    
+    
+    
     pub fn tokenize(&self, phonemes: &str) -> Vec<i64> {
         let chars: Vec<char> = phonemes.chars().collect();
         let mut ids = Vec::with_capacity(chars.len());
@@ -167,10 +167,8 @@ mod tests {
     fn tokenize_prefers_longest_match_over_single_chars() {
         let dir = std::env::temp_dir().join("dengjen_kokoro_vocab_test_tokenize_longest");
         std::fs::create_dir_all(&dir).unwrap();
-        // Vocab has both "ʤ" (composed) and no single-char entries that could
-        // spuriously combine to match a longer string - this proves longest-match
-        // picks the whole multi-codepoint symbol "ʤ" as one token (id 5), not
-        // some other decomposition.
+        
+        
         let path = write_temp_vocab(&dir, SAMPLE_VOCAB_JSON);
         let vocab = Vocab::load(&path).unwrap();
         assert_eq!(vocab.tokenize("ʤ"), vec![5]);
@@ -183,8 +181,6 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = write_temp_vocab(&dir, SAMPLE_VOCAB_JSON);
         let vocab = Vocab::load(&path).unwrap();
-        // "z" is not in the sample vocab - it should be silently skipped, and
-        // the surrounding known characters still tokenize correctly.
         assert_eq!(vocab.tokenize("tzs"), vec![1, 3]);
         std::fs::remove_dir_all(&dir).ok();
     }

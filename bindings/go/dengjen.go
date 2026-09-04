@@ -1,5 +1,5 @@
-// Package dengjen provides Go bindings for libdengjen, the dengjen-tts C API
-// (crates/frontends/capi in the parent repository).
+
+
 package dengjen
 
 /*

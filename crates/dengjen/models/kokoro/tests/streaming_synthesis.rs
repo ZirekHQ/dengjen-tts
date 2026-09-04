@@ -48,7 +48,7 @@ fn load_synthetic_model(test_name: &str) -> KokoroModel {
     model
 }
 
-// "tɛst" phonemes (U+025B is ɛ), tokenizes against the minimal vocab above.
+
 const TEST_PHONEMES: &str = "t\u{025b}st";
 
 #[test]
@@ -86,10 +86,10 @@ fn streamed_chunks_total_matches_speak_one_sentence_total() {
         .speak_one_sentence(TEST_PHONEMES.to_string())
         .expect("speak_one_sentence failed");
     let whole_len = whole.samples.into_vec().len();
-    // The synthetic graph always outputs exactly 16000 samples (see synthetic_inference.rs).
+    
     assert_eq!(whole_len, 16000);
 
-    // 16 is scaled to 16 * 256 = 4096 internally by stream_synthesis.
+    
     let stream = model
         .stream_synthesis(TEST_PHONEMES.to_string(), 16, 3, CancellationToken::new())
         .expect("stream_synthesis failed");
