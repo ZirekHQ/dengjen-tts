@@ -1,6 +1,6 @@
 [package]
 name = "dengjen-tts-cli"
-version = "0.2.0"
+version.workspace = true
 edition = "2021"
 license.workspace = true
 
@@ -22,10 +22,10 @@ directml = ["dengjen-tts-piper/directml", "dengjen-tts-kokoro/directml", "dengje
 ort-dylib = ["ort/load-dynamic"]
 
 [dependencies]
-dengjen-tts = { version = "0.2.0", path = "../../dengjen/synth" }
-dengjen-tts-piper = { version = "0.2.0", path = "../../dengjen/models/piper" }
-dengjen-tts-kokoro = { version = "0.1.0", path = "../../dengjen/models/kokoro", default-features = false }
-dengjen-tts-melotts = { version = "0.1.0", path = "../../dengjen/models/melotts", default-features = false }
+dengjen-tts.workspace = true
+dengjen-tts-piper.workspace = true
+dengjen-tts-kokoro.workspace = true
+dengjen-tts-melotts.workspace = true
 anyhow = "1.0.79"
 env_logger = "0.10.0"
 log = "0.4.18"

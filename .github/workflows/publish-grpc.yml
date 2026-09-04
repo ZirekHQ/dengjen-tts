@@ -81,12 +81,16 @@ jobs:
             echo "Tag '${tag}' does not carry a valid vX.Y.Z suffix" >&2
             exit 1
           fi
-          # Catches a tag that drifted from the crate it's meant to name —
-          # otherwise this workflow happily publishes e.g. grpc-release-v0.4.1
-          # while Cargo.toml still says 0.4.0, mislabeling the release asset.
-          crate_version="$(awk -F '"' '/^version = / { print $2; exit }' crates/frontends/grpc/Cargo.toml)"
+          # Catches a tag that drifted from the workspace version it's meant
+          # to name — otherwise this workflow happily publishes e.g.
+          # grpc-release-v1.1.1 while [workspace.package].version still says
+          # 1.1.0, mislabeling the release asset. dengjen-tts-grpc's own
+          # Cargo.toml has no literal version string to read anymore (it's
+          # `version.workspace = true`), so this reads the single source of
+          # truth in the root Cargo.toml instead.
+          crate_version="$(awk '/^\[workspace\.package\]/{f=1;next} /^\[/{f=0} f && /^version = /{gsub(/version = "|"/,""); print; exit}' Cargo.toml)"
           if [[ "$version" != "v${crate_version}" ]]; then
-            echo "Tag version '${version}' does not match package version 'v${crate_version}'" >&2
+            echo "Tag version '${version}' does not match workspace package version 'v${crate_version}'" >&2
             exit 1
           fi
           echo "version=${version}" >> "$GITHUB_OUTPUT"

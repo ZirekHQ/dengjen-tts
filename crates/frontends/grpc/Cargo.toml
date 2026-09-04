@@ -1,6 +1,6 @@
 [package]
 name = "dengjen-tts-grpc"
-version = "0.4.0"
+version.workspace = true
 edition = "2021"
 license.workspace = true
 
@@ -21,11 +21,11 @@ ort-dylib = ["ort/load-dynamic"]
 async-stream = "0.3.5"
 env_logger = "0.10.0"
 log = "0.4.18"
-dengjen-tts-core = { version = "0.2.0", path = "../../dengjen/core" }
-dengjen-tts = { version = "0.2.0", path = "../../dengjen/synth" }
-dengjen-tts-piper = { version = "0.2.0", path = "../../dengjen/models/piper" }
-dengjen-tts-kokoro = { version = "0.1.0", path = "../../dengjen/models/kokoro", default-features = false }
-dengjen-tts-melotts = { version = "0.1.0", path = "../../dengjen/models/melotts", default-features = false }
+dengjen-tts-core.workspace = true
+dengjen-tts.workspace = true
+dengjen-tts-piper.workspace = true
+dengjen-tts-kokoro.workspace = true
+dengjen-tts-melotts.workspace = true
 prost = "0.13.3"
 tokio = { version = "1.41.1", features = ["macros", "rt-multi-thread"] }
 tokio-stream = "0.1.16"
