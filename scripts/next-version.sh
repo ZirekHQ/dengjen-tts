@@ -34,7 +34,7 @@ set -euo pipefail
 # and without it that failure would abort the script right here (exit 1,
 # same code as the deliberate "nothing to release" case below) instead of
 # reaching the explicit -z check and its distinct exit 2.
-last_tag="$(git tag --list 'v*' --merged HEAD --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)"
+last_tag="$(git tag --list 'v*' --merged HEAD --sort=-v:refname | grep -E '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' | head -1 || true)"
 if [ -z "$last_tag" ]; then
   echo "::error::No vX.Y.Z tag found to compute the next version from" >&2
   exit 2

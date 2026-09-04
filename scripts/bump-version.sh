@@ -22,7 +22,7 @@
 set -euo pipefail
 
 new_version="${1:?usage: scripts/bump-version.sh <new-version>}"
-if ! echo "$new_version" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+if ! echo "$new_version" | grep -qE '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'; then
   echo "::error::'${new_version}' doesn't look like a semver version (X.Y.Z)" >&2
   exit 1
 fi
