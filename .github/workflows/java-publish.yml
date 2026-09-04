@@ -4,6 +4,17 @@ on:
   push:
     tags:
       - "java-v*"
+  # Dispatched by tag-and-release.yml against `--ref main -f tag=java-vX.Y.Z`
+  # right after it tags the version-bump merge commit vX.Y.Z -- no real
+  # `java-v*` tag needs to exist on this repo for that, since the value below
+  # is only ever used as a version string (VERSIONING_GIT_TAG), not resolved
+  # as a git ref. Also usable for a manual retrigger from the Actions tab.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "java-vX.Y.Z version string to publish (e.g. java-v1.2.3)"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -98,8 +109,10 @@ jobs:
         env:
           # git-versioning reads GITHUB_REF on Actions, so checking the tag out does not change
           # the version. Naming the tag is what makes the steps below build the release version
-          # instead of a snapshot of the branch they run on.
-          VERSIONING_GIT_TAG: ${{ github.ref_name }}
+          # instead of a snapshot of the branch they run on. inputs.tag carries the same shape
+          # on a workflow_dispatch run (see the trigger comment above), since github.ref_name
+          # there is just whatever ref was dispatched against (main), not a version at all.
+          VERSIONING_GIT_TAG: ${{ inputs.tag || github.ref_name }}
           JRELEASER_MAVENCENTRAL_USERNAME: ${{ secrets.JRELEASER_MAVENCENTRAL_USERNAME }}
           JRELEASER_MAVENCENTRAL_PASSWORD: ${{ secrets.JRELEASER_MAVENCENTRAL_PASSWORD }}
           JRELEASER_GPG_PASSPHRASE: ${{ secrets.JRELEASER_GPG_PASSPHRASE }}
