@@ -22,6 +22,22 @@ on:
       # failed harmlessly since those crates were already published, but
       # wasted a run and produced a confusing red X).
       - "go-release-v*"
+  # Dispatched by tag-and-release.yml against `--ref main -f
+  # tag=go-release-vX.Y.Z` right after it tags the version-bump merge commit
+  # vX.Y.Z. No real "go-release-v*" tag needs to pre-exist on this repo for
+  # that -- the value below only feeds "extract target version" below,
+  # which strips its "go-release-" prefix to get the plain vX.Y.Z tag this
+  # job pushes to the separate ZirekHQ/dengjen-tts-go repo. Also usable for
+  # a manual retrigger; assemble-and-push's own idempotency (it fails
+  # outright, without force-pushing a new tag, if the target version's tag
+  # already exists there) makes a retry against an already-released version
+  # safe.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "go-release-vX.Y.Z tag name to release (e.g. go-release-v1.2.3)"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -263,9 +279,14 @@ jobs:
           persist-credentials: true
       - name: extract target version
         id: version
+        env:
+          # inputs.tag on a workflow_dispatch run (see the trigger comment
+          # above); github.ref_name on a real tag push, where it already is
+          # the go-release-v* tag name itself.
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
-          tag="${GITHUB_REF_NAME}"
+          tag="${RELEASE_TAG}"
           version="${tag#go-release-}"
           if [[ ! "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Tag '${tag}' does not carry a valid vX.Y.Z suffix" >&2

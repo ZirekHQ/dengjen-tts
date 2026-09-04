@@ -7,6 +7,19 @@ on:
       # (publish-go.yml) — a prefix collision has already bitten this repo
       # once (see publish-go.yml's own comment on the same issue).
       - "grpc-release-v*"
+  # Dispatched by tag-and-release.yml against `--ref main -f
+  # tag=grpc-release-vX.Y.Z` right after it tags the version-bump merge
+  # commit vX.Y.Z. No real "grpc-release-v*" tag needs to pre-exist on this
+  # repo for that -- the value below only feeds version extraction and the
+  # GitHub Release's tag_name, and softprops/action-gh-release creates that
+  # tag itself if it's not already there, same end state a manual tag push
+  # used to produce directly. Also usable for a manual retrigger.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "grpc-release-vX.Y.Z tag name to release (e.g. grpc-release-v1.2.3)"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -73,9 +86,14 @@ jobs:
       - name: extract target version
         id: version
         shell: bash
+        env:
+          # inputs.tag on a workflow_dispatch run (see the trigger comment
+          # above); github.ref_name on a real tag push, where it already is
+          # the grpc-release-v* tag name itself.
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
-          tag="${GITHUB_REF_NAME}"
+          tag="${RELEASE_TAG}"
           version="${tag#grpc-release-}"
           if [[ ! "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Tag '${tag}' does not carry a valid vX.Y.Z suffix" >&2
@@ -115,6 +133,6 @@ jobs:
       - name: create release
         uses: softprops/action-gh-release@e598afbe1493e6b1bafb1f389cabb956eab91231 # v3.0.3
         with:
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ inputs.tag || github.ref_name }}
           name: dengjen-tts-grpc ${{ steps.version.outputs.version }}
           files: ${{ steps.package.outputs.zip_name }}

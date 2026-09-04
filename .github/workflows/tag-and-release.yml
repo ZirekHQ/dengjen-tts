@@ -1,0 +1,106 @@
+name: Tag and trigger release
+
+# Fires on every push to main, but only acts on the commit that lands
+# prepare-release.yml's version-bump PR (identified by its exact commit
+# subject -- squash- or rebase-merging that PR always produces this
+# message, since it's the only commit on that branch). Every other push to
+# main is a no-op here.
+#
+# Tags that commit vX.Y.Z (the baseline scripts/next-version.sh's next run
+# diffs Conventional Commits from) and directly triggers every downstream
+# release workflow, collapsing what used to be five separate manual tag
+# pushes -- vX.Y.Z itself (for CI.yml's PyPI wheel-publish job, gated on
+# refs/tags/*), publish-N (crates.io), java-vX.Y.Z (Maven Central),
+# go-release-vX.Y.Z (the ZirekHQ/dengjen-tts-go mirror), and
+# grpc-release-vX.Y.Z (the gRPC server's GitHub Release) -- into the single
+# "review and merge the bump PR" gate.
+#
+# dengjen-espeak-ng-sys is deliberately NOT dispatched here. It is not a
+# workspace member, is never touched by scripts/bump-version.sh, and
+# carries its own independent version (see
+# .github/publish-templates/dengjen-espeak-ng-sys/Cargo.toml) on its own
+# size-capped release cadence, unrelated to the workspace version this
+# workflow tags -- a workspace version bump does not imply an
+# dengjen-espeak-ng-sys release is due. Publishing it stays a fully
+# separate, manually-tagged process (publish-espeak-ng-sys-*), unchanged by
+# this workflow.
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  tag-and-release:
+    runs-on: ubuntu-latest
+    # head_commit is the single new commit a squash/rebase merge produces;
+    # a push landing more than one new commit at once (not this repo's
+    # normal PR flow) would only inspect the last of them.
+    if: "startsWith(github.event.head_commit.message, 'chore: bump workspace version -> ')"
+    permissions:
+      contents: write
+      # workflow_dispatch is the one event type GITHUB_TOKEN is explicitly
+      # allowed to trigger a new run for -- unlike `push`, which it's
+      # deliberately blocked from re-triggering to prevent recursive runs
+      # (see "Triggering a workflow" in GitHub's Actions docs). No PAT
+      # needed for the "Trigger downstream releases" step below because of
+      # that; it's also why the vX.Y.Z tag pushed here doesn't itself fire
+      # CI.yml's (or the other workflows') own tag-push triggers -- each is
+      # invoked explicitly instead.
+      actions: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+        with:
+          persist-credentials: true
+
+      - name: Resolve workspace version
+        id: version
+        run: |
+          set -euo pipefail
+          version="$(awk '/^\[workspace\.package\]/{f=1;next} /^\[/{f=0} f && /^version = /{gsub(/version = "|"/,""); print; exit}' Cargo.toml)"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Push release tag
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "v${VERSION}"
+          git push origin "v${VERSION}"
+
+      - name: Trigger downstream releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        # No -e: the tag above is already pushed and can't be re-pushed on a
+        # retry (git rejects an existing tag), so a transient failure on one
+        # `gh workflow run` call must not abort the rest -- every dispatch
+        # gets attempted regardless, and the step only fails at the end,
+        # after every workflow that COULD be dispatched was.
+        #
+        # CI.yml is dispatched against the real vX.Y.Z tag ref (its release
+        # job gates on `startsWith(github.ref, 'refs/tags/')`, so it needs
+        # an actual tag ref to run against); publish.yml needs no tag at
+        # all (it reads the version straight from Cargo.toml); the other
+        # three carry their own historically-prefixed tag NAME as a
+        # workflow_dispatch input string, matching what a human's manual
+        # tag push would have named, without requiring that tag to actually
+        # exist on this repo beforehand (each workflow either only reads it
+        # as a string, or -- publish-grpc.yml -- creates it itself as part
+        # of publishing the GitHub Release).
+        run: |
+          set -uo pipefail
+          failed=0
+          gh workflow run CI.yml --ref "v${VERSION}" || failed=1
+          gh workflow run publish.yml --ref main || failed=1
+          gh workflow run java-publish.yml --ref main -f "tag=java-v${VERSION}" || failed=1
+          gh workflow run publish-grpc.yml --ref main -f "tag=grpc-release-v${VERSION}" || failed=1
+          gh workflow run publish-go.yml --ref main -f "tag=go-release-v${VERSION}" || failed=1
+          if [ "$failed" -eq 1 ]; then
+            echo "::error::One or more downstream workflow dispatches failed -- check the Actions tab and manually dispatch any that didn't fire (safe to re-dispatch any of these five for the same version: CI.yml/publish.yml/java-publish.yml/publish-grpc.yml are version-checked or idempotent, and publish-go.yml's own assemble-and-push step refuses to overwrite an already-released version's tag on ZirekHQ/dengjen-tts-go). dengjen-espeak-ng-sys is never dispatched here -- it has its own separate, manually-tagged release process (publish-espeak-ng-sys-*), unrelated to this version."
+            exit 1
+          fi

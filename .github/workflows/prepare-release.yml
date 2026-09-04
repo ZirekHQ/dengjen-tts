@@ -3,10 +3,16 @@ name: Prepare release
 # Computes the next semver version from Conventional Commit subjects merged
 # to main since the last vX.Y.Z tag (scripts/next-version.sh) and opens a PR
 # bumping the workspace version (scripts/bump-version.sh). Manual trigger
-# only -- this proposes a release, it doesn't cut one. Merging the PR still
-# requires a human to push the vX.Y.Z tag themselves (and the separate
-# publish-N / grpc-release-vX.Y.Z / java-vX.Y.Z / go-release-vX.Y.Z tags
-# for the per-artifact release workflows), same as every other release step.
+# only -- this proposes a release, it doesn't cut one. Merging the PR is the
+# one remaining human gate: tag-and-release.yml then tags that commit
+# vX.Y.Z and triggers every downstream release workflow (crates.io, Maven
+# Central, PyPI, the ZirekHQ/dengjen-tts-go mirror, the gRPC server's
+# GitHub Release) automatically, no further manual tag pushes needed.
+# dengjen-espeak-ng-sys is the one exception -- it's not a workspace
+# member, isn't touched by scripts/bump-version.sh, and keeps its own
+# independent version and manually-tagged release process
+# (publish-espeak-ng-sys-*), unrelated to the workspace version bumped
+# here.
 on:
   workflow_dispatch: {}
 
@@ -73,5 +79,5 @@ jobs:
           git commit -m "chore: bump workspace version -> ${VERSION}"
           git push -u origin "$branch"
           gh pr create --title "chore: bump workspace version -> ${VERSION}" \
-            --body "Computed by \`prepare-release.yml\` from Conventional Commit subjects since the last tag (see \`scripts/next-version.sh\`). Merging this does not release anything by itself -- push a \`v${VERSION}\` tag afterward to actually trigger the crates.io/gRPC/Java/Go release workflows (each also needs its own tag: \`publish-N\`, \`grpc-release-v${VERSION}\`, \`java-v${VERSION}\`, \`go-release-v${VERSION}\`)." \
+            --body "Computed by \`prepare-release.yml\` from Conventional Commit subjects since the last tag (see \`scripts/next-version.sh\`). **Merging this releases v${VERSION}**: \`tag-and-release.yml\` tags this merge commit \`v${VERSION}\` and triggers \`publish.yml\` (crates.io), \`java-publish.yml\` (Maven Central), \`publish-go.yml\` (the ZirekHQ/dengjen-tts-go mirror), \`publish-grpc.yml\` (the gRPC server's GitHub Release), and \`CI.yml\`'s release job (PyPI) automatically. Review the version and the diff before merging -- there's no further manual gate after this for those five. \`dengjen-espeak-ng-sys\` is NOT part of this: it keeps its own independent version and its own manually-tagged release (\`publish-espeak-ng-sys-*\`)." \
             --base main --head "$branch"
