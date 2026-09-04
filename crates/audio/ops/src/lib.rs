@@ -1,5 +1,3 @@
-
-
 #![forbid(unsafe_code)]
 
 pub(crate) mod hanning_window;

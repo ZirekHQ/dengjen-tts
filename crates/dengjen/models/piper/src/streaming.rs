@@ -227,9 +227,7 @@ impl EncoderOutputs {
             z,
             y_mask,
             p_duration: optional("p_duration")?,
-            
-            
-            
+
             g: optional("g")?.unwrap_or_else(|| Array1::<f32>::from_iter([]).into_dyn()),
         })
     }
@@ -279,8 +277,7 @@ impl SpeechStreamer {
         cancel_token: CancellationToken,
     ) -> Self {
         let num_frames = encoder_outputs.z.shape()[2];
-        
-        
+
         let one_shot = num_frames <= (chunk_size * 2 + chunk_padding * 2);
         Self {
             mel_chunker: AdaptiveMelChunker::new(
@@ -296,8 +293,6 @@ impl SpeechStreamer {
         }
     }
 
-    
-    
     fn synthesize_chunk(
         &self,
         mel_index: ndarray::Slice,
@@ -345,8 +340,6 @@ impl Iterator for SpeechStreamer {
         }
         let (mel_index, audio_index) = self.mel_chunker.next()?;
         if self.one_shot {
-            
-            
             self.mel_chunker.consume();
             return Some(self.encoder_outputs.infer_decoder(&self.decoder_model));
         }
@@ -354,20 +347,12 @@ impl Iterator for SpeechStreamer {
     }
 }
 
-
-
-
-
-
-
-
-
 struct AdaptiveMelChunker {
     num_frames: isize,
     base_chunk_size: usize,
     padding: isize,
     hop_length: isize,
-    
+
     cursor: Option<isize>,
     chunks_emitted: usize,
 }
@@ -389,9 +374,6 @@ impl AdaptiveMelChunker {
     }
 
     fn current_chunk_width(&self) -> isize {
-        
-        
-        
         self.base_chunk_size
             .max(1)
             .saturating_mul(self.chunks_emitted + 1)
@@ -405,8 +387,6 @@ impl Iterator for AdaptiveMelChunker {
     fn next(&mut self) -> Option<Self::Item> {
         let region_start = self.cursor?;
 
-        
-        
         let (mel_start, lead_trim) = if region_start == 0 {
             (0, 0)
         } else {
@@ -414,8 +394,7 @@ impl Iterator for AdaptiveMelChunker {
         };
 
         let padded_end = region_start + self.current_chunk_width() + self.padding;
-        
-        
+
         let is_final = self.num_frames - padded_end <= MIN_CHUNK_SIZE;
 
         let (mel_end, tail_trim) = if is_final {
@@ -462,28 +441,19 @@ mod tests {
 
     #[test]
     fn adaptive_mel_chunker_clamps_chunk_width_at_max() {
-        
-        
-        
-        
-        
         let mut chunker = AdaptiveMelChunker::new(100_000, 600, 10, 256);
 
         let (first_mel, _) = chunker.next().unwrap();
-        assert_eq!(first_mel.end, Some(610)); 
+        assert_eq!(first_mel.end, Some(610));
 
         let (second_mel, _) = chunker.next().unwrap();
-        
+
         assert_eq!(second_mel.end, Some(610 + MAX_CHUNK_SIZE as isize + 10));
         assert_eq!(chunker.current_chunk_width(), MAX_CHUNK_SIZE as isize);
     }
 
     #[test]
     fn adaptive_mel_chunker_terminates_when_remaining_frames_fall_below_minimum() {
-        
-        
-        
-        
         let mut chunker = AdaptiveMelChunker::new(50, 10, 5, 10);
         let (mel_index, audio_index) = chunker.next().unwrap();
         assert_eq!(mel_index.end, None);
@@ -493,8 +463,6 @@ mod tests {
 
     #[test]
     fn adaptive_mel_chunker_terminates_when_chunk_size_and_padding_are_both_zero() {
-        
-        
         let chunker = AdaptiveMelChunker::new(1000, 0, 0, 10);
         let chunks: Vec<_> = chunker.take(1000).collect();
         assert!(

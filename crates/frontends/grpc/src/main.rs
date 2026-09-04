@@ -171,13 +171,6 @@ impl DengjenGrpcService {
         })
     }
 
-
-    
-    
-    
-    
-    
-    
     fn synth_options_from_synthesis_config(
         model: &(impl DengjenModel + ?Sized),
         config: &SynthesisConfig,
@@ -208,12 +201,6 @@ impl DengjenGrpcService {
         })
     }
 
-    
-    
-    
-    
-    
-    
     fn synth_options_for_configless_backend(
         on_unset_speaker: impl FnOnce() -> DengjenGrpcResult<Option<String>>,
     ) -> DengjenGrpcResult<grpc::SynthesisSettings> {
@@ -237,8 +224,6 @@ impl DengjenGrpcService {
         }
     }
 
-    
-    
     fn synth_options_from_model(
         model: &(impl DengjenModel + ?Sized),
     ) -> DengjenGrpcResult<grpc::SynthesisSettings> {
@@ -263,11 +248,6 @@ impl DengjenGrpcService {
         Self::synth_options_from_model(voice.model_ref())
     }
 
-    
-    
-    
-    
-    
     fn apply_synth_options(
         &self,
         voice_key: &str,
@@ -328,8 +308,6 @@ fn narrow_prosody_value(name: &str, value: u32) -> Result<u8, String> {
         .filter(|&v| v <= 100)
         .ok_or_else(|| format!("`{name}` must be in the range 0-100, got {value}"))
 }
-
-
 
 fn output_config_from_prosody(
     args: Option<grpc::ProsodyControls>,
@@ -392,8 +370,6 @@ mod prosody_tests {
 
     #[test]
     fn output_config_from_prosody_rejects_a_value_within_u8_range_but_above_the_documented_100() {
-        
-        
         let result = output_config_from_prosody(Some(grpc::ProsodyControls {
             rate: Some(101),
             volume: None,
@@ -403,10 +379,6 @@ mod prosody_tests {
         assert!(result.is_err());
     }
 }
-
-
-
-
 
 fn drain_stream_into_channel<Chunk, Message>(
     stream: impl Iterator<Item = DengjenResult<Chunk>>,
@@ -547,14 +519,10 @@ impl DengjenGrpc for DengjenGrpcService {
     }
 }
 
-
-
 fn setup_logging() {
     let log_filter = env_logger::Env::default().filter_or("DENGJEN_GRPC", "info");
     env_logger::init_from_env(log_filter);
 }
-
-
 
 fn init_ort_environment() -> bool {
     let cpu_provider = ort::execution_providers::CPU::default().build();
@@ -563,9 +531,6 @@ fn init_ort_environment() -> bool {
         .with_execution_providers([cpu_provider])
         .commit()
 }
-
-
-
 
 fn resolve_listen_port() -> u16 {
     std::env::var("DENGJEN_GRPC_SERVER_PORT")
@@ -578,8 +543,6 @@ fn resolve_listen_port() -> u16 {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     setup_logging();
 
-    
-    
     if !init_ort_environment() {
         log::error!("Could not initialize onnxruntime environment");
     }
@@ -754,8 +717,7 @@ mod voice_loading_tests {
 
         let _ = std::fs::remove_dir_all(&dir);
         assert_ne!(first_key, second_key);
-        
-        
+
         assert_eq!(first_key.len(), 16);
     }
 
@@ -849,15 +811,9 @@ mod load_voice_dispatch_tests {
     fn load_voice_routes_kokoro_model_type_toward_the_kokoro_loader() {
         let dir = std::env::temp_dir().join("dengjen_grpc_load_voice_test_kokoro");
         std::fs::create_dir_all(&dir).unwrap();
-        
-        
-        
-        
-        
-        
+
         let path = write_temp_config(&dir, "config.json", r#"{"model_type": "kokoro"}"#);
-        
-        
+
         let err = match load_voice(&path) {
             Err(e) => format!("{}", e),
             Ok(_) => panic!("expected an error for an incomplete Kokoro config"),
@@ -873,12 +829,7 @@ mod load_voice_dispatch_tests {
     fn load_voice_routes_melotts_model_type_toward_the_melotts_loader() {
         let dir = std::env::temp_dir().join("dengjen_grpc_load_voice_test_melotts");
         std::fs::create_dir_all(&dir).unwrap();
-        
-        
-        
-        
-        
-        
+
         let path = write_temp_config(
             &dir,
             "config.json",
@@ -952,9 +903,6 @@ mod synth_options_tests {
         service
     }
 
-    
-    
-    
     struct ConfiglessModel {
         speakers: StdHashMap<i64, String>,
     }
@@ -1273,8 +1221,6 @@ mod synth_options_tests {
             )
             .unwrap();
 
-        
-        
         let result = service
             .apply_synth_options(
                 "v1",

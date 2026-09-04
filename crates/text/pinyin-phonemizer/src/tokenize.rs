@@ -1,8 +1,3 @@
-
-
-
-
-
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Word {
     pub text: String,
@@ -108,10 +103,6 @@ pub(crate) fn tokenize_and_map(
         }
     }
 
-    
-    
-    
-    
     let _ = text_to_word;
     (tokens, text_to_token)
 }
@@ -151,9 +142,6 @@ mod tests {
 
     #[test]
     fn tokenize_and_map_produces_one_token_per_single_char_word_when_not_split_further() {
-        
-        
-        
         let Some(tokenizer) = test_tokenizer() else {
             eprintln!("skipping: DENGJEN_PINYIN_TEST_TOKENIZER_PATH not set");
             return;
@@ -174,8 +162,7 @@ mod tests {
             return;
         };
         let (_tokens, text_to_token) = super::tokenize_and_map(&tokenizer, " 你");
-        
-        
+
         assert_eq!(text_to_token[0], None);
         assert_eq!(text_to_token[1], Some(0));
     }

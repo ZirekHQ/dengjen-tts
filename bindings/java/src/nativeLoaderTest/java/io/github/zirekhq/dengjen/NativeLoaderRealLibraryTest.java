@@ -5,9 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.lang.foreign.SymbolLookup;
 import org.junit.jupiter.api.Test;
 
-
-
-
 class NativeLoaderRealLibraryTest {
   @Test
   void loadsTheNativeLibraryFromAClassifierJarOnTheClasspath() {

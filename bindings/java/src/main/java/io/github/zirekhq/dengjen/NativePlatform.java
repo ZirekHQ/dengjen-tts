@@ -2,12 +2,6 @@ package io.github.zirekhq.dengjen;
 
 import java.util.Locale;
 
-
-
-
-
-
-
 final class NativePlatform {
   private static final String WINDOWS = "windows";
   private static final String AARCH64 = "aarch64";

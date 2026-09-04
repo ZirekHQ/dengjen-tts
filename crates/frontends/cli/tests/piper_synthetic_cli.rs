@@ -2,32 +2,9 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 const ENCODER_NUM_FRAMES: usize = 200;
 const HOP_LENGTH: usize = 256;
-const EXPECTED_STREAM_PCM_BYTES: usize = ENCODER_NUM_FRAMES * HOP_LENGTH * 2; 
+const EXPECTED_STREAM_PCM_BYTES: usize = ENCODER_NUM_FRAMES * HOP_LENGTH * 2;
 
 fn fixtures_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../dengjen/models/piper/tests/fixtures")
@@ -205,14 +182,7 @@ fn cli_streams_realtime_synthesis_from_a_synthetic_piper_voice() {
     //   --chunk-size 20:  one_shot = 200 <= (20*2 + 3*2)  = 200 <= 46  = false (chunked)
     //   --chunk-size 100: one_shot = 200 <= (100*2 + 3*2) = 200 <= 206 = true  (single decode)
     // The synthetic decoder's output is a position-dependent ramp (0, 1, 2, ...)
-    
-    
-    
-    
-    
-    
-    
-    
+
     let dir = std::env::temp_dir().join("dengjen_cli_piper_synthetic_streaming_test");
     std::fs::remove_dir_all(&dir).ok();
     std::fs::create_dir_all(&dir).unwrap();
@@ -220,11 +190,6 @@ fn cli_streams_realtime_synthesis_from_a_synthetic_piper_voice() {
     let input_path = dir.join("input.txt");
     std::fs::write(&input_path, "test").unwrap();
 
-    
-    
-    
-    
-    
     let chunked_output = run_streaming(&config_path, &input_path, "20");
     assert_streaming_success(&chunked_output, "chunk-size=20 (chunked)");
 
@@ -242,18 +207,6 @@ fn cli_streams_realtime_synthesis_from_a_synthetic_piper_voice() {
 
 #[test]
 fn cli_synthesizes_from_a_stdin_json_request_and_exits_cleanly_on_eof() {
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
     let dir = std::env::temp_dir().join("dengjen_cli_piper_synthetic_stdin_test");
     std::fs::remove_dir_all(&dir).ok();
     std::fs::create_dir_all(&dir).unwrap();
@@ -268,8 +221,7 @@ fn cli_synthesizes_from_a_stdin_json_request_and_exits_cleanly_on_eof() {
         .expect("failed to spawn the dengjen binary");
 
     let mut child_stdin = child.stdin.take().expect("child stdin was not piped");
-    
-    
+
     writeln!(
         child_stdin,
         r#"{{"text": "test", "mode": "Realtime", "chunk_size": 100, "chunk_padding": 3}}"#
@@ -284,9 +236,6 @@ fn cli_synthesizes_from_a_stdin_json_request_and_exits_cleanly_on_eof() {
 
     drop(child_stdin);
 
-    
-    
-    
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     let status = loop {
         if let Some(status) = child.try_wait().expect("failed to poll the CLI") {

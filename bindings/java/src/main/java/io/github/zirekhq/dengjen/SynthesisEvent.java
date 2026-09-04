@@ -3,11 +3,8 @@ package io.github.zirekhq.dengjen;
 import java.util.Arrays;
 import java.util.Objects;
 
-
 public record SynthesisEvent(EventType type, byte[] data, DengjenException error) {
-  
-  
-  
+
   public SynthesisEvent {
     data = data == null ? null : data.clone();
   }
@@ -17,9 +14,6 @@ public record SynthesisEvent(EventType type, byte[] data, DengjenException error
     return data == null ? null : data.clone();
   }
 
-  
-  
-  
   @Override
   public boolean equals(Object obj) {
     if (this == obj) {

@@ -1,12 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-
-
-
-
-
-
 const STYLE_DIM: usize = 256;
 const MAX_TOKEN_LEN: usize = 510;
 

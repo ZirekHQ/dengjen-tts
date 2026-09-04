@@ -81,7 +81,6 @@ where
             ))
         })?;
 
-    
     file.write_all(&encoded).map_err(|source| {
         let _ = std::fs::remove_file(&temp_path);
         WaveWriterError::new(format!(
@@ -99,8 +98,6 @@ where
         ))
     })
 }
-
-
 
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -295,8 +292,6 @@ mod tests {
         let path = dir.join("existing.wav");
         std::fs::write(&path, b"pre-existing content").unwrap();
 
-        
-        
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).unwrap();
         let root_can_bypass_permissions = std::fs::OpenOptions::new()
             .write(true)
@@ -322,9 +317,6 @@ mod tests {
 
     #[test]
     fn temp_sibling_path_is_unique_across_repeated_calls_for_the_same_destination() {
-        
-        
-        
         let dest = Path::new("/tmp/dengjen-wave-writer-uniqueness-test.wav");
         let first = temp_sibling_path(dest);
         let second = temp_sibling_path(dest);
@@ -387,7 +379,6 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn to_file_errors_when_the_write_fails() {
-        
         if this_process_can_write_into_dev() {
             eprintln!(
                 "skipping: this process can write into /dev (likely root), so the \

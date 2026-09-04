@@ -1,6 +1,4 @@
 fn main() {
-    
-    
     dev_utils::init();
     divan::main();
 }

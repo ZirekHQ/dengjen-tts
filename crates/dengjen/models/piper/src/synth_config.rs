@@ -5,9 +5,6 @@ pub const NOISE_SCALE: &str = "noise_scale";
 pub const LENGTH_SCALE: &str = "length_scale";
 pub const NOISE_W: &str = "noise_w";
 
-
-
-
 const DEFAULT_NOISE_SCALE: f32 = 0.667;
 const DEFAULT_LENGTH_SCALE: f32 = 1.0;
 const DEFAULT_NOISE_W: f32 = 0.8;

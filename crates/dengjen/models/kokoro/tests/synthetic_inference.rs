@@ -3,11 +3,6 @@ use dengjen_tts_kokoro::{KokoroModel, KokoroVoiceConfig};
 use std::io::Write;
 use std::path::PathBuf;
 
-
-
-
-
-
 const STYLE_DIM: usize = 256;
 const MAX_TOKEN_LEN: usize = 510;
 
@@ -51,7 +46,6 @@ fn synthesizes_against_synthetic_fixture_without_panicking() {
     };
     let model = KokoroModel::from_config(config).expect("failed to load synthetic Kokoro model");
 
-    
     let audio = model
         .speak_one_sentence("t\u{025b}st".to_string())
         .expect("synthesis against synthetic fixture failed");
@@ -59,8 +53,7 @@ fn synthesizes_against_synthetic_fixture_without_panicking() {
     assert_eq!(audio.info.sample_rate, 24000);
     let samples = audio.samples.into_vec();
     assert!(!samples.is_empty(), "expected non-empty output samples");
-    
-    
+
     assert_eq!(samples.len(), 16000);
 
     std::fs::remove_dir_all(&dir).ok();

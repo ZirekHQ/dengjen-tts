@@ -10,10 +10,6 @@ import java.lang.foreign.Linker;
 import java.lang.foreign.SymbolLookup;
 import java.lang.invoke.MethodHandle;
 
-
-
-
-
 final class DengjenLib {
   private static final Linker LINKER = Linker.nativeLinker();
   private static final SymbolLookup LOOKUP = NativeLibraryLoader.load();

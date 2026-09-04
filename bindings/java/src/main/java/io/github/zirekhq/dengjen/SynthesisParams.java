@@ -1,9 +1,5 @@
 package io.github.zirekhq.dengjen;
 
-
-
-
-
 public record SynthesisParams(
     SynthesisMode mode,
     int rate,
@@ -18,7 +14,6 @@ public record SynthesisParams(
     requireRange(pitch, "pitch");
   }
 
-  
   public SynthesisParams(
       SynthesisMode mode, int rate, int volume, int pitch, int appendedSilenceMs) {
     this(mode, rate, volume, pitch, appendedSilenceMs, false);

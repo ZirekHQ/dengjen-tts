@@ -101,14 +101,6 @@ pub(crate) fn load_model_config(
     Ok((model_config, synth_config))
 }
 
-
-
-
-
-
-
-
-
 pub fn map_phonemes_to_ids(
     phoneme_id_map: &HashMap<String, Vec<i64>>,
     phonemes: &str,
@@ -116,8 +108,6 @@ pub fn map_phonemes_to_ids(
     bos_id: i64,
     eos_id: i64,
 ) -> Vec<i64> {
-    
-    
     let mut longest_entry_by_first_char: HashMap<char, usize> = HashMap::new();
     for entry in phoneme_id_map.keys() {
         let mut entry_chars = entry.chars();
@@ -138,8 +128,7 @@ pub fn map_phonemes_to_ids(
             .copied()
             .unwrap_or(0);
         let widest = longest_entry.min(chars.len() - cursor);
-        
-        
+
         let matched = (1..=widest).rev().find_map(|width| {
             let candidate: String = chars[cursor..cursor + width].iter().collect();
             phoneme_id_map
@@ -330,9 +319,7 @@ mod tests {
             ("ba".to_string(), vec![3]),
         ]);
         let ids = map_phonemes_to_ids(&map, "ba", 0, 100, 200);
-        
-        
-        
+
         assert_eq!(ids, vec![100, 3, 0, 200]);
     }
 

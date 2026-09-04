@@ -27,13 +27,6 @@ where
         .collect()
 }
 
-
-
-
-
-
-
-
 #[allow(clippy::vec_init_then_push)]
 pub(crate) fn execution_providers() -> Vec<ort::ep::ExecutionProviderDispatch> {
     #[allow(unused_mut)]
@@ -64,9 +57,6 @@ pub(crate) fn inference_error(cause: impl std::fmt::Display) -> DengjenError {
     DengjenError::InferenceError(format!("Failed to run model inference. Error: {}", cause))
 }
 
-
-
-
 pub(crate) fn build_vits_inputs(
     phoneme_ids: Vec<i64>,
     scales: [f32; 3],
@@ -89,8 +79,6 @@ pub(crate) fn build_vits_inputs(
     }
     inputs
 }
-
-
 
 pub(crate) fn snapshot_scales_and_speaker(
     synth_config: &RwLock<PiperSynthesisConfig>,

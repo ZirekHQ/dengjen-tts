@@ -3,10 +3,6 @@ package io.github.zirekhq.dengjen;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
-
-
-
-
 final class ErrorChecks {
   private ErrorChecks() {}
 
@@ -21,9 +17,6 @@ final class ErrorChecks {
     throw new DengjenException(ErrorCode.fromCode(code), message);
   }
 
-  
-  
-  
   static String readAndFreeMessage(MemorySegment messagePtr) {
     if (messagePtr.equals(MemorySegment.NULL)) {
       return null;
@@ -37,9 +30,6 @@ final class ErrorChecks {
     return message;
   }
 
-  
-  
-  
   static String readMessage(MemorySegment messagePtr) {
     if (messagePtr.equals(MemorySegment.NULL)) {
       return null;

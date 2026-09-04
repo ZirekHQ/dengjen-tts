@@ -27,8 +27,6 @@ pub(crate) fn should_diacritize(_voice: &str) -> bool {
     false
 }
 
-
-
 pub(crate) fn phonemize_dispatch(
     phoneme_type: PhonemeType,
     text: &str,
@@ -106,10 +104,7 @@ pub(crate) fn create_hebrew_engine(
                 .to_string(),
         ));
     };
-    
-    
-    
-    
+
     let resolved_model_path = resolve_hebrew_model_path(config_path, model_path);
     hebrew_phonemizer::create_nakdimon_engine(&resolved_model_path).map(Some)
 }
@@ -140,9 +135,7 @@ pub(crate) fn create_pinyin_engine(
                 .to_string(),
         ));
     };
-    
-    
-    
+
     let resolved_model_dir = resolve_pinyin_model_dir(config_path, model_dir);
     pinyin_phonemizer::create_pinyin_engine(&resolved_model_dir).map(Some)
 }
@@ -191,10 +184,6 @@ mod tests {
     #[cfg(feature = "hebrew")]
     #[test]
     fn phonemize_dispatch_delegates_hebrew_to_the_hebrew_engine_when_present() {
-        
-        
-        
-        
         let result = phonemize_dispatch(
             PhonemeType::Hebrew,
             "\u{05E9}\u{05DC}\u{05D5}\u{05DD}",
@@ -207,9 +196,6 @@ mod tests {
     #[cfg(not(feature = "hebrew"))]
     #[test]
     fn phonemize_dispatch_still_errors_on_hebrew_when_feature_disabled() {
-        
-        
-        
         let result = phonemize_dispatch(PhonemeType::Hebrew, "hello", None, None).unwrap();
         assert!(result.is_err());
     }
@@ -217,9 +203,6 @@ mod tests {
     #[cfg(feature = "pinyin")]
     #[test]
     fn phonemize_dispatch_delegates_pinyin_to_the_pinyin_engine_when_present() {
-        
-        
-        
         let result = phonemize_dispatch(PhonemeType::Pinyin, "\u{4F60}\u{597D}", None, None);
         assert!(result.unwrap().is_err());
     }

@@ -9,11 +9,6 @@ import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-
-
-
-
-
 class RealVoiceE2ETest {
   @Test
   void synthesizesRealAudioFromARealVoice(@TempDir Path tempDir) throws IOException {

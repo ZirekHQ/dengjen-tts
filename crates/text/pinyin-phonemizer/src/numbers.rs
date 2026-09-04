@@ -1,16 +1,8 @@
-
-
-
-
-
-
 const DIGITS: [char; 10] = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
 
 fn digit_to_word(d: u32) -> char {
     DIGITS[d as usize]
 }
-
-
 
 fn format_small_number(n: u32) -> String {
     if n < 10 {
@@ -29,10 +21,6 @@ fn format_small_number(n: u32) -> String {
     out
 }
 
-
-
-
-
 fn format_integer(digits: &str) -> String {
     if let Ok(n) = digits.parse::<u64>() {
         if n < 100 {
@@ -45,8 +33,6 @@ fn format_integer(digits: &str) -> String {
         .map(digit_to_word)
         .collect()
 }
-
-
 
 fn format_fraction_digits(digits: &str) -> String {
     digits

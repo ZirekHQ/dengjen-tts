@@ -139,7 +139,7 @@ pub trait DengjenModel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     struct NullModel;
 
     impl DengjenModel for NullModel {

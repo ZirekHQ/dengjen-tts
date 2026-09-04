@@ -7,32 +7,15 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import org.junit.jupiter.api.Test;
 
-
-
-
-
-
-
-
-
-
 class SpeakTrampolineIntegrationTest {
   @Test
   void invokeStopsTheStreamWhenNoTrampolineIsRegisteredForTheEventsUserData() {
     try (Arena arena = Arena.ofConfined()) {
       MemorySegment event = arena.allocate(DengjenLayouts.SYNTHESIS_EVENT);
-      
-      
-      
-      
+
       event.set(ValueLayout.JAVA_INT, DengjenLayouts.SYNTHESIS_EVENT_TYPE_OFFSET, 1);
       event.set(ValueLayout.JAVA_LONG, DengjenLayouts.SYNTHESIS_EVENT_LEN_OFFSET, 0L);
-      
-      
-      
-      
-      
-      
+
       event.set(
           ValueLayout.ADDRESS,
           DengjenLayouts.SYNTHESIS_EVENT_DATA_OFFSET,
@@ -40,8 +23,6 @@ class SpeakTrampolineIntegrationTest {
       event.set(
           ValueLayout.ADDRESS, DengjenLayouts.SYNTHESIS_EVENT_ERROR_PTR_OFFSET, MemorySegment.NULL);
 
-      
-      
       MemorySegment unregisteredUserData = MemorySegment.ofAddress(Long.MAX_VALUE);
 
       byte result = SpeakTrampoline.invoke(event, unregisteredUserData);
@@ -56,9 +37,7 @@ class SpeakTrampolineIntegrationTest {
   void invokeTreatsAZeroLengthSpeechEventAsCarryingNoPayload() {
     try (Arena arena = Arena.ofConfined()) {
       MemorySegment event = arena.allocate(DengjenLayouts.SYNTHESIS_EVENT);
-      
-      
-      
+
       event.set(ValueLayout.JAVA_INT, DengjenLayouts.SYNTHESIS_EVENT_TYPE_OFFSET, 0);
       event.set(ValueLayout.JAVA_LONG, DengjenLayouts.SYNTHESIS_EVENT_LEN_OFFSET, 0L);
       event.set(
@@ -91,9 +70,7 @@ class SpeakTrampolineIntegrationTest {
   void invokeTreatsAnErrorEventWithANullErrorPointerAsCarryingNoError() {
     try (Arena arena = Arena.ofConfined()) {
       MemorySegment event = arena.allocate(DengjenLayouts.SYNTHESIS_EVENT);
-      
-      
-      
+
       event.set(ValueLayout.JAVA_INT, DengjenLayouts.SYNTHESIS_EVENT_TYPE_OFFSET, 2);
       event.set(ValueLayout.JAVA_LONG, DengjenLayouts.SYNTHESIS_EVENT_LEN_OFFSET, 0L);
       event.set(
@@ -115,8 +92,7 @@ class SpeakTrampolineIntegrationTest {
       SpeakTrampoline.testCallReleased.set(() -> released[0] = true);
       try {
         byte result = SpeakTrampoline.invoke(event, trampoline.userData());
-        
-        
+
         assertThat(result)
             .as("ERROR with wantsMore=true keeps the stream going")
             .isEqualTo((byte) 0);
@@ -134,11 +110,7 @@ class SpeakTrampolineIntegrationTest {
   @Test
   void invokeSurvivesAnUndersizedEventSegmentAndStillStopsTheStream() {
     try (Arena arena = Arena.ofConfined()) {
-      
-      
-      
-      
-      
+
       MemorySegment tooSmall = arena.allocate(1);
       MemorySegment unregisteredUserData = MemorySegment.ofAddress(Long.MAX_VALUE - 1);
 

@@ -1,9 +1,6 @@
 use std::env;
 use std::path::{Path, PathBuf};
 
-
-
-
 fn workspace_root(crate_dir: &Path) -> PathBuf {
     crate_dir
         .ancestors()
@@ -16,10 +13,6 @@ fn main() {
     let crate_dir =
         PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not set"));
 
-    
-    
-    
-    
     let deps_dev_dir = workspace_root(&crate_dir).join("deps").join("dev");
     println!("cargo:rerun-if-changed={}", deps_dev_dir.display());
 
@@ -31,8 +24,6 @@ fn main() {
     let espeak_data_dst = package_dir.join("espeak-ng-data");
 
     if espeak_data_dst.exists() {
-        
-        
         return;
     }
 

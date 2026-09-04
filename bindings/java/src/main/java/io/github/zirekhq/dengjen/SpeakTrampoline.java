@@ -15,37 +15,12 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 final class SpeakTrampoline {
-  
-
-
-
-
-
 
   static final AtomicReference<Runnable> testCallReleased = new AtomicReference<>();
 
   private static final Map<Long, SpeakTrampoline> REGISTRY = new ConcurrentHashMap<>();
-  
-  
+
   private static final AtomicLong NEXT_ID = new AtomicLong(1);
 
   private static final MemorySegment STUB;
@@ -79,29 +54,19 @@ final class SpeakTrampoline {
     this.id = id;
   }
 
-  
-
-
-
   static SpeakTrampoline create(SynthesisEventHandler handler) {
     SpeakTrampoline trampoline = new SpeakTrampoline(handler, NEXT_ID.getAndIncrement());
     REGISTRY.put(trampoline.id, trampoline);
     return trampoline;
   }
 
-  
   static MemorySegment stubPointer() {
     return STUB;
   }
 
-  
   MemorySegment userData() {
     return MemorySegment.ofAddress(id);
   }
-
-  
-
-
 
   void release() {
     if (REGISTRY.remove(id) != null) {
@@ -112,16 +77,6 @@ final class SpeakTrampoline {
     }
   }
 
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
   static byte invoke(MemorySegment eventSegment, MemorySegment userData) {
     SpeakTrampoline trampoline = null;
     boolean freed = false;
@@ -129,28 +84,17 @@ final class SpeakTrampoline {
       trampoline = REGISTRY.get(userData.address());
       DecodedEvent decoded = decodeEvent(eventSegment);
 
-      
-      
-      
-      
       freeEventOrThrow(eventSegment);
       freed = true;
 
       if (trampoline == null) {
-        return 1; 
+        return 1;
       }
 
       boolean wantsMore =
           trampoline.handler.onEvent(
               new SynthesisEvent(decoded.type(), decoded.data(), decoded.error()));
 
-      
-      
-      
-      
-      
-      
-      
       boolean terminal = decoded.type() == EventType.FINISHED || decoded.type() == EventType.ERROR;
       if (terminal || !wantsMore) {
         trampoline.release();
@@ -159,17 +103,7 @@ final class SpeakTrampoline {
     } catch (
         @SuppressWarnings("java:S1181")
         Throwable t) {
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      
+
       if (!freed) {
         tryFreeEvent(eventSegment);
       }
@@ -180,13 +114,6 @@ final class SpeakTrampoline {
     }
   }
 
-  
-  
-  
-  
-  
-  
-  
   record DecodedEvent(EventType type, byte[] data, DengjenException error) {
     @Override
     public boolean equals(Object obj) {
@@ -251,14 +178,11 @@ final class SpeakTrampoline {
     }
   }
 
-  
-  
-  
   private static void tryFreeEvent(MemorySegment eventSegment) {
     try {
       DengjenLib.FREE_SYNTHESIS_EVENT.invokeExact(eventSegment);
     } catch (Throwable freeFailure) {
-      
+
     }
   }
 }

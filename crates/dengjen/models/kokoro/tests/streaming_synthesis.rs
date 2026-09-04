@@ -48,7 +48,6 @@ fn load_synthetic_model(test_name: &str) -> KokoroModel {
     model
 }
 
-
 const TEST_PHONEMES: &str = "t\u{025b}st";
 
 #[test]
@@ -86,10 +85,9 @@ fn streamed_chunks_total_matches_speak_one_sentence_total() {
         .speak_one_sentence(TEST_PHONEMES.to_string())
         .expect("speak_one_sentence failed");
     let whole_len = whole.samples.into_vec().len();
-    
+
     assert_eq!(whole_len, 16000);
 
-    
     let stream = model
         .stream_synthesis(TEST_PHONEMES.to_string(), 16, 3, CancellationToken::new())
         .expect("stream_synthesis failed");

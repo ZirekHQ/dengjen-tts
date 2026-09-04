@@ -6,17 +6,12 @@ const I16_MIN_AS_F32: f32 = i16::MIN as f32;
 const I16_MAX_AS_F32: f32 = i16::MAX as f32;
 const WAV_PEAK_MAGNITUDE: f32 = 32767.0;
 
-
-
 #[derive(Debug, Clone)]
 pub struct AudioInfo {
     pub sample_rate: usize,
     pub num_channels: usize,
     pub sample_width: usize,
 }
-
-
-
 
 #[derive(Clone, Debug, Default)]
 #[must_use]
@@ -65,10 +60,7 @@ impl AudioSamples {
         if self.0.is_empty() {
             return Vec::new();
         }
-        
-        
-        
-        
+
         let peak_magnitude = self
             .0
             .iter()
@@ -104,9 +96,7 @@ impl AudioSamples {
         if self.0.is_empty() {
             return;
         }
-        
-        
-        
+
         let peak_magnitude = self
             .0
             .iter()
@@ -135,17 +125,9 @@ impl AudioSamples {
         Ok(())
     }
 
-    
-    
-    
-    
-    
-    
     pub fn overlap_with(&mut self, other: &mut Self, overlap_len: usize) {
         let overlap_len = overlap_len.min(self.0.len()).min(other.0.len());
         if overlap_len == 1 {
-            
-            
             let tail_start = self.0.len() - 1;
             self.0[tail_start] = (self.0[tail_start] + other.0[0]) * 0.5;
         } else if overlap_len > 1 {
@@ -189,8 +171,7 @@ impl AudioSamples {
     pub fn crossfade(&mut self, fade_samples: usize) {
         let length = self.0.len();
         let span = fade_samples.min(length / 2);
-        
-        
+
         if span < 2 {
             return;
         }
@@ -202,7 +183,6 @@ impl AudioSamples {
         }
     }
 
-    
     pub fn zero_samples_above(&mut self, sample_range: std::ops::Range<usize>, cutoff: f32) {
         let end = sample_range.end.min(self.0.len());
         let clamped = sample_range.start.min(end)..end;
@@ -211,7 +191,6 @@ impl AudioSamples {
         });
     }
 
-    
     pub fn zero_samples_below(&mut self, sample_range: std::ops::Range<usize>, cutoff: f32) {
         let end = sample_range.end.min(self.0.len());
         let clamped = sample_range.start.min(end)..end;
@@ -220,7 +199,6 @@ impl AudioSamples {
         });
     }
 
-    
     pub fn strip_silence(&mut self, sample_range: std::ops::Range<usize>, silence_threshold: f32) {
         let end = sample_range.end.min(self.0.len());
         let clamped = sample_range.start.min(end)..end;
@@ -263,8 +241,6 @@ impl IntoIterator for AudioSamples {
         self.0.into_iter()
     }
 }
-
-
 
 #[derive(Debug, Clone)]
 #[must_use]
@@ -410,9 +386,6 @@ mod tests {
 
     #[test]
     fn zero_samples_above_clamps_a_range_that_would_reverse_after_independent_end_clamping() {
-        
-        
-        
         let mut buffer = AudioSamples::from(vec![1.0, 2.0, 3.0]);
         buffer.zero_samples_above(10..1, 0.0);
         assert_eq!(buffer.into_vec(), vec![1.0, 2.0, 3.0]);
@@ -657,7 +630,6 @@ mod tests {
 
     #[test]
     fn real_time_factor_divides_inference_ms_by_duration_ms() {
-        
         let clip = Audio::new(AudioSamples::from(vec![0.0; 100]), 100, Some(50.0));
         assert_eq!(clip.real_time_factor(), Some(0.05));
     }
@@ -677,8 +649,7 @@ mod tests {
         let mut head = AudioSamples::from(vec![1.0, 2.0]);
         let mut tail = AudioSamples::from(vec![3.0, 4.0]);
         head.overlap_with(&mut tail, 2);
-        
-        
+
         assert_eq!(head.as_vec(), &vec![1.0, 4.0]);
     }
 
@@ -692,10 +663,6 @@ mod tests {
 
     #[test]
     fn overlap_with_gains_sum_to_exactly_one_at_every_offset() {
-        
-        
-        
-        
         let mut head = AudioSamples::from(vec![1.0; 8]);
         let mut tail = AudioSamples::from(vec![1.0; 8]);
         head.overlap_with(&mut tail, 8);
@@ -714,9 +681,6 @@ mod proptest_tests {
     use super::*;
     use proptest::prelude::*;
 
-    
-    
-    
     fn sample() -> impl Strategy<Value = f32> {
         -1000.0f32..1000.0f32
     }

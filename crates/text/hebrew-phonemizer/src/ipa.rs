@@ -1,7 +1,3 @@
-
-
-
-
 use std::collections::HashMap;
 use unicode_normalization::UnicodeNormalization;
 
@@ -311,17 +307,7 @@ pub(crate) fn word_to_segments(word: &str) -> Vec<Segment> {
         let is_final = i == glyphs.len() - 1;
 
         // Real upstream piper1-gpl's `_word_to_segments` has no special case
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
+
         let base_char = g.base.chars().next().unwrap_or('\0');
 
         if is_shuruk(g) {
@@ -433,9 +419,6 @@ fn resolve_sheva_and_qamats(mut segs: Vec<Segment>) -> Vec<Segment> {
 }
 
 fn syllabify_to_ipa(segs: &[Segment]) -> String {
-    
-    
-    
     let stress_index = match segs {
         [_, second] if !second.coda.is_empty() => 0,
         _ => segs.len().saturating_sub(1),
@@ -457,21 +440,6 @@ fn syllabify_to_ipa(segs: &[Segment]) -> String {
 
 const GLOTTAL: char = '\u{0294}';
 const STRESS: char = '\u{02C8}';
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 fn strip_unrealized_glottal_stops(ipa: &str) -> String {
     let chars: Vec<char> = ipa.chars().collect();
@@ -502,8 +470,6 @@ pub(crate) fn hebrew_word_to_ipa(word: &str) -> String {
     let ipa = syllabify_to_ipa(&segs);
     let ipa = strip_unrealized_glottal_stops(&ipa);
 
-    
-    
     ipa.replace('\u{0361}', "")
 }
 
@@ -522,7 +488,7 @@ mod tests {
 
     #[test]
     fn iter_glyphs_groups_combining_marks_with_the_preceding_base_letter() {
-        let glyphs = iter_glyphs("\u{05D1}\u{05B7}"); 
+        let glyphs = iter_glyphs("\u{05D1}\u{05B7}");
         assert_eq!(glyphs.len(), 1);
         assert_eq!(glyphs[0].base, "\u{05D1}");
         assert_eq!(glyphs[0].marks, vec!['\u{05B7}']);
@@ -530,7 +496,7 @@ mod tests {
 
     #[test]
     fn iter_glyphs_strips_cantillation_marks_first() {
-        let glyphs = iter_glyphs("\u{05D1}\u{0591}\u{05B7}"); 
+        let glyphs = iter_glyphs("\u{05D1}\u{0591}\u{05B7}");
         assert_eq!(glyphs.len(), 1);
         assert_eq!(glyphs[0].marks, vec!['\u{05B7}']);
     }
@@ -541,11 +507,11 @@ mod tests {
             Glyph {
                 base: "\u{05D2}".to_string(),
                 marks: vec![],
-            }, 
+            },
             Glyph {
                 base: "\u{05F3}".to_string(),
                 marks: vec![],
-            }, 
+            },
         ];
         let out = apply_geresh_digraphs(glyphs);
         assert_eq!(out.len(), 1);
@@ -566,7 +532,7 @@ mod tests {
 
     #[test]
     fn map_consonant_final_forms_map_to_their_base_letter_sound() {
-        assert_eq!(map_consonant('\u{05DA}', &[], true), "\u{03C7}"); 
+        assert_eq!(map_consonant('\u{05DA}', &[], true), "\u{03C7}");
     }
 
     #[test]
@@ -584,16 +550,16 @@ mod tests {
     #[test]
     fn map_basic_vowel_reads_each_niqqud_mark() {
         let cases = [
-            ('\u{05B8}', "a"), 
-            ('\u{05B7}', "a"), 
-            ('\u{05B4}', "i"), 
-            ('\u{05B5}', "e"), 
-            ('\u{05B6}', "e"), 
-            ('\u{05B9}', ""),  
+            ('\u{05B8}', "a"),
+            ('\u{05B7}', "a"),
+            ('\u{05B4}', "i"),
+            ('\u{05B5}', "e"),
+            ('\u{05B6}', "e"),
+            ('\u{05B9}', ""),
         ];
         for (mark, expected) in cases {
             if mark == '\u{05B9}' {
-                continue; 
+                continue;
             }
             let g = Glyph {
                 base: "x".to_string(),
@@ -682,18 +648,15 @@ mod tests {
 
     #[test]
     fn word_to_segments_bet_patah_is_one_segment_with_a_vowel() {
-        let segs = word_to_segments("\u{05D1}\u{05B7}"); 
+        let segs = word_to_segments("\u{05D1}\u{05B7}");
         assert_eq!(segs.len(), 1);
-        assert_eq!(segs[0].onset, vec!["v".to_string()]); 
+        assert_eq!(segs[0].onset, vec!["v".to_string()]);
         assert_eq!(segs[0].nucleus, "a");
     }
 
     #[test]
     fn word_to_segments_shuruk_carries_the_preceding_onset_into_a_bare_u_nucleus() {
-        
-        
-        
-        let segs = word_to_segments("\u{05D4}\u{05D5}\u{05BC}"); 
+        let segs = word_to_segments("\u{05D4}\u{05D5}\u{05BC}");
         assert_eq!(segs.len(), 1);
         assert_eq!(segs[0].onset, vec!["h".to_string()]);
         assert_eq!(segs[0].nucleus, "u");
@@ -701,14 +664,14 @@ mod tests {
 
     #[test]
     fn word_to_segments_trailing_consonant_becomes_a_coda() {
-        let segs = word_to_segments("\u{05D1}\u{05B7}\u{05EA}"); 
+        let segs = word_to_segments("\u{05D1}\u{05B7}\u{05EA}");
         assert_eq!(segs.len(), 1);
         assert_eq!(segs[0].coda, vec!["t".to_string()]);
     }
 
     #[test]
     fn word_to_segments_sheva_creates_a_placeholder_segment_recording_dagesh() {
-        let segs = word_to_segments("\u{05D1}\u{05BC}\u{05B0}"); 
+        let segs = word_to_segments("\u{05D1}\u{05BC}\u{05B0}");
         assert_eq!(segs.len(), 1);
         assert_eq!(segs[0].nucleus, "\u{0259}");
         assert!(segs[0].dagesh);
@@ -716,20 +679,13 @@ mod tests {
 
     #[test]
     fn word_to_segments_geresh_digraph_is_silently_dropped_matching_upstream() {
-        
-        
-        
-        
-        
-        
-        let segs = word_to_segments("\u{05D2}\u{05F3}\u{05D1}\u{05B7}"); 
+        let segs = word_to_segments("\u{05D2}\u{05F3}\u{05D1}\u{05B7}");
         let digraph_ipa = "d\u{0361}\u{0292}";
         for seg in &segs {
             assert!(!seg.onset.iter().any(|s| s == digraph_ipa));
             assert!(!seg.coda.iter().any(|s| s == digraph_ipa));
         }
-        
-        
+
         assert_eq!(segs.len(), 1);
         assert_eq!(segs[0].nucleus, "a");
         assert_eq!(segs[0].onset, vec!["v".to_string()]);
@@ -737,10 +693,6 @@ mod tests {
 
     #[test]
     fn hebrew_word_to_ipa_word_initial_sheva_is_realized_as_e() {
-        
-        
-        
-        
         let ipa = hebrew_word_to_ipa("\u{05D1}\u{05B0}\u{05E8}\u{05B7}\u{05DA}");
         assert!(ipa.starts_with('v'));
         assert!(
@@ -751,15 +703,7 @@ mod tests {
 
     #[test]
     fn hebrew_word_to_ipa_stresses_the_final_syllable_by_default() {
-        
-        
-        
-        
-        
-        
-        let ipa = hebrew_word_to_ipa(
-            "\u{05E9}\u{05B8}\u{05DE}\u{05B7}\u{05D9}\u{05B4}\u{05DD}", 
-        );
+        let ipa = hebrew_word_to_ipa("\u{05E9}\u{05B8}\u{05DE}\u{05B7}\u{05D9}\u{05B4}\u{05DD}");
         assert!(ipa.contains('\u{02C8}'), "expected a stress mark somewhere");
         let Some(stress_pos) = ipa.find('\u{02C8}') else {
             panic!("expected a stress mark to be present, checked above");
@@ -772,7 +716,6 @@ mod tests {
 
     #[test]
     fn hebrew_word_to_ipa_keeps_glottal_stop_immediately_before_a_vowel() {
-        
         let ipa = hebrew_word_to_ipa("\u{05E2}\u{05D5}\u{05B9}\u{05DC}\u{05B8}\u{05DD}");
         assert!(
             ipa.starts_with('\u{0294}'),
@@ -782,9 +725,6 @@ mod tests {
 
     #[test]
     fn hebrew_word_to_ipa_drops_glottal_stop_before_a_consonant() {
-        
-        
-        
         let ipa = hebrew_word_to_ipa("\u{05D0}\u{05D1}\u{05B7}");
         assert!(
             !ipa.contains('\u{0294}'),
@@ -795,7 +735,7 @@ mod tests {
 
     #[test]
     fn hebrew_word_to_ipa_drops_affricate_tie_bars() {
-        let ipa = hebrew_word_to_ipa("\u{05E6}\u{05B7}\u{05DC}\u{05DD}"); 
+        let ipa = hebrew_word_to_ipa("\u{05E6}\u{05B7}\u{05DC}\u{05DD}");
         assert!(
             !ipa.contains('\u{0361}'),
             "tie bar must be stripped for Piper's IPA map"

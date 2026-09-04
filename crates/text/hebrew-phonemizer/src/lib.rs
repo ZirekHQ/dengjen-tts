@@ -1,10 +1,3 @@
-
-
-
-
-
-
-
 #![forbid(unsafe_code)]
 
 mod chars;
@@ -13,15 +6,9 @@ mod nakdimon;
 
 pub use nakdimon::{create_nakdimon_engine, NakdimonEngine};
 
-
-
 pub use nakdimon::num_classes;
 
 use dengjen_tts_core::{DengjenResult, Phonemes};
-
-
-
-
 
 const NIQQUD_RANGE_START: u32 = 0x05B0;
 const NIQQUD_RANGE_END: u32 = 0x05C7;
@@ -30,22 +17,6 @@ fn already_diacritized(text: &str) -> bool {
     text.chars()
         .any(|c| (NIQQUD_RANGE_START..=NIQQUD_RANGE_END).contains(&(c as u32)))
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 pub fn text_to_hebrew_phonemes(engine: &NakdimonEngine, text: &str) -> DengjenResult<Phonemes> {
     let diacritized = if already_diacritized(text) {
@@ -68,7 +39,7 @@ mod tests {
 
     #[test]
     fn text_to_hebrew_phonemes_skips_diacritization_when_already_pointed() {
-        let pointed = "\u{05E9}\u{05B8}\u{05DC}\u{05D5}\u{05DD}"; 
+        let pointed = "\u{05E9}\u{05B8}\u{05DC}\u{05D5}\u{05DD}";
         assert!(already_diacritized(pointed));
         let ipa = hebrew_to_ipa_or_error(pointed).unwrap();
         assert!(!ipa.is_empty());
@@ -76,7 +47,7 @@ mod tests {
 
     #[test]
     fn already_diacritized_is_false_for_undotted_consonants_only() {
-        let undotted = "\u{05E9}\u{05DC}\u{05D5}\u{05DD}"; 
+        let undotted = "\u{05E9}\u{05DC}\u{05D5}\u{05DD}";
         assert!(!already_diacritized(undotted));
     }
 
@@ -87,9 +58,6 @@ mod tests {
     }
 
     fn hebrew_to_ipa_or_error(text: &str) -> DengjenResult<String> {
-        
-        
-        
         Ok(ipa::hebrew_to_ipa(text))
     }
 

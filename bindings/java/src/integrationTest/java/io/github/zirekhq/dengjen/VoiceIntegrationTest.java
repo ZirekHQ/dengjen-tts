@@ -59,9 +59,7 @@ class VoiceIntegrationTest {
       assertThat(wrote).isTrue();
 
       byte[] data = Files.readAllBytes(outPath);
-      
-      
-      
+
       assertThat(data).hasSize(44 + 8000 * 2);
     }
   }
@@ -131,9 +129,7 @@ class VoiceIntegrationTest {
       SpeakTrampoline.testCallReleased.set(() -> released[0] = true);
       try {
         SynthesisParams params = new SynthesisParams(SynthesisMode.LAZY, 10, 100, 50, 0);
-        
-        
-        
+
         assertThatCode(
                 () ->
                     voice.speak(
@@ -160,9 +156,7 @@ class VoiceIntegrationTest {
       SpeakTrampoline.testCallReleased.set(() -> releases[0]++);
       try {
         SynthesisParams params = new SynthesisParams(SynthesisMode.LAZY, 10, 100, 50, 0);
-        
-        
-        
+
         assertThatThrownBy(() -> voice.speak(null, params, event -> true))
             .isInstanceOf(NullPointerException.class);
       } finally {

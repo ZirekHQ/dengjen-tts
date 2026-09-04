@@ -9,12 +9,6 @@ use rayon::{prelude::*, ThreadPool, ThreadPoolBuilder};
 mod utils;
 pub use dengjen_tts_core::*;
 
-
-
-
-
-
-
 pub fn detect_model_type(config_path: &Path) -> DengjenResult<String> {
     let raw = std::fs::read_to_string(config_path).map_err(|why| {
         DengjenError::FailedToLoadResource(format!(
@@ -37,8 +31,6 @@ pub fn detect_model_type(config_path: &Path) -> DengjenResult<String> {
     Ok(model_type.to_owned())
 }
 
-
-
 struct ParamRange {
     min: f32,
     max: f32,
@@ -47,9 +39,6 @@ struct ParamRange {
 const SPEED_PARAM_RANGE: ParamRange = ParamRange { min: 0.5, max: 5.5 };
 const VOLUME_PARAM_RANGE: ParamRange = ParamRange { min: 0.0, max: 1.0 };
 const PITCH_PARAM_RANGE: ParamRange = ParamRange { min: 0.5, max: 1.5 };
-
-
-
 
 pub static SYNTHESIS_THREAD_POOL: Lazy<ThreadPool> = Lazy::new(|| {
     let core_count = std::thread::available_parallelism()
@@ -61,9 +50,6 @@ pub static SYNTHESIS_THREAD_POOL: Lazy<ThreadPool> = Lazy::new(|| {
         .build()
         .expect("thread pool construction only fails on invalid config, never at runtime")
 });
-
-
-
 
 #[derive(Clone)]
 pub struct AudioOutputConfig {
@@ -83,9 +69,6 @@ impl AudioOutputConfig {
         )?;
         audio.samples.merge(processed);
         if let Some(silence_ms) = self.appended_silence_ms {
-            
-            
-            
             let silence = self.generate_silence(
                 silence_ms as usize,
                 audio.info.sample_rate,
@@ -96,9 +79,6 @@ impl AudioOutputConfig {
         Ok(audio)
     }
 
-    
-    
-    
     fn apply_to_raw_samples(
         &self,
         samples: AudioSamples,
@@ -110,10 +90,10 @@ impl AudioOutputConfig {
         }
         let input = samples.into_vec();
 
-        
-        
-        
-        
+        // SAFETY: every libsonic call below targets the `stream` handle this
+        // block itself creates, and every exit from the block — the early
+        // error return on a zero-sample result included — destroys that
+        // same handle first, so no stream ever outlives this block.
         unsafe {
             let stream = sonic_sys::sonicCreateStream(sample_rate as i32, num_channels as i32);
 
@@ -122,9 +102,7 @@ impl AudioOutputConfig {
                     utils::percent_to_param(pct, SPEED_PARAM_RANGE.min, SPEED_PARAM_RANGE.max);
                 sonic_sys::sonicSetSpeed(stream, speed);
             }
-            
-            
-            
+
             if let Some(pct) = self.volume.filter(|&pct| pct != 0) {
                 let volume =
                     utils::percent_to_param(pct, VOLUME_PARAM_RANGE.min, VOLUME_PARAM_RANGE.max);
@@ -136,11 +114,6 @@ impl AudioOutputConfig {
                 sonic_sys::sonicSetPitch(stream, pitch);
             }
 
-            
-            
-            
-            
-            
             let frame_count = input.len() / num_channels;
             sonic_sys::sonicWriteFloatToStream(stream, input.as_ptr(), frame_count as i32);
             sonic_sys::sonicFlushStream(stream);
@@ -154,8 +127,7 @@ impl AudioOutputConfig {
             }
 
             let mut output: Vec<f32> = Vec::with_capacity(available_frames as usize * num_channels);
-            
-            
+
             let frames_read = sonic_sys::sonicReadFloatFromStream(
                 stream,
                 output.spare_capacity_mut().as_mut_ptr().cast(),
@@ -173,9 +145,6 @@ impl AudioOutputConfig {
         }
     }
 
-    
-    
-    
     fn generate_silence(
         &self,
         time_ms: usize,
@@ -188,9 +157,6 @@ impl AudioOutputConfig {
     }
 }
 
-
-
-
 pub enum StreamMode {
     Lazy,
     Parallel,
@@ -200,11 +166,6 @@ pub enum StreamMode {
         cancel_token: CancellationToken,
     },
 }
-
-
-
-
-
 
 pub enum AudioChunkStream {
     Lazy(DengjenSpeechStreamLazy),
@@ -223,8 +184,6 @@ impl Iterator for AudioChunkStream {
         }
     }
 }
-
-
 
 pub struct DengjenSpeechSynthesizer {
     backend: Arc<dyn DengjenModel + Sync + Send>,
@@ -287,8 +246,6 @@ impl DengjenSpeechSynthesizer {
         )
     }
 
-    
-    
     pub fn synthesize_samples(
         &self,
         text: String,
@@ -432,7 +389,7 @@ impl SpeechSynthesisTaskProvider {
 }
 
 /// Pulls one sentence's audio out of the underlying model on each
-
+/// `Iterator::next` call, rather than synthesizing everything up front.
 pub struct DengjenSpeechStreamLazy {
     provider: SpeechSynthesisTaskProvider,
     pending_sentences: std::vec::IntoIter<String>,
@@ -457,11 +414,6 @@ impl Iterator for DengjenSpeechStreamLazy {
             .map(|sentence| self.provider.process_one_sentence(sentence))
     }
 }
-
-
-
-
-
 
 #[must_use]
 pub struct DengjenSpeechStreamParallel {
@@ -489,14 +441,7 @@ impl Iterator for DengjenSpeechStreamParallel {
     }
 }
 
-
-
-
-
 const MAX_STREAM_CHUNK_SIZE: usize = 1_000_000;
-
-
-
 
 pub struct RealtimeSpeechStream {
     rx: Receiver<DengjenResult<AudioSamples>>,
@@ -504,13 +449,6 @@ pub struct RealtimeSpeechStream {
 }
 
 impl RealtimeSpeechStream {
-    
-    
-    
-    
-    
-    
-    
     fn next_chunk_size(base_chunk_size: usize, sentences_seen: usize) -> usize {
         let extra_multiples = sentences_seen.min(4);
         let growth = base_chunk_size.saturating_mul(extra_multiples);
@@ -569,12 +507,6 @@ impl RealtimeSpeechStream {
         Ok(Self { rx, cancel_token })
     }
 
-    
-    
-    
-    
-    
-    
     fn process_rt_stream(
         stream: AudioStreamIterator,
         tx: &Sender<DengjenResult<AudioSamples>>,

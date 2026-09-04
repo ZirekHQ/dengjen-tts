@@ -13,20 +13,13 @@ use std::sync::Mutex;
 
 pub type ESpeakResult<T> = Result<T, ESpeakError>;
 
-
-
-
-
 const CLAUSE_INTONATION_FULL_STOP: i32 = 0x00000000;
 const CLAUSE_INTONATION_COMMA: i32 = 0x00001000;
 const CLAUSE_INTONATION_QUESTION: i32 = 0x00002000;
 const CLAUSE_INTONATION_EXCLAMATION: i32 = 0x00003000;
 const CLAUSE_TYPE_SENTENCE: i32 = 0x00080000;
 
-
-
 const DENGJEN_ESPEAKNG_DATA_DIRECTORY: &str = "DENGJEN_ESPEAKNG_DATA_DIRECTORY";
-
 
 #[derive(Debug, Clone)]
 pub struct ESpeakError(pub String);
@@ -48,17 +41,9 @@ static ESPEAKNG_INIT: Lazy<ESpeakResult<()>> = Lazy::new(init_espeakng);
 
 static ESPEAK_LOCK: Mutex<()> = Mutex::new(());
 
-
-
-
-
 static ESPEAKNG_DATA_PATH: Mutex<Option<CString>> = Mutex::new(None);
 
-
-
 type ESpeakLock<'a> = std::sync::MutexGuard<'a, ()>;
-
-
 
 fn resolve_data_directory() -> Option<CString> {
     let base = match env::var(DENGJEN_ESPEAKNG_DATA_DIRECTORY) {
@@ -83,12 +68,12 @@ fn init_espeakng() -> ESpeakResult<()> {
         .as_ref()
         .map_or(std::ptr::null(), |path| path.as_ptr());
 
-    
-    
-    
-    
-    
-    
+    // SAFETY: `data_path_ptr` is either null or the NUL-terminated buffer of the `CString` that
+    // `ESPEAKNG_DATA_PATH` now owns. eSpeak-ng keeps reading through that pointer after this
+    // call returns, and this function runs exactly once — the `ESPEAKNG_INIT` `Lazy` is its
+    // only caller — so that `CString` is never replaced or dropped and its buffer stays valid
+    // for the rest of the process. Being the `Lazy`'s initializer also means no other thread is
+    // inside eSpeak-ng's global setup at the same time.
     let sample_rate = unsafe {
         espeakng::espeak_Initialize(
             espeakng::espeak_AUDIO_OUTPUT_AUDIO_OUTPUT_RETRIEVAL,
@@ -101,8 +86,7 @@ fn init_espeakng() -> ESpeakResult<()> {
     if sample_rate > 0 {
         return Ok(());
     }
-    
-    
+
     Err(ESpeakError(format!(
         "Failed to initialize eSpeak-ng, error code `{sample_rate}`. If its data files are \
          installed somewhere non-standard, point `{DENGJEN_ESPEAKNG_DATA_DIRECTORY}` at the \
@@ -165,10 +149,11 @@ fn phonemize_line(
 fn select_voice(_espeak: &ESpeakLock<'_>, language: &str) -> ESpeakResult<()> {
     let rejected = || ESpeakError(format!("eSpeak-ng has no voice named `{language}`"));
     let voice = CString::new(language).map_err(|_| rejected())?;
-    
-    
-    
-    
+
+    // SAFETY: the pointer addresses `voice`'s NUL-terminated buffer, and `voice` is still alive
+    // when the call returns; eSpeak-ng copies the name it keeps rather than retaining this
+    // pointer. `_espeak` witnesses that the caller holds `ESPEAK_LOCK`, and that caller forced
+    // `ESPEAKNG_INIT` first, so eSpeak-ng is initialized and no other thread is inside it.
     let status = unsafe { espeakng::espeak_SetVoiceByName(voice.as_ptr()) };
     if status == espeakng::espeak_ERROR_EE_OK {
         Ok(())
@@ -177,12 +162,10 @@ fn select_voice(_espeak: &ESpeakLock<'_>, language: &str) -> ESpeakResult<()> {
     }
 }
 
-
 fn phoneme_mode(phoneme_separator: Option<char>) -> ffi::c_int {
     let separator_bits = phoneme_separator.map_or(0, |separator| (separator as u32) << 8);
     (espeakng::espeakINITIALIZE_PHONEME_IPA | separator_bits) as ffi::c_int
 }
-
 
 fn read_clauses(
     _espeak: &ESpeakLock<'_>,
@@ -195,13 +178,15 @@ fn read_clauses(
     let mut pending = String::new();
     while !cursor.is_null() {
         // SAFETY: `cursor` starts at `line`'s NUL-terminated buffer, which is borrowed for the
-        
-        
-        
-        
-        
-        
-        
+
+        // SAFETY: `cursor` starts at `line`'s NUL-terminated buffer, which is borrowed for the
+        // whole of this function and so outlives every iteration; eSpeak-ng writes back either
+        // a position inside that same buffer or null once it has consumed all of it, and null
+        // is what ends this loop, so every iteration reads within `line`. `&mut terminator`
+        // borrows a live local. The returned pointer is eSpeak-ng's own phoneme buffer, valid
+        // until the next call into it: `_espeak` witnesses that the caller holds `ESPEAK_LOCK`
+        // (so no other thread can make that call) and that it forced `ESPEAKNG_INIT` first,
+        // and this thread copies the bytes out before its own next iteration.
         let clause = unsafe {
             let phonemes = espeakng::espeak_TextToPhonemesWithTerminator(
                 &mut cursor,

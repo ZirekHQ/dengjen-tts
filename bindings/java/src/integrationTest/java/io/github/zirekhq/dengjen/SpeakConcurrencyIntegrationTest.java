@@ -9,26 +9,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 class SpeakConcurrencyIntegrationTest {
   private static final int THREADS = 6;
   private static final int CALLS_PER_THREAD = 100;
@@ -51,11 +31,7 @@ class SpeakConcurrencyIntegrationTest {
               new Thread(
                   () -> {
                     for (int i = 0; i < CALLS_PER_THREAD; i++) {
-                      
-                      
-                      
-                      
-                      
+
                       voice.speak("Test.", params, event -> event.data().length % 3 != 0);
                     }
                   });
@@ -65,8 +41,6 @@ class SpeakConcurrencyIntegrationTest {
           thread.join();
         }
 
-        
-        
         await()
             .atMost(Duration.ofSeconds(60))
             .pollInterval(Duration.ofMillis(20))
@@ -75,11 +49,7 @@ class SpeakConcurrencyIntegrationTest {
             .as("every speak() call must release its registration exactly once")
             .isEqualTo(expected);
       } finally {
-        
-        
-        
-        
-        
+
         await().pollDelay(Duration.ofMillis(500)).until(() -> true);
         SpeakTrampoline.testCallReleased.set(null);
       }

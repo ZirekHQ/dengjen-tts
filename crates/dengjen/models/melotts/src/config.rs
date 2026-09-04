@@ -258,7 +258,7 @@ mod tests {
 
     #[test]
     fn map_phone_tone_pairs_to_ids_assigns_a_syllables_tone_to_both_its_initial_and_finale() {
-        let pairs = vec![("zhang".to_string(), "2".to_string())]; 
+        let pairs = vec![("zhang".to_string(), "2".to_string())];
         let (phone_ids, tone_ids) =
             map_phone_tone_pairs_to_ids(&test_phone_id_map(), &test_tone_id_map(), &pairs);
         assert_eq!(phone_ids, vec![1, 4, 3, 5, 3, 2]);

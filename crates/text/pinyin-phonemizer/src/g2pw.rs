@@ -1,8 +1,3 @@
-
-
-
-
-
 use crate::tokenize::tokenize_and_map;
 use dengjen_tts_core::{DengjenError, DengjenResult};
 use ndarray::{Array1, Array2};
@@ -21,8 +16,6 @@ pub(crate) fn build_phoneme_mask(labels: &[String], candidates: &[usize]) -> Vec
     }
     mask
 }
-
-
 
 pub(crate) fn truncate_window(
     text_len: usize,
@@ -87,12 +80,6 @@ pub(crate) fn create_g2pw_engine(
 }
 
 impl G2pwEngine {
-    
-    
-    
-    
-    
-    
     pub fn resolve_polyphonic(&self, text: &str, query_char_index: usize) -> DengjenResult<String> {
         let chars: Vec<char> = text.chars().collect();
         let query_char = *chars.get(query_char_index).ok_or_else(|| {
@@ -123,7 +110,6 @@ impl G2pwEngine {
                 ))
             })?;
 
-        
         let truncate_len = self.config.max_len.saturating_sub(2);
         let (final_tokens, position_id) = if tokens.len() > truncate_len {
             let token_start =
@@ -176,13 +162,7 @@ impl G2pwEngine {
         let (shape, probs) = outputs[0]
             .try_extract_tensor::<f32>()
             .map_err(inference_error)?;
-        
-        
-        
-        
-        
-        
-        
+
         if shape.len() != 2 {
             return Err(inference_error(format!(
                 "expected a rank-2 (batch, num_labels) output tensor, got shape {shape:?}"
@@ -222,7 +202,6 @@ impl G2pwEngine {
         self.tokenizer.token_to_id("[SEP]").unwrap_or(102) as i64
     }
     fn token_to_id(&self, token: &str) -> i64 {
-        
         self.tokenizer.token_to_id(token).unwrap_or(100) as i64
     }
 }
@@ -266,9 +245,7 @@ mod tests {
             );
             return;
         };
-        
-        
-        
+
         eprintln!(
             "resolve_polyphonic_disambiguates_a_known_polyphonic_character_with_a_real_model \
              requires the crate's dictionary loader to be wired up before it can run for real: \

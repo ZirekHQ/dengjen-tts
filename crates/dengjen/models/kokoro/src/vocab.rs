@@ -68,10 +68,6 @@ impl Vocab {
         self.bos_id
     }
 
-    
-    
-    
-    
     pub fn tokenize(&self, phonemes: &str) -> Vec<i64> {
         let chars: Vec<char> = phonemes.chars().collect();
         let mut ids = Vec::with_capacity(chars.len());
@@ -167,8 +163,7 @@ mod tests {
     fn tokenize_prefers_longest_match_over_single_chars() {
         let dir = std::env::temp_dir().join("dengjen_kokoro_vocab_test_tokenize_longest");
         std::fs::create_dir_all(&dir).unwrap();
-        
-        
+
         let path = write_temp_vocab(&dir, SAMPLE_VOCAB_JSON);
         let vocab = Vocab::load(&path).unwrap();
         assert_eq!(vocab.tokenize("ʤ"), vec![5]);

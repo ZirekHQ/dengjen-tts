@@ -1,10 +1,3 @@
-
-
-
-
-
-
-
 use crate::g2pw::G2pwEngine;
 use dengjen_tts_core::{DengjenError, DengjenResult};
 use std::collections::HashMap;
@@ -92,9 +85,6 @@ pub(crate) fn get_phoneme_labels(
     }
     (labels, char2phonemes)
 }
-
-
-
 
 pub(crate) fn resolve_char_dictionary_only(dictionaries: &Dictionaries, c: char) -> Option<String> {
     dictionaries

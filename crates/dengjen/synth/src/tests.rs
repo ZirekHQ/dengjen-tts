@@ -58,10 +58,6 @@ fn write_minimal_vocab(dir: &std::path::Path) -> PathBuf {
     path
 }
 
-
-
-
-
 fn build_synthetic_kokoro_model() -> (dengjen_tts_kokoro::KokoroModel, tempfile::TempDir) {
     let root = tempfile::tempdir().expect("failed to create fixture temp dir");
     let voices_dir = root.path().join("voices");
@@ -83,8 +79,6 @@ fn build_synthetic_kokoro_model() -> (dengjen_tts_kokoro::KokoroModel, tempfile:
         .expect("failed to build synthetic Kokoro model");
     (model, root)
 }
-
-
 
 #[test]
 fn kokoro_realtime_stream_uses_realistic_chunk_duration_for_capi_default_chunk_size() {

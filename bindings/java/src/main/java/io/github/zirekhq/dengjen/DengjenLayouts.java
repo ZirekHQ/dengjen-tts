@@ -10,10 +10,6 @@ import java.lang.foreign.GroupLayout;
 import java.lang.foreign.MemoryLayout;
 import java.lang.foreign.MemoryLayout.PathElement;
 
-
-
-
-
 final class DengjenLayouts {
   static final GroupLayout EXTERN_ERROR =
       MemoryLayout.structLayout(

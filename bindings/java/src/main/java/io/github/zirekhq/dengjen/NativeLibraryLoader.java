@@ -12,26 +12,9 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.FileAttribute;
 import java.nio.file.attribute.PosixFilePermissions;
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 final class NativeLibraryLoader {
   private NativeLibraryLoader() {}
 
-  
-  
-  
   private static final FileAttribute<?>[] OWNER_ONLY_PERMISSIONS =
       FileSystems.getDefault().supportedFileAttributeViews().contains("posix")
           ? new FileAttribute<?>[] {
@@ -47,10 +30,8 @@ final class NativeLibraryLoader {
     String classifier =
         NativePlatform.classifier(System.getProperty("os.name"), System.getProperty("os.arch"));
     String libraryName = System.mapLibraryName("libdengjen");
-    
-    
-    
-    String resourcePath = "natives/" + classifier + "/" + libraryName; 
+
+    String resourcePath = "natives/" + classifier + "/" + libraryName;
     Path extracted;
     try {
       extracted = extractResource(resourcePath, NativeLibraryLoader.class.getClassLoader());

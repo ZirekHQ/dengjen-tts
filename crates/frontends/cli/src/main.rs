@@ -49,50 +49,50 @@ fn parse_param(s: &str) -> Result<(String, f32), String> {
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
-    
+    /// Model config
     config: PathBuf,
-    
+    /// Input text file (default `stdin`)
     #[arg(short = 'f', long, value_name = "INPUT_FILE")]
     input_file: Option<PathBuf>,
-    
+    /// Output file (default `stdout`)
     #[arg(short, long, value_name = "OUTPUT_FILE")]
     output_file: Option<PathBuf>,
-    
+    /// Synthesis mode (default `Lazy`)
     #[arg(long)]
     mode: Option<SynthesisMode>,
-    
+    /// Speaker ID for multi-speaker models (default `0`)
     #[arg(long)]
     speaker_id: Option<u32>,
-    
+    /// Piper length scale (default `model_default from config file`)
     #[arg(long)]
     length_scale: Option<f32>,
-    
+    /// Piper noise scale (default `model_default from config file`)
     #[arg(long)]
     noise_scale: Option<f32>,
-    
+    /// Piper noise width (default `model_default from config file`)
     #[arg(long)]
     noise_w: Option<f32>,
-    
+    /// Speaking rate [0 - 100] (default `50`)
     #[arg(long)]
     rate: Option<u8>,
-    
+    /// Speech pitch [0 - 100] (default `50`)
     #[arg(long)]
     pitch: Option<u8>,
-    
+    /// Speech volume [0 - 100] (default `75`)
     #[arg(long)]
     volume: Option<u8>,
-    
+    /// Extra silence (in milliseconds) to append to the end of each sentence (default `0`)
     #[arg(long)]
     silence: Option<u32>,
-    
+    /// Chunk granularity to stream (unit is backend-specific; e.g. Piper mel frames)
     #[arg(long)]
     chunk_size: Option<usize>,
-    
+    /// Number of mel frames to use for padding current chunk (improves naturalness)
     #[arg(long)]
     chunk_padding: Option<usize>,
-    
-    
-    
+    /// Named synthesis parameter, repeatable (e.g. --param custom_knob=1.25).
+    /// A named flag (e.g. --length-scale) wins over a conflicting key here; an
+    /// unrecognized key may be silently ignored by the current backend.
     #[arg(long, value_parser = parse_param)]
     param: Vec<(String, f32)>,
 }
@@ -116,11 +116,6 @@ struct SynthesisRequest {
 }
 
 impl SynthesisRequest {
-    
-    
-    
-    
-    
     fn as_synthesis_config(&self, default_config: &SynthesisConfig) -> SynthesisConfig {
         let mut config = default_config.clone();
         for (key, value) in &self.parameters {
@@ -384,8 +379,7 @@ mod synthesis_processing_tests {
         // output through `AudioOutputConfig::apply` (real Sonic FFI, even with
         // every field `None`), which this test isn't exercising — that's
         // `audio-ops`'s own tested responsibility (Phase 3). Non-empty output
-        
-        
+
         assert!(!buffer.is_empty());
     }
 
@@ -484,7 +478,7 @@ mod synthesis_processing_tests {
         let args = cli_with_output_file(Some(path.clone()));
         let req = SynthesisRequest {
             text: "hello".to_string(),
-            mode: Some(SynthesisMode::Lazy), 
+            mode: Some(SynthesisMode::Lazy),
             ..Default::default()
         };
         let mut buffer: Vec<u8> = Vec::new();
@@ -501,9 +495,6 @@ mod synthesis_processing_tests {
 
     #[test]
     fn a_default_parameter_not_covered_by_any_named_field_survives_into_the_synthesized_request() {
-        
-        
-        
         let mut default_config = SynthesisConfig::default();
         default_config
             .parameters
@@ -528,7 +519,7 @@ mod synthesis_processing_tests {
         let result = consume_stream(stream.into_iter(), &mut buffer);
 
         assert!(result.is_err());
-        assert_eq!(buffer.len(), 2 * 2); 
+        assert_eq!(buffer.len(), 2 * 2);
     }
 }
 
@@ -586,9 +577,6 @@ fn build_synthesizer(config_path: &std::path::Path) -> anyhow::Result<DengjenSpe
 fn resolve_default_synthesis_config(
     synthesizer: &DengjenSpeechSynthesizer,
 ) -> anyhow::Result<SynthesisConfig> {
-    
-    
-    
     Ok(synthesizer
         .get_default_synthesis_config()?
         .unwrap_or_default())
@@ -829,8 +817,6 @@ mod tests {
 
     #[test]
     fn enumerate_output_path_is_cumulative_across_repeated_calls() {
-        
-        
         let first = enumerate_output_path(PathBuf::from("out.wav"), 1);
         let second = enumerate_output_path(first, 2);
         assert_eq!(second, PathBuf::from("out-1-2.wav"));

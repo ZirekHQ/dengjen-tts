@@ -1,7 +1,3 @@
-
-
-
-
 #![allow(non_local_definitions)]
 #![forbid(unsafe_code)]
 
@@ -26,9 +22,6 @@ use pyo3::types::PyBytes;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-
-
-
 
 #[cfg(feature = "tashkeel")]
 static LIBTASHKEEL_ENGINE: Lazy<LibtashkeelResult<TashkeelInferenceEngine>> =
@@ -192,8 +185,6 @@ impl LazySpeechStream {
     }
 
     fn __next__(&mut self, py: Python) -> Option<WaveSamples> {
-        
-        
         match py.detach(|| self.0.next()) {
             None => None,
             Some(Ok(audio)) => Some(WaveSamples(audio)),
@@ -204,8 +195,6 @@ impl LazySpeechStream {
         }
     }
 }
-
-
 
 #[pyclass(weakref, module = "pydengjen")]
 struct ParallelSpeechStream(DengjenSpeechStreamParallel);
@@ -233,9 +222,6 @@ impl ParallelSpeechStream {
         }
     }
 }
-
-
-
 
 #[pyclass(weakref, module = "pydengjen")]
 struct PyRealtimeSpeechStream(RealtimeSpeechStream);
@@ -381,10 +367,6 @@ fn load_voice(config_path: &std::path::Path) -> DengjenResult<Arc<dyn DengjenMod
     dengjen_tts_piper::from_config_path(config_path)
 }
 
-
-
-
-
 #[pyclass(weakref, module = "pydengjen")]
 #[pyo3(name = "PiperModel")]
 struct PiperModel(Arc<dyn DengjenModel + Send + Sync>);
@@ -443,19 +425,12 @@ impl PiperModel {
         Ok(self.0.set_fallback_synthesis_config(&config)?)
     }
 
-    
-    
-    
-    
     fn set_parameters(&self, parameters: HashMap<String, f32>) -> PyDengjenResult<()> {
         let mut config = self.0.get_fallback_synthesis_config()?.unwrap_or_default();
         config.parameters.extend(parameters);
         Ok(self.0.set_fallback_synthesis_config(&config)?)
     }
 
-    
-    
-    
     fn get_parameters(&self) -> PyDengjenResult<HashMap<String, f32>> {
         Ok(self
             .0
@@ -478,8 +453,6 @@ impl PiperModel {
             .map(|config| dengjen_tts_piper::PiperSynthesisConfig::from(&config))
     }
 
-    
-    
     fn generic_config_or_err(&self) -> PyDengjenResult<SynthesisConfig> {
         self.0.get_fallback_synthesis_config()?.ok_or_else(|| {
             PyDengjenError::from(DengjenError::InvalidConfiguration(
@@ -488,9 +461,6 @@ impl PiperModel {
         })
     }
 }
-
-
-
 
 #[pyclass(weakref, module = "pydengjen", frozen)]
 struct Dengjen(Arc<DengjenSpeechSynthesizer>);
@@ -545,9 +515,6 @@ impl Dengjen {
             audio_output_config.map(|o| o.into()),
             chunk_size.unwrap_or(45),
             chunk_padding.unwrap_or(3),
-            
-            
-            
             CancellationToken::new(),
         )?;
         Ok(PyRealtimeSpeechStream(stream))
@@ -582,10 +549,6 @@ impl Dengjen {
     }
 }
 
-
-
-
-
 #[cfg(feature = "tashkeel")]
 fn diacritize_text(text: &str) -> PyResult<std::borrow::Cow<'_, str>> {
     let engine = LIBTASHKEEL_ENGINE
@@ -600,11 +563,6 @@ fn diacritize_text(text: &str) -> PyResult<std::borrow::Cow<'_, str>> {
 fn diacritize_text(_text: &str) -> PyResult<std::borrow::Cow<'_, str>> {
     unreachable!("diacritize_text called with the `tashkeel` feature disabled")
 }
-
-
-
-
-
 
 #[cfg(feature = "espeak")]
 #[pyfunction]
@@ -691,7 +649,6 @@ mod error_plumbing_tests {
     }
 }
 
-
 #[pymodule]
 fn pydengjen(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Dengjen>()?;
@@ -765,8 +722,8 @@ mod model_and_synthesizer_tests {
 
         /// A model with no synthesis config at all, as opposed to a `Piper` config
         /// that simply has no speaker set. Keeps a speaker table so `set_speaker`'s
-        
-        
+        /// name-to-id lookup succeeds and the test exercises the config-write failure,
+        /// not a lookup miss.
         fn with_no_config() -> Self {
             Self {
                 speakers: StdHashMap::from([(0, "alice".to_string())]),
@@ -837,12 +794,7 @@ mod model_and_synthesizer_tests {
     fn load_voice_routes_kokoro_model_type_toward_the_kokoro_loader() {
         let dir = std::env::temp_dir().join("dengjen_python_load_voice_test_kokoro");
         std::fs::create_dir_all(&dir).unwrap();
-        
-        
-        
-        
-        
-        
+
         let path = write_temp_config(&dir, "config.json", r#"{"model_type": "kokoro"}"#);
         let err = match load_voice(&path) {
             Err(e) => format!("{}", e),
@@ -859,12 +811,7 @@ mod model_and_synthesizer_tests {
     fn load_voice_routes_melotts_model_type_toward_the_melotts_loader() {
         let dir = std::env::temp_dir().join("dengjen_python_load_voice_test_melotts");
         std::fs::create_dir_all(&dir).unwrap();
-        
-        
-        
-        
-        
-        
+
         let path = write_temp_config(
             &dir,
             "config.json",
@@ -885,9 +832,7 @@ mod model_and_synthesizer_tests {
     fn load_voice_routes_vits_model_type_toward_the_piper_loader() {
         let dir = std::env::temp_dir().join("dengjen_python_load_voice_test_vits");
         std::fs::create_dir_all(&dir).unwrap();
-        
-        
-        
+
         let path = write_temp_config(&dir, "config.json", r#"{"model_type": "vits"}"#);
         let err = match load_voice(&path) {
             Err(e) => format!("{}", e),

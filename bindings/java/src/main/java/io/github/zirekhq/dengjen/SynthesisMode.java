@@ -1,6 +1,5 @@
 package io.github.zirekhq.dengjen;
 
-
 public enum SynthesisMode {
   LAZY(0),
   PARALLEL(1),

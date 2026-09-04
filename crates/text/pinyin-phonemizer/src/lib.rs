@@ -6,8 +6,6 @@ mod numbers;
 mod syllable;
 mod tokenize;
 
-
-
 pub use numbers::normalize_numbers;
 
 use dengjen_tts_core::{DengjenError, DengjenResult, Phonemes};
@@ -28,10 +26,6 @@ fn load_error(cause: impl std::fmt::Display) -> DengjenError {
         "Failed to load pinyin phonemizer model files: {cause}"
     ))
 }
-
-
-
-
 
 pub fn create_pinyin_engine(model_dir: &Path) -> DengjenResult<PinyinEngine> {
     let dictionaries = load_dictionaries(
@@ -173,10 +167,6 @@ fn phonemize_sentence_tokens(
     Ok(tokens)
 }
 
-
-
-
-
 pub fn text_to_pinyin_tokens(
     engine: &PinyinEngine,
     text: &str,
@@ -192,14 +182,6 @@ pub fn text_to_pinyin_tokens(
         .map(|sentence| phonemize_sentence_tokens(engine, sentence))
         .collect()
 }
-
-
-
-
-
-
-
-
 
 pub fn text_to_pinyin_phonemes(engine: &PinyinEngine, text: &str) -> DengjenResult<Phonemes> {
     let token_sentences = text_to_pinyin_tokens(engine, text)?;

@@ -1,6 +1,5 @@
 use dengjen_tts_core::{DengjenError, DengjenResult};
 
-
 #[cfg_attr(not(feature = "espeak"), allow(dead_code))]
 const SUBSTITUTIONS: &[(&str, &str)] = &[
     ("aɪ", "I"),
@@ -51,36 +50,29 @@ mod tests {
 
     #[test]
     fn espeak_ipa_to_kokoro_composes_ai_diphthong() {
-        
         assert_eq!(espeak_ipa_to_kokoro("tˈaɪm"), "tˈIm");
     }
 
     #[test]
     fn espeak_ipa_to_kokoro_composes_dz_affricate() {
-        
         assert_eq!(espeak_ipa_to_kokoro("dʒˈɑːb"), "ʤˈɑb");
     }
 
     #[test]
     fn espeak_ipa_to_kokoro_composes_oi_diphthong() {
-        
         assert_eq!(espeak_ipa_to_kokoro("tˈɔɪ"), "tˈY");
     }
 
     #[test]
     fn espeak_ipa_to_kokoro_composes_au_diphthong() {
-        
         assert_eq!(espeak_ipa_to_kokoro("hˈaʊs"), "hˈWs");
     }
 
     #[test]
     fn espeak_ipa_to_kokoro_leaves_plain_phonemes_unchanged() {
-        
         assert_eq!(espeak_ipa_to_kokoro("tˈɛst"), "tˈɛst");
     }
 
-    
-    
     #[cfg(feature = "espeak")]
     static ESPEAK_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
@@ -137,10 +129,7 @@ mod tests {
     fn text_to_kokoro_phonemes_strips_language_switch_flags() {
         let _guard = lock_espeak();
         // Same mixed-script input as espeak-phonemizer's own test_lang_switch_flags,
-        
-        
-        
-        
+
         let Some(result) = phonemize_or_skip("Hello معناها مرحباً", "ar") else {
             return;
         };
@@ -154,17 +143,12 @@ mod tests {
     #[cfg(not(feature = "espeak"))]
     #[test]
     fn text_to_kokoro_phonemes_returns_error_when_espeak_disabled() {
-        
-        
         let result = text_to_kokoro_phonemes("hello", "en-US");
         assert!(matches!(result, Err(DengjenError::PhonemizationError(_))));
     }
 
     #[test]
     fn espeak_ipa_to_kokoro_composes_syllabic_consonant() {
-        
-        
-        
         assert_eq!(espeak_ipa_to_kokoro("bˈʌʔn\u{0329}."), "bˈʌtᵊn.");
     }
 }

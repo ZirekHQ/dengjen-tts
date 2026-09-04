@@ -7,15 +7,6 @@ import java.lang.ref.Reference;
 import java.util.Optional;
 import java.util.concurrent.locks.ReentrantLock;
 
-
-
-
-
-
-
-
-
-
 public final class Voice implements AutoCloseable {
   private final ReentrantLock lock = new ReentrantLock();
   private MemorySegment ptr;
@@ -23,10 +14,6 @@ public final class Voice implements AutoCloseable {
   private Voice(MemorySegment ptr) {
     this.ptr = ptr;
   }
-
-  
-
-
 
   public static Voice load(String configPath) {
     try (Arena arena = Arena.ofConfined()) {
@@ -43,7 +30,6 @@ public final class Voice implements AutoCloseable {
     }
   }
 
-  
   @Override
   public void close() {
     lock.lock();
@@ -75,7 +61,6 @@ public final class Voice implements AutoCloseable {
     }
   }
 
-  
   public AudioInfo getAudioInfo() {
     MemorySegment voicePtr = requireOpenPtr();
     try (Arena arena = Arena.ofConfined()) {
@@ -92,14 +77,11 @@ public final class Voice implements AutoCloseable {
           cInfo.get(ValueLayout.JAVA_INT, DengjenLayouts.AUDIO_INFO_NUM_CHANNELS_OFFSET),
           cInfo.get(ValueLayout.JAVA_INT, DengjenLayouts.AUDIO_INFO_SAMPLE_WIDTH_OFFSET));
     } finally {
-      
-      
-      
+
       Reference.reachabilityFence(this);
     }
   }
 
-  
   public PiperSynthConfig getDefaultSynthConfig() {
     MemorySegment voicePtr = requireOpenPtr();
     try (Arena arena = Arena.ofConfined()) {
@@ -132,7 +114,6 @@ public final class Voice implements AutoCloseable {
     }
   }
 
-  
   public void setSynthConfig(PiperSynthConfig config) {
     MemorySegment voicePtr = requireOpenPtr();
     try (Arena arena = Arena.ofConfined()) {
@@ -163,10 +144,6 @@ public final class Voice implements AutoCloseable {
     }
   }
 
-  
-
-
-
   public void setSynthesisParameter(String key, float value) {
     MemorySegment voicePtr = requireOpenPtr();
     try (Arena arena = Arena.ofConfined()) {
@@ -182,10 +159,6 @@ public final class Voice implements AutoCloseable {
       Reference.reachabilityFence(this);
     }
   }
-
-  
-
-
 
   public Optional<Float> getSynthesisParameter(String key) {
     MemorySegment voicePtr = requireOpenPtr();
@@ -207,12 +180,6 @@ public final class Voice implements AutoCloseable {
       Reference.reachabilityFence(this);
     }
   }
-
-  
-
-
-
-
 
   public boolean speakToFile(String text, SynthesisParams params, String outFilename) {
     MemorySegment voicePtr = requireOpenPtr();
@@ -238,21 +205,6 @@ public final class Voice implements AutoCloseable {
     }
   }
 
-  
-
-
-
-
-
-
-
-
-
-
-
-
-
-
   public void speak(String text, SynthesisParams params, SynthesisEventHandler handler) {
     MemorySegment voicePtr = requireOpenPtr();
     SpeakTrampoline trampoline = SpeakTrampoline.create(handler);
@@ -269,34 +221,13 @@ public final class Voice implements AutoCloseable {
       }
       ErrorChecks.checkAndThrow(outError);
     } catch (RuntimeException | Error t) {
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      
-      
+
       trampoline.release();
       throw t;
     } finally {
       Reference.reachabilityFence(this);
     }
   }
-
-  
-
-
-
-
-
-
-
-
 
   public void cancel() {
     MemorySegment voicePtr = requireOpenPtr();

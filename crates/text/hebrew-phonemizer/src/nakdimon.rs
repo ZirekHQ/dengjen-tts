@@ -20,12 +20,6 @@ fn can_niqqud(letter: char) -> bool {
         .contains(letter)
 }
 
-
-
-
-
-
-
 fn merge_diacritics(
     letters: &[char],
     niqqud_ids: &[usize],
@@ -52,11 +46,7 @@ fn merge_diacritics(
     out.replace(RAFE, "")
 }
 
-
-
-
 pub struct NakdimonEngine(Mutex<Session>);
-
 
 pub fn create_nakdimon_engine(model_path: &Path) -> DengjenResult<NakdimonEngine> {
     let session = Session::builder()
@@ -75,19 +65,6 @@ fn session_init_error(cause: ort::Error) -> DengjenError {
 fn inference_error(cause: impl std::fmt::Display) -> DengjenError {
     DengjenError::InferenceError(format!("Nakdimon inference failed: {cause}"))
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 pub fn num_classes(shape: &Shape, seq_len: usize, expected_classes: usize) -> DengjenResult<usize> {
     if shape.len() != 3 {
@@ -110,9 +87,7 @@ pub fn num_classes(shape: &Shape, seq_len: usize, expected_classes: usize) -> De
             "expected output sequence length {seq_len}, model produced shape {shape:?}"
         )));
     }
-    
-    
-    
+
     let num_classes = usize::try_from(num_classes).map_err(|_| {
         inference_error(format!(
             "expected a non-negative class dimension, model produced shape {shape:?}"
@@ -126,29 +101,18 @@ pub fn num_classes(shape: &Shape, seq_len: usize, expected_classes: usize) -> De
     Ok(num_classes)
 }
 
-
-
 fn argmax_per_position(data: &[f32], seq_len: usize, num_classes: usize) -> Vec<usize> {
     (0..seq_len)
         .map(|pos| {
             let row = &data[pos * num_classes..(pos + 1) * num_classes];
             row.iter()
                 .enumerate()
-                
-                
-                
                 .max_by(|a, b| a.1.total_cmp(b.1))
                 .map(|(idx, _)| idx)
                 .unwrap_or(0)
         })
         .collect()
 }
-
-
-
-
-
-
 
 fn remove_niqqud(text: &str) -> String {
     text.chars()
@@ -157,7 +121,6 @@ fn remove_niqqud(text: &str) -> String {
 }
 
 impl NakdimonEngine {
-    
     pub fn diacritize(&self, text: &str) -> DengjenResult<String> {
         let text = remove_niqqud(text);
         let letters: Vec<char> = text.chars().collect();
@@ -230,20 +193,16 @@ mod tests {
 
     #[test]
     fn merge_diacritics_appends_dagesh_sin_niqqud_in_that_order() {
-        
-        
-        
-        let letters = vec!['\u{05D1}']; 
-        let niqqud_ids = vec![find_niqqud_class_id('\u{05B7}')]; 
+        let letters = vec!['\u{05D1}'];
+        let niqqud_ids = vec![find_niqqud_class_id('\u{05B7}')];
         let dagesh_ids = dagesh_id_for_dagesh_letter();
-        let sin_ids = vec![2usize]; 
+        let sin_ids = vec![2usize];
         let merged = merge_diacritics(&letters, &niqqud_ids, &dagesh_ids, &sin_ids);
         assert_eq!(merged, "\u{05D1}\u{05BC}\u{05B7}");
     }
 
     #[test]
     fn merge_diacritics_skips_niqqud_for_letters_that_cannot_take_it() {
-        
         let letters = vec![' '];
         let merged = merge_diacritics(&letters, &[0], &[0], &[0]);
         assert_eq!(merged, " ");
@@ -254,20 +213,15 @@ mod tests {
             .iter()
             .position(|&c| c == target)
             .expect("target must be a real niqqud class")
-            + 1 
+            + 1
     }
 
-    
-    
-    
-    
     fn dagesh_id_for_dagesh_letter() -> Vec<usize> {
         vec![2]
     }
 
     #[test]
     fn remove_niqqud_strips_points_and_leaves_base_letters_untouched() {
-        
         let pointed = "\u{05E9}\u{05C1}\u{05B7}\u{05DC}\u{05B9}\u{05D5}\u{05DD}\u{05B8}";
         assert_eq!(remove_niqqud(pointed), "\u{05E9}\u{05DC}\u{05D5}\u{05DD}");
     }
@@ -286,8 +240,6 @@ mod tests {
             (Shape::new(vec![2, 4, 7]), 4, 7),
             (Shape::new(vec![1, 3, 7]), 4, 7),
             (Shape::new(vec![1, 4, 6]), 4, 7),
-            
-            
             (Shape::new(vec![1, 4, 7, 1]), 4, 7),
         ];
 
@@ -298,9 +250,6 @@ mod tests {
 
     #[test]
     fn num_classes_rejects_a_negative_class_dimension_instead_of_wrapping_to_usize_max() {
-        
-        
-        
         let shape = Shape::new(vec![1, 4, -1]);
         assert!(num_classes(&shape, 4, usize::MAX).is_err());
     }

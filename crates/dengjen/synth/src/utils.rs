@@ -1,11 +1,7 @@
-
-
 pub fn percent_to_param(value: u8, min: f32, max: f32) -> f32 {
     let fraction = f32::from(value.min(100)) / 100.0;
     min + fraction * (max - min)
 }
-
-
 
 #[allow(dead_code)]
 pub fn param_to_percent(value: f32, min: f32, max: f32) -> u8 {
@@ -56,9 +52,6 @@ mod proptest_tests {
     use super::*;
     use proptest::prelude::*;
 
-    
-    
-    
     fn param_range() -> impl Strategy<Value = (f32, f32)> {
         (-1000.0f32..1000.0, 0.01f32..1000.0).prop_map(|(min, span)| (min, min + span))
     }

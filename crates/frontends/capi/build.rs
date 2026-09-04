@@ -4,19 +4,11 @@ use std::env;
 const HEADER_OUTPUT: &str = "libdengjen.h";
 
 fn main() {
-    
-    
-    
-    
-    
     println!("cargo:rerun-if-changed=./src/lib.rs");
     println!("cargo:rerun-if-changed=Cargo.toml");
 
     let crate_root = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not set");
 
-    
-    
-    
     let config = Config {
         export: ExportConfig {
             include: vec!["SpeechSynthesisCallback".to_string()],

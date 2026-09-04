@@ -1,8 +1,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-
-
 #[derive(Clone, Default)]
 pub struct CancellationToken(Arc<AtomicBool>);
 
@@ -19,10 +17,6 @@ impl CancellationToken {
         self.0.load(Ordering::SeqCst)
     }
 
-    
-    
-    
-    
     pub fn points_to_same_flag(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
     }

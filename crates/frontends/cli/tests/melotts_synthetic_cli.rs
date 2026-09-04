@@ -1,10 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-
-
-
-
 fn melotts_fixture_model() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../dengjen/models/melotts/tests/fixtures/synthetic_melotts.onnx")

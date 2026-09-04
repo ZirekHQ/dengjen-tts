@@ -1,6 +1,5 @@
 package io.github.zirekhq.dengjen;
 
-
 public enum EventType {
   SPEECH(0),
   FINISHED(1),

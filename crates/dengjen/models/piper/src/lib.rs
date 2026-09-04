@@ -186,8 +186,6 @@ trait VitsModelCommons {
     #[cfg(feature = "tashkeel")]
     #[cfg_attr(not(feature = "espeak"), allow(dead_code))]
     fn diacritize_text(&self, text: &str) -> DengjenResult<String> {
-        
-        
         let engine = self
             .get_tashkeel_engine()
             .expect("tashkeel engine missing for a voice that needs diacritization");
@@ -197,7 +195,7 @@ trait VitsModelCommons {
             ))
         })
     }
-    
+
     #[cfg(not(feature = "tashkeel"))]
     #[cfg_attr(not(feature = "espeak"), allow(dead_code))]
     fn diacritize_text(&self, _text: &str) -> DengjenResult<String> {
@@ -387,19 +385,11 @@ mod tests {
     #[cfg(feature = "espeak")]
     #[test]
     fn do_phonemize_text_wraps_the_full_espeak_init_error_message() {
-        
-        
-        
-        
-        
-        
-        
         std::env::set_var(
             "DENGJEN_ESPEAKNG_DATA_DIRECTORY",
             "/nonexistent/dengjen-test-guaranteed-missing-espeak-ng-data",
         );
-        
-        
+
         let commons = TestVitsCommons {
             synth_config: RwLock::new(PiperSynthesisConfig::default()),
             config: ModelConfig::default(),

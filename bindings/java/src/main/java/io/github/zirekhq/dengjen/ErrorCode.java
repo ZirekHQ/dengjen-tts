@@ -1,10 +1,5 @@
 package io.github.zirekhq.dengjen;
 
-
-
-
-
-
 public enum ErrorCode {
   PANIC(-1),
   INVALID_HANDLE(-1000),

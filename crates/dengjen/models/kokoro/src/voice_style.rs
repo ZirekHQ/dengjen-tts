@@ -47,9 +47,7 @@ impl VoiceStyles {
             DengjenError::OperationError(format!("Unknown Kokoro voice: `{}`", voice_name))
         })?;
         let row_index = token_len.saturating_sub(1).min(MAX_TOKEN_LEN - 1);
-        
-        
-        
+
         Ok(table
             .slice_axis(Axis(0), Slice::from(row_index..row_index + 1))
             .to_owned())
@@ -60,9 +58,6 @@ impl VoiceStyles {
 mod tests {
     use super::*;
 
-    
-    
-    
     fn write_synthetic_voice_file(dir: &Path, voice_name: &str) -> std::path::PathBuf {
         let path = dir.join(format!("{voice_name}.bin"));
         let mut bytes = Vec::with_capacity(EXPECTED_FILE_BYTES);

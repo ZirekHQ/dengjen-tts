@@ -12,11 +12,6 @@ use ort::value::Tensor;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-
-
-
-
-
 const KOKORO_CHUNK_SIZE_SCALE: usize = 256;
 
 pub struct KokoroModel {
@@ -26,13 +21,6 @@ pub struct KokoroModel {
     sample_rate: u32,
     default_voice: String,
 }
-
-
-
-
-
-
-
 
 #[allow(clippy::vec_init_then_push)]
 fn execution_providers() -> Vec<ort::ep::ExecutionProviderDispatch> {
