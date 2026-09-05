@@ -178,11 +178,14 @@ final class SpeakTrampoline {
     }
   }
 
+  // Best-effort: called only while invoke() is already unwinding from another failure, so a
+  // downcall failure here would only replace one unrecoverable-for-this-event problem with
+  // another.
   private static void tryFreeEvent(MemorySegment eventSegment) {
     try {
       DengjenLib.FREE_SYNTHESIS_EVENT.invokeExact(eventSegment);
     } catch (Throwable freeFailure) {
-
+      // See method doc: intentionally swallowed.
     }
   }
 }
