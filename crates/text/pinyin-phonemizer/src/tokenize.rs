@@ -1,8 +1,3 @@
-//! BERT tokenizer wrapper and text/word/token index mapping, ported from
-//! OHF-Voice/piper1-gpl's `src/piper/g2pw_onnx.py`, itself an inference-only
-//! port of GitYCC/g2pW (Apache-2.0). Index mapping is character-based
-//! throughout, matching upstream's Python string indexing — never byte-based.
-
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Word {
     pub text: String,
@@ -108,10 +103,6 @@ pub(crate) fn tokenize_and_map(
         }
     }
 
-    // text_to_word's None (whitespace) positions never had a real word/token, so their
-    // text_to_token slot stays None too -- unlike upstream's Python, which reuses 0 (a real
-    // token index) as its "unmapped" sentinel and relies on callers never querying a
-    // whitespace position.
     let _ = text_to_word;
     (tokens, text_to_token)
 }
@@ -151,9 +142,6 @@ mod tests {
 
     #[test]
     fn tokenize_and_map_produces_one_token_per_single_char_word_when_not_split_further() {
-        // A real BERT tokenizer for Chinese text typically emits one WordPiece token
-        // per Han character (no "##" continuation within a single-character word),
-        // so token spans should align 1:1 with wordize's own word spans here.
         let Some(tokenizer) = test_tokenizer() else {
             eprintln!("skipping: DENGJEN_PINYIN_TEST_TOKENIZER_PATH not set");
             return;
@@ -174,8 +162,7 @@ mod tests {
             return;
         };
         let (_tokens, text_to_token) = super::tokenize_and_map(&tokenizer, " 你");
-        // Before the fix, an unmapped position defaulted to token index 0 -- the same index a
-        // real token can legitimately have -- so both the space and "你" mapped to token 0.
+
         assert_eq!(text_to_token[0], None);
         assert_eq!(text_to_token[1], Some(0));
     }

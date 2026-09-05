@@ -4,19 +4,11 @@ use std::env;
 const HEADER_OUTPUT: &str = "libdengjen.h";
 
 fn main() {
-    // Regenerate the C header any time the exported FFI surface changes. `with_parse_deps`
-    // below also pulls types from `ffi-support` into the header, so a dependency version bump
-    // (tracked via Cargo.toml) must invalidate it too -- rerun-if-changed disables cargo's
-    // default "any file in the crate changed" rerun heuristic, so both paths must be listed
-    // explicitly.
     println!("cargo:rerun-if-changed=./src/lib.rs");
     println!("cargo:rerun-if-changed=Cargo.toml");
 
     let crate_root = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not set");
 
-    // SynthesisParams.callback is Option<extern "C" fn(...)>, which cbindgen renders as a bare
-    // nullable function pointer rather than naming the SpeechSynthesisCallback typedef -- force
-    // the typedef to stay exported anyway, since bindings/go/speak.go casts to it by name.
     let config = Config {
         export: ExportConfig {
             include: vec!["SpeechSynthesisCallback".to_string()],

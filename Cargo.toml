@@ -19,17 +19,17 @@ members = [
 ]
 
 [workspace.package]
-# Single source of truth for every workspace crate's version (each member
-# sets `version.workspace = true`) — see scripts/next-version.sh and
-# scripts/bump-version.sh for how this gets bumped.
+
+
+
 version = "1.1.0"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/ZirekHQ/dengjen-tts"
 homepage = "https://github.com/ZirekHQ/dengjen-tts"
 
-# Internal path dependencies, versioned so `cargo publish` on a dependent
-# crate resolves against a real published version instead of a bare path.
-# `version` here is kept at the workspace version by the same bump script.
+
+
+
 [workspace.dependencies]
 dengjen-tts-core = { path = "crates/dengjen/core", version = "1.1.0" }
 dengjen-tts = { path = "crates/dengjen/synth", version = "1.1.0" }
@@ -42,11 +42,11 @@ pinyin-phonemizer = { path = "crates/text/pinyin-phonemizer", version = "1.1.0" 
 sonic-sys = { path = "crates/audio/sonic-sys", version = "1.1.0" }
 audio-ops = { path = "crates/audio/ops", version = "1.1.0" }
 
-# Applies to every member crate that opts in with `[lints] workspace = true`.
-# CI (.github/workflows/rust-lint.yml) already runs `cargo clippy -- -D warnings`, which
-# escalates every enabled lint below to a hard failure — so anything added here must already
-# be clean across the workspace (verified before enabling; see CLAUDE.md for the current
-# known-debt lints that are deliberately NOT enabled here yet).
+
+
+
+
+
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 
@@ -56,10 +56,10 @@ missing_safety_doc = "deny"
 undocumented_unsafe_blocks = "deny"
 
 [patch.crates-io]
-# Tracks a ZirekHQ fork branch bumping the vendored espeak-ng submodule pin
-# past espeak-ng/espeak-ng#2127, which added espeak_TextToPhonemesWithTerminator
-# after crates.io's published espeak-rs-sys 0.2.0 was cut. Drop this patch
-# once that fix (or an equivalent pin bump) ships in a published release.
+
+
+
+
 espeak-rs-sys = { path = "./deps/espeak-rs-piper/crates/espeak-rs-sys" }
 
 [profile.release]

@@ -6,8 +6,6 @@ mod numbers;
 mod syllable;
 mod tokenize;
 
-// Exposed only so crates/text/pinyin-phonemizer/fuzz can fuzz this pure, no-model-required
-// text transformation directly, matching dengjen-tts-piper's map_phonemes_to_ids convention.
 pub use numbers::normalize_numbers;
 
 use dengjen_tts_core::{DengjenError, DengjenResult, Phonemes};
@@ -29,10 +27,6 @@ fn load_error(cause: impl std::fmt::Display) -> DengjenError {
     ))
 }
 
-/// Loads all six files this backend needs from `model_dir`: `g2pw.onnx`,
-/// `tokenizer.json`, `POLYPHONIC_CHARS.txt`, `MONOPHONIC_CHARS.txt`,
-/// `char_bopomofo_dict.json`, `bopomofo_to_pinyin_wo_tune_dict.json`. All
-/// caller-supplied — this crate never downloads anything.
 pub fn create_pinyin_engine(model_dir: &Path) -> DengjenResult<PinyinEngine> {
     let dictionaries = load_dictionaries(
         &model_dir.join("MONOPHONIC_CHARS.txt"),
@@ -173,10 +167,6 @@ fn phonemize_sentence_tokens(
     Ok(tokens)
 }
 
-/// Structure-preserving variant of `text_to_pinyin_phonemes`: returns each sentence's
-/// syllables/punctuation as individual `PinyinToken`s instead of a flattened string,
-/// for callers (e.g. `dengjen-tts-melotts`) that need per-syllable tone information kept
-/// separate from phone symbols rather than folded into one opaque string.
 pub fn text_to_pinyin_tokens(
     engine: &PinyinEngine,
     text: &str,
@@ -193,14 +183,6 @@ pub fn text_to_pinyin_tokens(
         .collect()
 }
 
-/// Converts Chinese text to pinyin phoneme strings (initial/final/tone/pause
-/// symbols), re-tokenized downstream by `map_phonemes_to_ids`'s longest-match
-/// lookup against a voice's `phoneme_id_map`. This was flagged (#94) as a
-/// possible collision risk — verified against two real zh-CN voices
-/// (`zh_CN-chaowen-medium`, `zh_CN-xiao_ya-medium`, rhasspy/piper-voices,
-/// identical 85-entry `phoneme_id_map`): every `initial×final×tone`
-/// combination (4,200 total) re-segments to its original three tokens under
-/// this engine's greedy longest-match algorithm. No collision; no fix needed.
 pub fn text_to_pinyin_phonemes(engine: &PinyinEngine, text: &str) -> DengjenResult<Phonemes> {
     let token_sentences = text_to_pinyin_tokens(engine, text)?;
     Ok(Phonemes::from(

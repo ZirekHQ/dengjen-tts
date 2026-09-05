@@ -10,10 +10,6 @@ import java.lang.foreign.Linker;
 import java.lang.foreign.SymbolLookup;
 import java.lang.invoke.MethodHandle;
 
-/**
- * MethodHandles for every libdengjen* C function (crates/frontends/capi/libdengjen.h). Loading this
- * class loads the native library; see {@link NativeLibraryLoader} for how it's found.
- */
 final class DengjenLib {
   private static final Linker LINKER = Linker.nativeLinker();
   private static final SymbolLookup LOOKUP = NativeLibraryLoader.load();

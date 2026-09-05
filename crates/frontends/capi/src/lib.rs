@@ -9,23 +9,15 @@ use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, Once};
 
-/// Opaque user data pointer wrapper that is safe to send across threads.
-/// Rust never dereferences this pointer; its safety is the FFI caller's responsibility.
-/// This wrapper is necessary because extracting `*mut c_void` fields and moving them into
-/// closures requires the extracted value itself to be Send, not just the containing struct.
 #[repr(transparent)]
 struct UserDataPtr(*mut c_void);
+
 // SAFETY: UserDataPtr wraps an opaque pointer that Rust never dereferences; thread-safety is
 // the FFI caller's responsibility, the same as every other raw-pointer FFI parameter.
 unsafe impl Send for UserDataPtr {}
 
-/// `user_data` is the same opaque pointer supplied via `SynthesisParams::user_data` for this
-/// call, threaded through unchanged to every invocation (including the terminal
-/// `SYNTH_EVENT_FINISHED`/`SYNTH_EVENT_ERROR` event) — lets an FFI consumer correlate an
-/// incoming event with the specific `Speak` call it belongs to without a global lookup.
 pub type SpeechSynthesisCallback = extern "C" fn(SynthesisEvent, *mut c_void) -> u8;
 
-/// Helper to invoke callbacks with user_data without exposing the raw pointer to thread checks.
 #[inline]
 fn invoke_callback(cb: SpeechSynthesisCallback, event: SynthesisEvent, user_data: UserDataPtr) {
     cb(event, user_data.0);
@@ -37,10 +29,8 @@ ffi_support::define_box_destructor!(DengjenVoice, _internal_libdengjenUnloadDeng
 ffi_support::implement_into_ffi_by_pointer!(PiperSynthConfig);
 ffi_support::define_box_destructor!(PiperSynthConfig, _internal_libdengjenFreePiperSynthConfig);
 
-/// Guards the one-time onnxruntime environment setup so repeated voice loads don't re-init it.
 static INIT_ORT_ENVIRONMENT: Once = Once::new();
 
-/// FFI error codes — part of the C ABI (`libdengjen.h`); names and values are frozen.
 pub mod error_codes {
     pub const INVALID_SYNTHESIS_MODE: i32 = 16;
     pub const FAILED_TO_LOAD_RESOURCE: i32 = 17;
@@ -54,35 +44,27 @@ pub mod error_codes {
     pub const UNSUPPORTED_OPERATION: i32 = 25;
 }
 
-/// `SynthesisEvent::event_type` values — part of the C ABI, same stability requirement as `error_codes`.
 pub mod synth_event {
     pub const SYNTH_EVENT_SPEECH: i32 = 0;
     pub const SYNTH_EVENT_FINISHED: i32 = 1;
     pub const SYNTH_EVENT_ERROR: i32 = 2;
 }
 
-/// `SynthesisParams::mode` values — part of the C ABI, same stability requirement as `error_codes`.
 pub mod synth_mode {
     pub const SYNTH_MODE_LAZY: i32 = 0;
     pub const SYNTH_MODE_PARALLEL: i32 = 1;
     pub const SYNTH_MODE_REALTIME: i32 = 2;
 }
 
-/// Sentinel for `PiperSynthConfig::speaker` meaning "no speaker set" (the model's default
-/// applies). Every real speaker id is a small, model-assigned index, so this out-of-range
-/// value can never collide with one — unlike `0`, which is itself a valid speaker id.
 pub const PIPER_SYNTH_CONFIG_NO_SPEAKER: u32 = u32::MAX;
 
-/// An opaque, loaded voice handed back to C callers as a raw pointer.
 pub struct DengjenVoice {
-    /// Wrapped in AssertUnwindSafe because panics must be caught at unsafe extern "C" boundaries, not unwound.
     synth: AssertUnwindSafe<Arc<DengjenSpeechSynthesizer>>,
-    /// Cancellation token for the current realtime synthesis, if any; lets cancel() stop it.
+
     active_cancel_token: Arc<Mutex<Option<CancellationToken>>>,
 }
 
 impl DengjenVoice {
-    /// Pairs an already-shared synthesizer handle with a fresh, empty cancellation slot.
     fn wrapping(synth: Arc<DengjenSpeechSynthesizer>) -> Self {
         Self {
             active_cancel_token: Arc::new(Mutex::new(None)),
@@ -105,8 +87,6 @@ impl Deref for DengjenVoice {
     }
 }
 
-// A `DengjenVoice` stands in for `&DengjenSpeechSynthesizer` (or anything that in turn converts
-// to) anywhere a caller only needs `T`, without exposing the wrapper's own fields.
 impl<T> AsRef<T> for DengjenVoice
 where
     T: ?Sized,
@@ -117,12 +97,10 @@ where
     }
 }
 
-/// This crate's internal error type: an `error_codes` value paired with a human-readable message.
 #[derive(Debug)]
 pub struct DengjenFFIError(i32, String);
 
 impl DengjenFFIError {
-    /// Shared constructor the three FFI-boundary-specific errors below route through.
     fn with_code(code: i32, message: impl Into<String>) -> Self {
         Self(code, message.into())
     }
@@ -134,7 +112,6 @@ impl DengjenFFIError {
         )
     }
 
-    /// A `SynthesisParams::mode` value didn't match any `synth_mode` constant.
     fn invalid_synthesis_mode() -> Self {
         Self::with_code(
             error_codes::INVALID_SYNTHESIS_MODE,
@@ -142,7 +119,6 @@ impl DengjenFFIError {
         )
     }
 
-    /// A required pointer argument was null. `param_name` identifies which one, for the caller.
     fn null_pointer(param_name: &str) -> Self {
         Self::with_code(
             error_codes::NULL_POINTER,
@@ -153,7 +129,6 @@ impl DengjenFFIError {
 
 impl From<DengjenError> for DengjenFFIError {
     fn from(error: DengjenError) -> Self {
-        // Which `error_codes` constant applies depends only on the variant, not its payload.
         let code = match &error {
             DengjenError::FailedToLoadResource(_) => error_codes::FAILED_TO_LOAD_RESOURCE,
             DengjenError::PhonemizationError(_) => error_codes::PHONEMIZATION_ERROR,
@@ -162,7 +137,7 @@ impl From<DengjenError> for DengjenFFIError {
             DengjenError::UnsupportedOperation(_) => error_codes::UNSUPPORTED_OPERATION,
             DengjenError::OperationError(_) => error_codes::OPERATION_ERROR,
         };
-        // Every variant carries exactly one message string; take it unchanged.
+
         let (DengjenError::FailedToLoadResource(message)
         | DengjenError::PhonemizationError(message)
         | DengjenError::InferenceError(message)
@@ -179,20 +154,17 @@ impl From<DengjenFFIError> for ExternError {
     }
 }
 
-/// This crate's internal result alias, used throughout the private synthesis helpers.
 pub type DengjenFFIResult<T> = Result<T, DengjenFFIError>;
 
 #[repr(C)]
 pub struct SynthesisEvent {
     event_type: i32,
     error_ptr: *mut ExternError,
-    len: i64, // usize causes issues with JNI
+    len: i64,
     data: *mut u8,
 }
 
 impl SynthesisEvent {
-    /// Leaks `bytes`' backing allocation into a raw `(len, pointer)` pair for a C caller to
-    /// read; `libdengjenFreeSynthesisEvent` reclaims it later via the same length.
     fn leak_bytes(bytes: Vec<u8>) -> (i64, *mut u8) {
         let boxed: Box<[u8]> = bytes.into_boxed_slice();
         let len = boxed.len() as i64;
@@ -248,8 +220,7 @@ pub struct SynthesisParams {
     appended_silence_ms: u32,
     callback: Option<extern "C" fn(SynthesisEvent, *mut c_void) -> u8>,
     nonblocking: u8,
-    /// Opaque pointer passed through unchanged to every `callback` invocation for this call.
-    /// Rust never dereferences it; safety is entirely the FFI caller's responsibility.
+
     user_data: *mut c_void,
 }
 
@@ -280,7 +251,6 @@ impl SynthesisParams {
 
 #[repr(C)]
 pub struct PiperSynthConfig {
-    /// A real speaker id, or `PIPER_SYNTH_CONFIG_NO_SPEAKER` for "unset" (model default).
     speaker: u32,
     length_scale: f32,
     noise_scale: f32,
@@ -373,7 +343,6 @@ pub unsafe extern "C" fn libdengjenFreePiperSynthConfig(synth_config: *mut Piper
 #[no_mangle]
 #[allow(non_snake_case)]
 pub unsafe extern "C" fn libdengjenFreeSynthesisEvent(event: SynthesisEvent) {
-    // A panic unwinding across this extern "C" boundary is undefined behavior; abort instead.
     ffi_support::abort_on_panic::with_abort_on_panic(|| {
         let SynthesisEvent {
             error_ptr,
@@ -381,6 +350,7 @@ pub unsafe extern "C" fn libdengjenFreeSynthesisEvent(event: SynthesisEvent) {
             len,
             ..
         } = event;
+
         // SAFETY: every `SynthesisEvent` constructor builds `data`/`len` via `leak_bytes`, which
         // leaks a `Box<[u8]>` of exactly `len` bytes through `Box::into_raw`. Rebuilding the fat
         // pointer with `slice_from_raw_parts_mut` and handing it straight to `Box::from_raw`
@@ -392,6 +362,7 @@ pub unsafe extern "C" fn libdengjenFreeSynthesisEvent(event: SynthesisEvent) {
             // SAFETY: only `with_error` sets a non-null `error_ptr`, via
             // `Box::into_raw(Box::new(..))`; this is that box's one and only reclaim.
             let boxed_error = unsafe { Box::from_raw(error_ptr) };
+
             // SAFETY: `ExternError`'s `Drop` is a documented no-op (its message is a
             // C-owned string, normally freed by the caller via `libdengjenFreeString`) —
             // a plain `drop` here would leak the message on every real synthesis-error
@@ -438,6 +409,7 @@ pub unsafe extern "C" fn libdengjenGetAudioInfo(
     let Some(voice) = (unsafe { require_ref(voice_ptr, "voice_ptr", out_error) }) else {
         return;
     };
+
     // SAFETY: `audio_info_ptr` carries this function's own non-null-or-valid contract.
     let Some(audio_info) = (unsafe { require_mut(audio_info_ptr, "audio_info_ptr", out_error) })
     else {
@@ -575,6 +547,7 @@ pub unsafe extern "C" fn libdengjenGetSynthesisParameter(
     let Some(voice) = (unsafe { require_ref(voice_ptr, "voice_ptr", out_error) }) else {
         return false;
     };
+
     // SAFETY: `out_value_ptr` carries this function's own non-null-or-valid contract.
     let Some(out_value) = (unsafe { require_mut(out_value_ptr, "out_value_ptr", out_error) })
     else {
@@ -678,12 +651,8 @@ pub unsafe extern "C" fn libdengjenSpeakToFile(
     })
 }
 
-/// Builds and commits the onnxruntime environment. Runs at most once per process
-/// (`INIT_ORT_ENVIRONMENT`); a later call after a successful commit is a no-op.
 fn init_ort_environment() {
     INIT_ORT_ENVIRONMENT.call_once(|| {
-        // CPU always goes last: it's the universal fallback once every platform-specific
-        // provider ahead of it has had a chance to claim the workload.
         #[cfg(target_os = "android")]
         let execution_providers = vec![
             ort::execution_providers::NNAPI::default().build(),
@@ -701,7 +670,7 @@ fn init_ort_environment() {
             .with_name("dengjen")
             .with_execution_providers(execution_providers)
             .commit();
-        // Startup can't recover from this: without a committed environment no model can load.
+
         assert!(committed, "Failed to initialize onnxruntime");
     });
 }
@@ -728,9 +697,6 @@ fn _load_voice(config_path_ptr: FfiStr) -> DengjenFFIResult<DengjenVoice> {
 }
 
 fn _cancel(cancel_slot: &Arc<Mutex<Option<CancellationToken>>>) -> DengjenFFIResult<()> {
-    // Every write to this slot is a single whole-value assignment (see call sites below), so a
-    // panic elsewhere while the lock is held can never leave it torn -- recovering from poison is
-    // sound, and avoids turning an unrelated panic into a spurious error on a successful synthesis.
     let held_token = cancel_slot
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -740,11 +706,6 @@ fn _cancel(cancel_slot: &Arc<Mutex<Option<CancellationToken>>>) -> DengjenFFIRes
     Ok(())
 }
 
-/// RAII: on drop, resets `slot` to `None` — but only when it still holds the exact token this
-/// guard was built with. Two nonblocking realtime speaks on the same voice can overlap, and a
-/// finishing guard whose token has already been superseded by a still-running sibling must
-/// leave that sibling's slot alone. Running on every `Drop` (not just the happy path) also
-/// covers the early return through `?` on a synthesis error.
 struct CancelSlotGuard {
     slot: Arc<Mutex<Option<CancellationToken>>>,
     token: CancellationToken,
@@ -780,8 +741,7 @@ fn _synthesize(
     if params.nonblocking == 0 {
         return _do_synthesize(synth, cancel_slot, text, callback, params);
     }
-    // Control has already returned to the caller by the time this runs on the pool thread, so
-    // a synthesis error has nowhere to go but through the callback the caller is still holding.
+
     let report_to_caller = callback;
     let report_user_data = UserDataPtr(params.user_data);
     SYNTHESIS_THREAD_POOL.spawn(move || {
@@ -803,7 +763,6 @@ fn _do_synthesize(
     callback: SpeechSynthesisCallback,
     params: SynthesisParams,
 ) -> DengjenFFIResult<()> {
-    // Tuned defaults for realtime chunking, not placeholders — do not change.
     const REALTIME_CHUNK_SIZE: usize = 72;
     const REALTIME_CHUNK_PADDING: usize = 3;
 
@@ -923,7 +882,6 @@ mod tests {
             "Model path does not exist: {:?}",
             model_path
         );
-        // Copy model file and create config file with matching base name (pattern: model.onnx.json)
         std::fs::copy(&model_path, dir.join("piper_test.onnx")).unwrap();
         let config_path = dir.join("piper_test.onnx.json");
         std::fs::write(
@@ -982,7 +940,7 @@ mod tests {
             }
             // SAFETY: test-only reclaim of an event this test's own call produced.
             unsafe { libdengjenFreeSynthesisEvent(event) };
-            0 // Return 0 to continue processing, letting stream reach FINISHED event
+            0
         }
 
         let mut sentinel: u8 = 0;
@@ -999,6 +957,7 @@ mod tests {
         params.user_data = token;
         let mut out_error = ExternError::default();
         let text = c_str("t:_");
+
         // SAFETY: voice_ptr is a valid handle just loaded above; text stays alive (not
         // dropped) for the full duration of this call.
         unsafe {
@@ -1036,6 +995,7 @@ mod tests {
             num_channels: 0,
             sample_width: 0,
         };
+
         // SAFETY: a null `voice_ptr` is explicitly covered by `libdengjenGetAudioInfo`'s own
         // `# Safety` doc -- it's handled gracefully (writes a NULL_POINTER error) rather than
         // dereferenced.
@@ -1043,6 +1003,7 @@ mod tests {
             libdengjenGetAudioInfo(std::ptr::null_mut(), &mut audio_info, &mut out_error);
         }
         assert_eq!(out_error.get_code().code(), error_codes::NULL_POINTER);
+
         // SAFETY: `out_error`'s message is never freed by `Drop` per ffi_support's documented
         // contract (real FFI consumers free it via `libdengjenFreeString`); release it here so
         // the test doesn't leak.
@@ -1052,12 +1013,12 @@ mod tests {
     #[test]
     fn get_piper_default_synth_config_null_voice_returns_null_pointer_error_without_panicking() {
         let mut out_error = ExternError::default();
-        // SAFETY: see `get_audio_info_null_voice_returns_null_pointer_error_without_panicking`
-        // -- same null-`voice_ptr`-handled-gracefully contract, on `libdengjenGetPiperDefaultSynthConfig`.
+
         let result =
             unsafe { libdengjenGetPiperDefaultSynthConfig(std::ptr::null_mut(), &mut out_error) };
         assert!(result.is_null());
         assert_eq!(out_error.get_code().code(), error_codes::NULL_POINTER);
+
         // SAFETY: see `get_audio_info_null_voice_returns_null_pointer_error_without_panicking`.
         unsafe { out_error.manually_release() };
     }
@@ -1071,12 +1032,14 @@ mod tests {
             noise_scale: 1.0,
             noise_w: 1.0,
         };
+
         // SAFETY: see `get_audio_info_null_voice_returns_null_pointer_error_without_panicking`
         // -- same null-`voice_ptr`-handled-gracefully contract, on `libdengjenSetPiperSynthConfig`.
         unsafe {
             libdengjenSetPiperSynthConfig(std::ptr::null_mut(), synth_config, &mut out_error);
         }
         assert_eq!(out_error.get_code().code(), error_codes::NULL_POINTER);
+
         // SAFETY: see `get_audio_info_null_voice_returns_null_pointer_error_without_panicking`.
         unsafe { out_error.manually_release() };
     }
@@ -1085,12 +1048,14 @@ mod tests {
     fn set_synthesis_parameter_null_voice_returns_null_pointer_error_without_panicking() {
         let mut out_error = ExternError::default();
         let key = FfiStr::from_cstr(std::ffi::CStr::from_bytes_with_nul(b"noise_scale\0").unwrap());
+
         // SAFETY: see `get_audio_info_null_voice_returns_null_pointer_error_without_panicking`
         // -- same null-`voice_ptr`-handled-gracefully contract, on `libdengjenSetSynthesisParameter`.
         unsafe {
             libdengjenSetSynthesisParameter(std::ptr::null_mut(), key, 0.5, &mut out_error);
         }
         assert_eq!(out_error.get_code().code(), error_codes::NULL_POINTER);
+
         // SAFETY: see `get_audio_info_null_voice_returns_null_pointer_error_without_panicking`.
         unsafe { out_error.manually_release() };
     }
@@ -1111,12 +1076,7 @@ mod tests {
     fn load_voice_routes_kokoro_model_type_toward_the_kokoro_loader() {
         let dir = std::env::temp_dir().join("dengjen_capi_load_voice_test_kokoro");
         std::fs::create_dir_all(&dir).unwrap();
-        // A syntactically valid but incomplete Kokoro config: detect_model_type reads it fine,
-        // but dengjen_tts_kokoro::from_config_path's own RawKokoroVoiceConfig requires
-        // `model_path` (crates/dengjen/models/kokoro/src/config.rs:8), which this JSON omits.
-        // If this had instead fallen through to Piper's loader, the error would name a
-        // Piper-required field (`audio`) instead — so asserting on `model_path` specifically
-        // proves the Kokoro branch was actually taken, not just that some error occurred.
+
         let path = write_temp_config(&dir, "config.json", r#"{"model_type": "kokoro"}"#);
         let err = match load_voice(&path) {
             Err(e) => format!("{}", e),
@@ -1133,12 +1093,7 @@ mod tests {
     fn load_voice_routes_melotts_model_type_toward_the_melotts_loader() {
         let dir = std::env::temp_dir().join("dengjen_capi_load_voice_test_melotts");
         std::fs::create_dir_all(&dir).unwrap();
-        // A syntactically valid but incomplete MeloTTS config: `audio` is supplied (so a
-        // wrongful fallthrough to Piper's loader would get past its own `audio` requirement),
-        // but `phonemizer` is omitted, which only MeloTTS's RawMeloVoiceConfig requires
-        // (crates/dengjen/models/melotts/src/config.rs:28) — Piper has no such field. Asserting
-        // on `phonemizer` specifically proves the MeloTTS branch was actually taken, not a
-        // fallthrough to Piper.
+
         let path = write_temp_config(
             &dir,
             "config.json",
@@ -1159,9 +1114,7 @@ mod tests {
     fn load_voice_routes_vits_model_type_toward_the_piper_loader() {
         let dir = std::env::temp_dir().join("dengjen_capi_load_voice_test_vits");
         std::fs::create_dir_all(&dir).unwrap();
-        // A syntactically valid but incomplete Piper/VITS config, missing Piper's required
-        // `audio` field. Asserting on `audio` (rather than just "some error occurred") proves
-        // the Piper branch was taken, not the Kokoro one.
+
         let path = write_temp_config(&dir, "config.json", r#"{"model_type": "vits"}"#);
         let err = match load_voice(&path) {
             Err(e) => format!("{}", e),
@@ -1174,10 +1127,6 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// Minimal stand-in for `DengjenModel` so a real `DengjenVoice` can be built without an
-    /// ONNX-backed model — this crate has no such fixture (nothing here loads real Piper/Kokoro
-    /// model files), so this is the only way to reach `libdengjenSetSynthesisParameter`'s
-    /// post-null-voice-check code path (the key conversion) with a non-null `voice_ptr`.
     struct FakeModel {
         fallback_config: Mutex<Option<dengjen_tts_core::SynthesisConfig>>,
     }
@@ -1236,9 +1185,11 @@ mod tests {
     fn set_synthesis_parameter_null_key_returns_invalid_utf8_error_without_panicking() {
         let mut voice = fake_voice();
         let mut out_error = ExternError::default();
+
         // SAFETY: constructing a null `FfiStr` is the whole point of this test — no C caller is
         // dereferencing it, `libdengjenSetSynthesisParameter` must reject it gracefully instead.
         let null_key = unsafe { FfiStr::from_raw(std::ptr::null()) };
+
         // SAFETY: `voice` is a valid handle owned by this test; `null_key` is deliberately
         // invalid, which `libdengjenSetSynthesisParameter`'s own `# Safety` doc covers by
         // rejecting it (`INVALID_UTF8_SEQUENCE`) instead of dereferencing it.
@@ -1249,6 +1200,7 @@ mod tests {
             out_error.get_code().code(),
             error_codes::INVALID_UTF8_SEQUENCE
         );
+
         // SAFETY: see `get_audio_info_null_voice_returns_null_pointer_error_without_panicking`.
         unsafe { out_error.manually_release() };
     }
@@ -1258,6 +1210,7 @@ mod tests {
         let mut out_error = ExternError::default();
         let key = FfiStr::from_cstr(std::ffi::CStr::from_bytes_with_nul(b"custom_knob\0").unwrap());
         let mut value: f32 = 0.0;
+
         // SAFETY: see `get_audio_info_null_voice_returns_null_pointer_error_without_panicking`
         // -- same null-`voice_ptr`-handled-gracefully contract, on `libdengjenGetSynthesisParameter`.
         let found = unsafe {
@@ -1265,6 +1218,7 @@ mod tests {
         };
         assert!(!found);
         assert_eq!(out_error.get_code().code(), error_codes::NULL_POINTER);
+
         // SAFETY: see `get_audio_info_null_voice_returns_null_pointer_error_without_panicking`.
         unsafe { out_error.manually_release() };
     }
@@ -1275,8 +1229,7 @@ mod tests {
         let mut out_error = ExternError::default();
         let key = FfiStr::from_cstr(std::ffi::CStr::from_bytes_with_nul(b"custom_knob\0").unwrap());
         let mut value: f32 = 0.0;
-        // SAFETY: `voice` is a valid handle owned by this test, and `key`/`value` are valid
-        // for the duration of this call.
+
         let found =
             unsafe { libdengjenGetSynthesisParameter(&mut voice, key, &mut value, &mut out_error) };
         assert!(!found);
@@ -1288,6 +1241,7 @@ mod tests {
         let mut voice = fake_voice();
         let mut out_error = ExternError::default();
         let key = FfiStr::from_cstr(std::ffi::CStr::from_bytes_with_nul(b"custom_knob\0").unwrap());
+
         // SAFETY: `voice` is a valid handle owned by this test, and `key` is valid for the
         // duration of this call.
         unsafe {
@@ -1298,6 +1252,7 @@ mod tests {
         let mut value: f32 = 0.0;
         let key2 =
             FfiStr::from_cstr(std::ffi::CStr::from_bytes_with_nul(b"custom_knob\0").unwrap());
+
         // SAFETY: see above -- same valid `voice` handle, `key2` valid for the duration of
         // this call.
         let found = unsafe {
@@ -1312,6 +1267,7 @@ mod tests {
     fn speak_null_voice_returns_null_pointer_error_without_panicking() {
         let mut out_error = ExternError::default();
         let text = std::ffi::CString::new("hello").unwrap();
+
         // SAFETY: see `get_audio_info_null_voice_returns_null_pointer_error_without_panicking`
         // -- same null-`voice_ptr`-handled-gracefully contract, on `libdengjenSpeak`.
         unsafe {
@@ -1323,6 +1279,7 @@ mod tests {
             );
         }
         assert_eq!(out_error.get_code().code(), error_codes::NULL_POINTER);
+
         // SAFETY: see `get_audio_info_null_voice_returns_null_pointer_error_without_panicking`.
         unsafe { out_error.manually_release() };
     }
@@ -1334,6 +1291,7 @@ mod tests {
         let text = std::ffi::CString::new("hello").unwrap();
         let mut params = synth_params();
         params.callback = None;
+
         // SAFETY: `voice` is a valid handle owned by this test; a null `params.callback` is
         // explicitly covered by `libdengjenSpeak`'s own `# Safety` doc -- handled the same way
         // as a null `voice_ptr` (a NULL_POINTER error written to `out_error`).
@@ -1341,6 +1299,7 @@ mod tests {
             libdengjenSpeak(&mut voice, FfiStr::from_cstr(&text), params, &mut out_error);
         }
         assert_eq!(out_error.get_code().code(), error_codes::NULL_POINTER);
+
         // SAFETY: see `get_audio_info_null_voice_returns_null_pointer_error_without_panicking`.
         unsafe { out_error.manually_release() };
     }
@@ -1350,6 +1309,7 @@ mod tests {
         let mut out_error = ExternError::default();
         let text = std::ffi::CString::new("hello").unwrap();
         let filename = std::ffi::CString::new("out.wav").unwrap();
+
         // SAFETY: see `get_audio_info_null_voice_returns_null_pointer_error_without_panicking`
         // -- same null-`voice_ptr`-handled-gracefully contract, on `libdengjenSpeakToFile`.
         let result = unsafe {
@@ -1363,6 +1323,7 @@ mod tests {
         };
         assert_eq!(result, 0);
         assert_eq!(out_error.get_code().code(), error_codes::NULL_POINTER);
+
         // SAFETY: see `get_audio_info_null_voice_returns_null_pointer_error_without_panicking`.
         unsafe { out_error.manually_release() };
     }
@@ -1372,9 +1333,9 @@ mod tests {
         let mut voice = fake_voice();
         let mut out_error = ExternError::default();
         let text = std::ffi::CString::new("hello").unwrap();
-        // A nonexistent parent directory makes the file write fail after synthesis succeeds.
         let filename =
             std::ffi::CString::new("/nonexistent-dengjen-capi-test-dir-xyz/out.wav").unwrap();
+
         // SAFETY: `voice` is a valid handle owned by this test.
         let result = unsafe {
             libdengjenSpeakToFile(
@@ -1387,6 +1348,7 @@ mod tests {
         };
         assert_eq!(result, 0);
         assert!(!out_error.get_code().is_success());
+
         // SAFETY: see `get_audio_info_null_voice_returns_null_pointer_error_without_panicking`.
         unsafe { out_error.manually_release() };
     }
@@ -1394,12 +1356,14 @@ mod tests {
     #[test]
     fn cancel_null_voice_returns_null_pointer_error_without_panicking() {
         let mut out_error = ExternError::default();
+
         // SAFETY: see `get_audio_info_null_voice_returns_null_pointer_error_without_panicking`
         // -- same null-`voice_ptr`-handled-gracefully contract, on `libdengjenCancel`.
         unsafe {
             libdengjenCancel(std::ptr::null_mut(), &mut out_error);
         }
         assert_eq!(out_error.get_code().code(), error_codes::NULL_POINTER);
+
         // SAFETY: see `get_audio_info_null_voice_returns_null_pointer_error_without_panicking`.
         unsafe { out_error.manually_release() };
     }
@@ -1439,8 +1403,6 @@ mod tests {
 
     #[test]
     fn cancel_slot_guard_does_not_clobber_a_different_tokens_slot() {
-        // Simulates two concurrent nonblocking realtime speaks on one voice: A's guard must
-        // not clear the slot once B has taken it over, or B silently becomes uncancellable.
         let slot = Arc::new(Mutex::new(None));
         let token_a = CancellationToken::new();
         let token_b = CancellationToken::new();
@@ -1503,6 +1465,7 @@ mod abi_struct_tests {
         assert_eq!(event.event_type, synth_event::SYNTH_EVENT_SPEECH);
         assert!(event.error_ptr.is_null());
         assert_eq!(event.len, 4);
+
         // SAFETY: `event.data`/`event.len` were just produced by `with_speech` from a
         // 4-byte `Vec`, so the pointer is valid for exactly that many reads.
         let bytes = unsafe { std::slice::from_raw_parts(event.data, event.len as usize) };
@@ -1521,10 +1484,7 @@ mod abi_struct_tests {
         assert_eq!(event.event_type, synth_event::SYNTH_EVENT_ERROR);
         assert!(!event.error_ptr.is_null());
         assert_eq!(event.len, 0);
-        // SAFETY: `error_ptr` was produced by `Box::into_raw` inside `with_error` and hasn't
-        // been freed yet; reading the code through the raw pointer doesn't take ownership
-        // away from it, so `libdengjenFreeSynthesisEvent` below still gets the one-and-only
-        // reclaim its own `# Safety` doc requires.
+
         assert_eq!(
             unsafe { (*event.error_ptr).get_code().code() },
             error_codes::INVALID_UTF8_SEQUENCE

@@ -47,9 +47,7 @@ impl VoiceStyles {
             DengjenError::OperationError(format!("Unknown Kokoro voice: `{}`", voice_name))
         })?;
         let row_index = token_len.saturating_sub(1).min(MAX_TOKEN_LEN - 1);
-        // Equivalent to `s![row_index..row_index + 1, ..]` without the `s!` macro: its expansion
-        // carries an internal `#[allow(unsafe_code)]` that a plain `#[deny]` can override but
-        // `#![forbid(unsafe_code)]` (required for this crate, which has no FFI boundary) cannot.
+
         Ok(table
             .slice_axis(Axis(0), Slice::from(row_index..row_index + 1))
             .to_owned())
@@ -60,9 +58,6 @@ impl VoiceStyles {
 mod tests {
     use super::*;
 
-    /// Writes a synthetic voice style file with the real 510x256 f32 shape, where
-    /// row `r`'s 256 values are all `r as f32` - makes it trivial to assert which
-    /// row `style_for` picked without needing a real trained voice file.
     fn write_synthetic_voice_file(dir: &Path, voice_name: &str) -> std::path::PathBuf {
         let path = dir.join(format!("{voice_name}.bin"));
         let mut bytes = Vec::with_capacity(EXPECTED_FILE_BYTES);
@@ -123,8 +118,6 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         write_synthetic_voice_file(&dir, "test_voice");
         let styles = VoiceStyles::load(&dir, &["test_voice".to_string()]).unwrap();
-        // token_len 42 should select row index 41 (token_len - 1), whose synthetic
-        // value is 41.0 in every column.
         let result = styles.style_for("test_voice", 42).unwrap();
         assert_eq!(result[[0, 0]], 41.0);
         assert_eq!(result[[0, 255]], 41.0);
@@ -137,8 +130,6 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         write_synthetic_voice_file(&dir, "test_voice");
         let styles = VoiceStyles::load(&dir, &["test_voice".to_string()]).unwrap();
-        // token_len 10000 exceeds the 510 available rows - must clamp to the last
-        // row (index 509, synthetic value 509.0), not panic or index out of bounds.
         let result = styles.style_for("test_voice", 10000).unwrap();
         assert_eq!(result.shape(), &[1, 256]);
         assert_eq!(result[[0, 0]], 509.0);

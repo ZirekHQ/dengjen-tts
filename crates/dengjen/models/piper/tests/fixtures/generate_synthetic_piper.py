@@ -1,12 +1,11 @@
-# crates/dengjen/models/piper/tests/fixtures/generate_synthetic_piper.py
-# Regenerate with: python3 generate_synthetic_piper.py
-# Requires: pip install onnx numpy
-#
-# Builds minimal ONNX graphs shaped like Piper's VITS batch and streaming
-# (encoder/decoder) models, with placeholder (non-speech) output — mirrors
-# dengjen-tts-kokoro's synthetic_kokoro.onnx approach: a hand-built graph, not an
-# exported real model, sized only to exercise the inference/streaming
-# plumbing end-to-end.
+
+
+
+
+
+
+
+
 import numpy as np
 from onnx import helper, TensorProto, numpy_helper
 
@@ -72,23 +71,23 @@ def build_encoder_model(path):
 
 
 def build_decoder_model(path):
-    # z/y_mask are declared with a dynamic time dimension: the streaming
-    # decoder is invoked once per chunk with a differently-sized slice of
-    # the encoder's z/y_mask along axis 2 (AdaptiveMelChunker). Output
-    # length must scale with that slice's time dimension * hop_length, or
-    # SpeechStreamer's audio-index slicing (also scaled by hop_length) will
-    # go out of bounds on any chunk after the first.
-    #
-    # The output content is a position-dependent ramp (0, 1, 2, ...), not a
-    # constant: a decoder that returns the same values regardless of chunk
-    # boundaries would make a one-shot (single-call) decode and a genuinely
-    # chunked (multi-call) decode byte-identical, defeating the point of this
-    # fixture. A one-shot run produces one continuous ramp; a chunked run
-    # produces several shorter ramps, each restarting at 0 for its own chunk's
-    # z slice, so the two paths are distinguishable by content, not just length.
-    #
-    # HOP_LENGTH here must stay in sync with the "hop_length" field in both
-    # test config JSONs in piper_synthetic_cli.rs.
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
     z_in = helper.make_tensor_value_info("z", TensorProto.FLOAT, [1, ENCODER_CHANNELS, None])
     y_mask_in = helper.make_tensor_value_info("y_mask", TensorProto.FLOAT, [1, 1, None])
     output = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 1, None])

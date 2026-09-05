@@ -1,6 +1,4 @@
 fn main() {
-    // Voice fixtures are lazily built; force that setup to finish before
-    // divan starts scheduling iterations against them.
     dev_utils::init();
     divan::main();
 }

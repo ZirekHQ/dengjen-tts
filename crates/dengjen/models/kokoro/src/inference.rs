@@ -12,11 +12,6 @@ use ort::value::Tensor;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-// `chunk_size` on `DengjenModel::stream_synthesis` is tuned by callers for Piper, where it
-// counts mel frames that Piper's decoder expands by `hop_length` (~256) into samples. Kokoro
-// has no mel/frame stage, so its `chunk_size` is scaled by the same nominal factor to land in
-// the same practical chunk-duration range as Piper's callers expect, rather than being
-// consumed directly as a far-too-small raw sample count.
 const KOKORO_CHUNK_SIZE_SCALE: usize = 256;
 
 pub struct KokoroModel {
@@ -27,13 +22,6 @@ pub struct KokoroModel {
     default_voice: String,
 }
 
-/// GPU execution providers to try before falling back to CPU, in priority order. Each entry's
-/// presence is gated at compile time by its matching Cargo feature; a provider that fails to
-/// initialize at runtime (missing driver, unsupported hardware) is silently skipped by ort — see
-/// `ExecutionProviderDispatch`'s `error_on_failure` default — so no explicit fallback logic is
-/// needed here.
-// Each push is behind its own #[cfg], so clippy's `vec![]` suggestion doesn't apply: cfg
-// attributes aren't permitted per-element inside a `vec![]` invocation on stable.
 #[allow(clippy::vec_init_then_push)]
 fn execution_providers() -> Vec<ort::ep::ExecutionProviderDispatch> {
     #[allow(unused_mut)]

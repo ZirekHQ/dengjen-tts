@@ -1,7 +1,3 @@
-// PyO3's #[pymethods] expands each impl into a hidden wrapper item, which
-// trips rustc's non_local_definitions lint as a false positive; an #[allow]
-// on the impl itself doesn't survive the macro expansion, so it's silenced
-// crate-wide here instead.
 #![allow(non_local_definitions)]
 #![forbid(unsafe_code)]
 
@@ -27,9 +23,6 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-// Building the tashkeel inference engine loads a bundled ONNX model, which is
-// expensive enough that we only want to pay for it once, the first time
-// diacritization is actually requested — not on module import.
 #[cfg(feature = "tashkeel")]
 static LIBTASHKEEL_ENGINE: Lazy<LibtashkeelResult<TashkeelInferenceEngine>> =
     Lazy::new(|| create_inference_engine(None));
@@ -176,8 +169,6 @@ impl WaveSamples {
     }
 }
 
-/// Wraps a lazily-computed speech stream so Python can drive it with the
-/// standard iterator protocol.
 #[pyclass(weakref, module = "pydengjen")]
 struct LazySpeechStream(DengjenSpeechStreamLazy);
 
@@ -194,8 +185,6 @@ impl LazySpeechStream {
     }
 
     fn __next__(&mut self, py: Python) -> Option<WaveSamples> {
-        // Release the GIL while pulling a chunk: synthesizing audio can take
-        // real wall-clock time and must not block other Python threads.
         match py.detach(|| self.0.next()) {
             None => None,
             Some(Ok(audio)) => Some(WaveSamples(audio)),
@@ -207,8 +196,6 @@ impl LazySpeechStream {
     }
 }
 
-/// Wraps a stream whose chunks are computed on a worker pool ahead of
-/// consumption, exposed to Python via the same iterator protocol.
 #[pyclass(weakref, module = "pydengjen")]
 struct ParallelSpeechStream(DengjenSpeechStreamParallel);
 
@@ -236,9 +223,6 @@ impl ParallelSpeechStream {
     }
 }
 
-/// Wraps a realtime speech stream, yielding raw wave-format `bytes` per chunk
-/// rather than a `WaveSamples` since the caller already knows the audio
-/// format from a one-time `get_audio_output_info()` call.
 #[pyclass(weakref, module = "pydengjen")]
 struct PyRealtimeSpeechStream(RealtimeSpeechStream);
 
@@ -383,10 +367,6 @@ fn load_voice(config_path: &std::path::Path) -> DengjenResult<Arc<dyn DengjenMod
     dengjen_tts_piper::from_config_path(config_path)
 }
 
-/// A loaded Piper voice model, exposed to Python as an opaque handle. All the
-/// actual inference work lives behind the `DengjenModel` trait object; this
-/// type's job is just to translate the trait's synthesis-config shape into
-/// the speaker/scale getters and setters Python callers expect.
 #[pyclass(weakref, module = "pydengjen")]
 #[pyo3(name = "PiperModel")]
 struct PiperModel(Arc<dyn DengjenModel + Send + Sync>);
@@ -445,19 +425,12 @@ impl PiperModel {
         Ok(self.0.set_fallback_synthesis_config(&config)?)
     }
 
-    /// Additive escape hatch alongside the named setters (e.g. `set_scales`): a key may be
-    /// any string, but a backend that doesn't recognize it silently ignores it. Piper only
-    /// recognizes `length_scale`, `noise_scale`, and `noise_w`; Kokoro ignores all three (it
-    /// has no tunable synthesis parameters).
     fn set_parameters(&self, parameters: HashMap<String, f32>) -> PyDengjenResult<()> {
         let mut config = self.0.get_fallback_synthesis_config()?.unwrap_or_default();
         config.parameters.extend(parameters);
         Ok(self.0.set_fallback_synthesis_config(&config)?)
     }
 
-    /// Reads the voice's full generic synthesis `parameters` map — the read-side
-    /// counterpart to `set_parameters`. Returns an empty dict if the loaded
-    /// backend has no synthesis config at all (e.g. Kokoro).
     fn get_parameters(&self) -> PyDengjenResult<HashMap<String, f32>> {
         Ok(self
             .0
@@ -480,11 +453,6 @@ impl PiperModel {
             .map(|config| dengjen_tts_piper::PiperSynthesisConfig::from(&config))
     }
 
-    /// Unlike `piper_config_or_err`, keeps the full generic `SynthesisConfig`
-    /// (including any keys added via `set_parameters`) rather than narrowing
-    /// it to Piper's three named scale fields. Setters must merge onto this,
-    /// not `piper_config_or_err`'s view, or they silently drop other
-    /// generic parameters on write-back (see #105).
     fn generic_config_or_err(&self) -> PyDengjenResult<SynthesisConfig> {
         self.0.get_fallback_synthesis_config()?.ok_or_else(|| {
             PyDengjenError::from(DengjenError::InvalidConfiguration(
@@ -494,9 +462,6 @@ impl PiperModel {
     }
 }
 
-/// The user-facing synthesizer: wraps a `DengjenSpeechSynthesizer` built
-/// around a loaded model, and hands out streams/files in whichever shape the
-/// caller asked for.
 #[pyclass(weakref, module = "pydengjen", frozen)]
 struct Dengjen(Arc<DengjenSpeechSynthesizer>);
 
@@ -550,9 +515,6 @@ impl Dengjen {
             audio_output_config.map(|o| o.into()),
             chunk_size.unwrap_or(45),
             chunk_padding.unwrap_or(3),
-            // No API exists today for a caller to cancel a stream mid-flight,
-            // so there's nothing to hold onto beyond this call — a fresh
-            // token is equivalent to "never cancelled".
             CancellationToken::new(),
         )?;
         Ok(PyRealtimeSpeechStream(stream))
@@ -587,10 +549,6 @@ impl Dengjen {
     }
 }
 
-/// Adds Arabic diacritics (tashkeel) to `text` using the shared, lazily-built
-/// inference engine. Only ever called when `should_diacritize` has already
-/// said yes, so a failure here — either building the engine or running
-/// inference — is surfaced as a `DengjenException` rather than panicking.
 #[cfg(feature = "tashkeel")]
 fn diacritize_text(text: &str) -> PyResult<std::borrow::Cow<'_, str>> {
     let engine = LIBTASHKEEL_ENGINE
@@ -606,11 +564,6 @@ fn diacritize_text(_text: &str) -> PyResult<std::borrow::Cow<'_, str>> {
     unreachable!("diacritize_text called with the `tashkeel` feature disabled")
 }
 
-/// Converts `text` into a phoneme sequence for `language`, diacritizing first
-/// when the language/flag combination calls for it. Exposed directly to
-/// Python callers who want the phoneme breakdown without running full
-/// synthesis; `Dengjen::synthesize*` does not call this function — it drives
-/// its own, separate phonemization path inside the loaded model.
 #[cfg(feature = "espeak")]
 #[pyfunction]
 pub fn phonemize_text(
@@ -696,7 +649,6 @@ mod error_plumbing_tests {
     }
 }
 
-/// A fast, local neural text-to-speech engine
 #[pymodule]
 fn pydengjen(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Dengjen>()?;
@@ -725,15 +677,9 @@ mod model_and_synthesizer_tests {
     use std::collections::HashMap as StdHashMap;
     use std::sync::Mutex;
 
-    // Stored as the generic `SynthesisConfig`, not `PiperSynthesisConfig`:
-    // the latter is a closed, fixed-field struct with no room for arbitrary
-    // parameters, so round-tripping through it (as the real Piper backend
-    // does internally) would silently drop anything `set_parameters` adds
-    // beyond the three scale fields it already knows about. Building the
-    // seed values as a `PiperSynthesisConfig` literal and converting keeps
-    // this fixture's Piper-shaped states easy to read while still letting it
-    // preserve arbitrary parameters losslessly, same as a real generic
-    // backend would.
+    // Round-tripping through `PiperSynthesisConfig` (a closed, fixed-field struct) would
+    // silently drop anything `set_parameters` adds beyond its three known scale fields, so
+    // the fallback config is kept as the generic `SynthesisConfig` instead.
     struct FakeModel {
         speakers: StdHashMap<i64, String>,
         fallback_config: Mutex<Option<SynthesisConfig>>,
@@ -774,10 +720,10 @@ mod model_and_synthesizer_tests {
             }
         }
 
-        /// A model with no synthesis config at all (the `None` variant), as
-        /// opposed to a `Piper` config that simply has no speaker set. Keeps
-        /// a speaker table so `set_speaker`'s name-to-id lookup succeeds and
-        /// the test exercises the config-write failure, not a lookup miss.
+        /// A model with no synthesis config at all, as opposed to a `Piper` config
+        /// that simply has no speaker set. Keeps a speaker table so `set_speaker`'s
+        /// name-to-id lookup succeeds and the test exercises the config-write failure,
+        /// not a lookup miss.
         fn with_no_config() -> Self {
             Self {
                 speakers: StdHashMap::from([(0, "alice".to_string())]),
@@ -848,12 +794,7 @@ mod model_and_synthesizer_tests {
     fn load_voice_routes_kokoro_model_type_toward_the_kokoro_loader() {
         let dir = std::env::temp_dir().join("dengjen_python_load_voice_test_kokoro");
         std::fs::create_dir_all(&dir).unwrap();
-        // A syntactically valid but incomplete Kokoro config: detect_model_type reads it fine,
-        // but dengjen_tts_kokoro::from_config_path's own RawKokoroVoiceConfig requires
-        // `model_path` (crates/dengjen/models/kokoro/src/config.rs:8), which this JSON omits.
-        // If this had instead fallen through to Piper's loader, the error would name a
-        // Piper-required field (`audio`) instead — so asserting on `model_path` specifically
-        // proves the Kokoro branch was actually taken, not just that some error occurred.
+
         let path = write_temp_config(&dir, "config.json", r#"{"model_type": "kokoro"}"#);
         let err = match load_voice(&path) {
             Err(e) => format!("{}", e),
@@ -870,12 +811,7 @@ mod model_and_synthesizer_tests {
     fn load_voice_routes_melotts_model_type_toward_the_melotts_loader() {
         let dir = std::env::temp_dir().join("dengjen_python_load_voice_test_melotts");
         std::fs::create_dir_all(&dir).unwrap();
-        // A syntactically valid but incomplete MeloTTS config: `audio` is supplied (so a
-        // wrongful fallthrough to Piper's loader would get past its own `audio` requirement),
-        // but `phonemizer` is omitted, which only MeloTTS's RawMeloVoiceConfig requires
-        // (crates/dengjen/models/melotts/src/config.rs:28) — Piper has no such field. Asserting
-        // on `phonemizer` specifically proves the MeloTTS branch was actually taken, not a
-        // fallthrough to Piper.
+
         let path = write_temp_config(
             &dir,
             "config.json",
@@ -896,9 +832,7 @@ mod model_and_synthesizer_tests {
     fn load_voice_routes_vits_model_type_toward_the_piper_loader() {
         let dir = std::env::temp_dir().join("dengjen_python_load_voice_test_vits");
         std::fs::create_dir_all(&dir).unwrap();
-        // A syntactically valid but incomplete Piper/VITS config, missing Piper's required
-        // `audio` field. Asserting on `audio` (rather than just "some error occurred") proves
-        // the Piper branch was taken, not the Kokoro one.
+
         let path = write_temp_config(&dir, "config.json", r#"{"model_type": "vits"}"#);
         let err = match load_voice(&path) {
             Err(e) => format!("{}", e),
@@ -1088,8 +1022,6 @@ mod model_and_synthesizer_tests {
 
     #[test]
     fn dengjen_synthesize_defaults_to_the_lazy_strategy() {
-        // `synthesize` and `synthesize_lazy` must behave identically — `synthesize`
-        // just delegates. Proven by both producing the same single chunk of audio.
         let dengjen = fake_dengjen();
         let mut via_synthesize = dengjen.synthesize("hello".to_string(), None).unwrap();
         let first = via_synthesize.0.next().unwrap().unwrap();

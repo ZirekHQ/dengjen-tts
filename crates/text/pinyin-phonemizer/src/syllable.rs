@@ -1,12 +1,5 @@
-//! Bopomofo-to-pinyin conversion and initial/final/tone syllable splitting,
-//! ported from OHF-Voice/piper1-gpl's `src/piper/phonemize_chinese.py`.
-
 use std::collections::HashMap;
 
-/// Sorted longest-to-shortest, matching upstream's `PINYIN_INITIALS` exactly —
-/// the ordering is load-bearing: `split_initial_final_tone`'s scan below
-/// relies on trying "zh"/"ch"/"sh" before any single-letter initial that
-/// would otherwise shadow them.
 pub(crate) const PINYIN_INITIALS: [&str; 23] = [
     "zh", "ch", "sh", "b", "p", "m", "f", "d", "t", "n", "l", "g", "k", "h", "j", "q", "x", "r",
     "z", "c", "s", "y", "w",

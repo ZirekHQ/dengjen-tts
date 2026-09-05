@@ -13,21 +13,14 @@ use std::sync::Mutex;
 
 pub type ESpeakResult<T> = Result<T, ESpeakError>;
 
-// Bitmasks eSpeak-ng writes into the `terminator` out-parameter of
-// `espeak_TextToPhonemesWithTerminator`. The low nibble, isolated by masking with
-// `0x0000F000`, identifies which punctuation ended the current clause; `CLAUSE_TYPE_SENTENCE`
-// is a separate bit flagging whether that clause also completed a full sentence.
 const CLAUSE_INTONATION_FULL_STOP: i32 = 0x00000000;
 const CLAUSE_INTONATION_COMMA: i32 = 0x00001000;
 const CLAUSE_INTONATION_QUESTION: i32 = 0x00002000;
 const CLAUSE_INTONATION_EXCLAMATION: i32 = 0x00003000;
 const CLAUSE_TYPE_SENTENCE: i32 = 0x00080000;
 
-/// Environment variable naming the directory that holds `espeak-ng-data`. Set this only when
-/// eSpeak-ng's data files aren't in the default system-wide install location.
 const DENGJEN_ESPEAKNG_DATA_DIRECTORY: &str = "DENGJEN_ESPEAKNG_DATA_DIRECTORY";
 
-/// A plain-text error message surfaced from a failing eSpeak-ng call.
 #[derive(Debug, Clone)]
 pub struct ESpeakError(pub String);
 
@@ -44,23 +37,14 @@ impl fmt::Display for ESpeakError {
 static LANG_SWITCH_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r"\([^)]*\)").unwrap());
 // Matches eSpeak-ng's two IPA stress markers: `ˈ` (primary) and `ˌ` (secondary).
 static STRESS_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r"[ˈˌ]").unwrap());
-// Runs eSpeak-ng's one-time global setup on first access and caches whatever it returns.
 static ESPEAKNG_INIT: Lazy<ESpeakResult<()>> = Lazy::new(init_espeakng);
-// eSpeak-ng's C API is not reentrant; every call into it must be made while holding this lock.
+
 static ESPEAK_LOCK: Mutex<()> = Mutex::new(());
-// Owns the resolved data-directory `CString` for as long as eSpeak-ng stays initialized, i.e.
-// for the rest of the process's life: eSpeak-ng retains a raw pointer into this string past
-// the return of `init_espeakng`, so the `CString` backing it must outlive that call. Keeping it
-// alive in a `static`, rather than leaking a bare pointer via `into_raw` with nothing left to
-// reference it, keeps the allocation reachable so LeakSanitizer doesn't flag it as leaked.
+
 static ESPEAKNG_DATA_PATH: Mutex<Option<CString>> = Mutex::new(None);
 
-/// Evidence that its holder has acquired [`ESPEAK_LOCK`]. Every helper that calls into
-/// eSpeak-ng takes one, because those calls are only sound while the lock is held.
 type ESpeakLock<'a> = std::sync::MutexGuard<'a, ()>;
 
-/// The directory to hand eSpeak-ng as its data root, or `None` to leave it on its own
-/// compiled-in search path.
 fn resolve_data_directory() -> Option<CString> {
     let base = match env::var(DENGJEN_ESPEAKNG_DATA_DIRECTORY) {
         Ok(configured) => PathBuf::from(configured),
@@ -102,8 +86,7 @@ fn init_espeakng() -> ESpeakResult<()> {
     if sample_rate > 0 {
         return Ok(());
     }
-    // Crates downstream match on the literal `Failed to initialize eSpeak-ng` to tell a missing
-    // `espeak-ng-data` install apart from a real fault; keep that substring intact.
+
     Err(ESpeakError(format!(
         "Failed to initialize eSpeak-ng, error code `{sample_rate}`. If its data files are \
          installed somewhere non-standard, point `{DENGJEN_ESPEAKNG_DATA_DIRECTORY}` at the \
@@ -166,6 +149,7 @@ fn phonemize_line(
 fn select_voice(_espeak: &ESpeakLock<'_>, language: &str) -> ESpeakResult<()> {
     let rejected = || ESpeakError(format!("eSpeak-ng has no voice named `{language}`"));
     let voice = CString::new(language).map_err(|_| rejected())?;
+
     // SAFETY: the pointer addresses `voice`'s NUL-terminated buffer, and `voice` is still alive
     // when the call returns; eSpeak-ng copies the name it keeps rather than retaining this
     // pointer. `_espeak` witnesses that the caller holds `ESPEAK_LOCK`, and that caller forced
@@ -178,13 +162,11 @@ fn select_voice(_espeak: &ESpeakLock<'_>, language: &str) -> ESpeakResult<()> {
     }
 }
 
-/// IPA output, with the requested separator character carried in bits 8-23 when there is one.
 fn phoneme_mode(phoneme_separator: Option<char>) -> ffi::c_int {
     let separator_bits = phoneme_separator.map_or(0, |separator| (separator as u32) << 8);
     (espeakng::espeakINITIALIZE_PHONEME_IPA | separator_bits) as ffi::c_int
 }
 
-/// Walks `line` clause by clause, returning one string per sentence eSpeak-ng reports.
 fn read_clauses(
     _espeak: &ESpeakLock<'_>,
     line: &ffi::CStr,
@@ -195,6 +177,8 @@ fn read_clauses(
     let mut sentences = Vec::new();
     let mut pending = String::new();
     while !cursor.is_null() {
+        // SAFETY: `cursor` starts at `line`'s NUL-terminated buffer, which is borrowed for the
+
         // SAFETY: `cursor` starts at `line`'s NUL-terminated buffer, which is borrowed for the
         // whole of this function and so outlives every iteration; eSpeak-ng writes back either
         // a position inside that same buffer or null once it has consumed all of it, and null

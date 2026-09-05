@@ -29,7 +29,7 @@ class VoiceIntegrationTest {
     assertThat(info.numChannels()).isEqualTo(1);
 
     voice.close();
-    assertThatCode(voice::close).doesNotThrowAnyException(); // close must be idempotent
+    assertThatCode(voice::close).as("close must be idempotent").doesNotThrowAnyException();
   }
 
   @Test
@@ -59,9 +59,7 @@ class VoiceIntegrationTest {
       assertThat(wrote).isTrue();
 
       byte[] data = Files.readAllBytes(outPath);
-      // BATCH_OUTPUT_SAMPLES=8000 in generate_synthetic_piper.py: a
-      // 44-byte RIFF/WAVE header plus 8000 mono i16 samples. Matches
-      // bindings/go's equivalent assertion.
+
       assertThat(data).hasSize(44 + 8000 * 2);
     }
   }
@@ -131,9 +129,7 @@ class VoiceIntegrationTest {
       SpeakTrampoline.testCallReleased.set(() -> released[0] = true);
       try {
         SynthesisParams params = new SynthesisParams(SynthesisMode.LAZY, 10, 100, 50, 0);
-        // AssertionError is an Error, not a RuntimeException: a handler throwing one must not
-        // escape across the native upcall boundary (undefined behavior in the native code),
-        // and the call must still complete normally for this caller.
+
         assertThatCode(
                 () ->
                     voice.speak(
@@ -160,9 +156,7 @@ class VoiceIntegrationTest {
       SpeakTrampoline.testCallReleased.set(() -> releases[0]++);
       try {
         SynthesisParams params = new SynthesisParams(SynthesisMode.LAZY, 10, 100, 50, 0);
-        // Throws inside allocateFrom, i.e. after the call is registered
-        // but before the downcall -- so the trampoline never runs and
-        // can never release its own entry.
+
         assertThatThrownBy(() -> voice.speak(null, params, event -> true))
             .isInstanceOf(NullPointerException.class);
       } finally {

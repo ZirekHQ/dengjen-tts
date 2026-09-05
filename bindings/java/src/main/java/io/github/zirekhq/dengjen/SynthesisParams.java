@@ -1,9 +1,5 @@
 package io.github.zirekhq.dengjen;
 
-/**
- * Controls how a speak()/speakToFile() call synthesizes and post-processes audio, mirroring
- * libdengjen's SynthesisParams struct.
- */
 public record SynthesisParams(
     SynthesisMode mode,
     int rate,
@@ -18,7 +14,6 @@ public record SynthesisParams(
     requireRange(pitch, "pitch");
   }
 
-  /** Convenience constructor defaulting nonblocking to false. */
   public SynthesisParams(
       SynthesisMode mode, int rate, int volume, int pitch, int appendedSilenceMs) {
     this(mode, rate, volume, pitch, appendedSilenceMs, false);

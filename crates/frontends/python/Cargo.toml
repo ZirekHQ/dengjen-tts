@@ -16,8 +16,8 @@ default = ["tashkeel", "espeak"]
 ort-dylib = ["ort/load-dynamic"]
 tashkeel = ["dep:dengjen-tashkeel", "dengjen-tts-piper/tashkeel"]
 espeak = ["dep:espeak-phonemizer", "dengjen-tts-piper/espeak", "dengjen-tts-kokoro/espeak", "dengjen-tts-melotts/espeak"]
-# Forwards to both model backends; ort/cuda alone (the previous wiring) never reached a
-# Session::builder() call, so enabling it did nothing.
+
+
 cuda = ["dengjen-tts-piper/cuda", "dengjen-tts-kokoro/cuda", "dengjen-tts-melotts/cuda"]
 coreml = ["dengjen-tts-piper/coreml", "dengjen-tts-kokoro/coreml", "dengjen-tts-melotts/coreml"]
 directml = ["dengjen-tts-piper/directml", "dengjen-tts-kokoro/directml", "dengjen-tts-melotts/directml"]
@@ -26,10 +26,10 @@ directml = ["dengjen-tts-piper/directml", "dengjen-tts-kokoro/directml", "dengje
 espeak-phonemizer = { workspace = true, optional = true }
 dengjen-tts-core.workspace = true
 dengjen-tts.workspace = true
-# Not workspace-inherited: Cargo silently ignores a member's attempt to
-# narrow `default-features` (true -> false) on a workspace-inherited
-# dependency, so this needs its own path+version pin, kept in sync with
-# [workspace.package].version by scripts/bump-version.sh.
+
+
+
+
 dengjen-tts-piper = { path = "../../dengjen/models/piper", version = "1.1.0", default-features = false }
 dengjen-tts-kokoro.workspace = true
 dengjen-tts-melotts.workspace = true

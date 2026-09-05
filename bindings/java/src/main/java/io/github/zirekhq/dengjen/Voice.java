@@ -7,15 +7,6 @@ import java.lang.ref.Reference;
 import java.util.Optional;
 import java.util.concurrent.locks.ReentrantLock;
 
-/**
- * A loaded dengjen-tts voice model. Not usable after {@link #close()}.
- *
- * <p>Not safe to call close() concurrently with any other method on the same Voice from another
- * thread while that other call is in flight -- the same contract
- * libdengjenCancel/libdengjenUnloadDengjenVoice already document. The lock below guards only the
- * ptr field itself (making close() and a post-close call race-free and idempotent); it does not
- * serialize an in-flight native call against a concurrent close().
- */
 public final class Voice implements AutoCloseable {
   private final ReentrantLock lock = new ReentrantLock();
   private MemorySegment ptr;
@@ -24,10 +15,6 @@ public final class Voice implements AutoCloseable {
     this.ptr = ptr;
   }
 
-  /**
-   * Loads a voice model from a manifest at configPath (the same config.json/.onnx.json shape every
-   * other dengjen-tts frontend accepts).
-   */
   public static Voice load(String configPath) {
     try (Arena arena = Arena.ofConfined()) {
       MemorySegment cPath = arena.allocateFrom(configPath);
@@ -43,7 +30,6 @@ public final class Voice implements AutoCloseable {
     }
   }
 
-  /** Releases this voice's native resources. Safe to call more than once. */
   @Override
   public void close() {
     lock.lock();
@@ -75,7 +61,6 @@ public final class Voice implements AutoCloseable {
     }
   }
 
-  /** Returns this voice's output audio format. */
   public AudioInfo getAudioInfo() {
     MemorySegment voicePtr = requireOpenPtr();
     try (Arena arena = Arena.ofConfined()) {
@@ -92,14 +77,11 @@ public final class Voice implements AutoCloseable {
           cInfo.get(ValueLayout.JAVA_INT, DengjenLayouts.AUDIO_INFO_NUM_CHANNELS_OFFSET),
           cInfo.get(ValueLayout.JAVA_INT, DengjenLayouts.AUDIO_INFO_SAMPLE_WIDTH_OFFSET));
     } finally {
-      // The Java analog of bindings/go's runtime.KeepAlive(v): ensures
-      // this Voice (and so its ptr field) isn't treated as unreachable
-      // until the native call above has returned.
+
       Reference.reachabilityFence(this);
     }
   }
 
-  /** Returns this voice's default synthesis parameters (Piper-family voices). */
   public PiperSynthConfig getDefaultSynthConfig() {
     MemorySegment voicePtr = requireOpenPtr();
     try (Arena arena = Arena.ofConfined()) {
@@ -132,7 +114,6 @@ public final class Voice implements AutoCloseable {
     }
   }
 
-  /** Updates this voice's fallback synthesis parameters. */
   public void setSynthConfig(PiperSynthConfig config) {
     MemorySegment voicePtr = requireOpenPtr();
     try (Arena arena = Arena.ofConfined()) {
@@ -163,10 +144,6 @@ public final class Voice implements AutoCloseable {
     }
   }
 
-  /**
-   * Sets a single named parameter on the voice's fallback synthesis config (model-agnostic -- works
-   * for any backend's own parameter names).
-   */
   public void setSynthesisParameter(String key, float value) {
     MemorySegment voicePtr = requireOpenPtr();
     try (Arena arena = Arena.ofConfined()) {
@@ -183,10 +160,6 @@ public final class Voice implements AutoCloseable {
     }
   }
 
-  /**
-   * Reads a single named parameter from the voice's fallback synthesis config. Empty if the key was
-   * never set (not an error).
-   */
   public Optional<Float> getSynthesisParameter(String key) {
     MemorySegment voicePtr = requireOpenPtr();
     try (Arena arena = Arena.ofConfined()) {
@@ -208,12 +181,6 @@ public final class Voice implements AutoCloseable {
     }
   }
 
-  /**
-   * Synthesizes text and writes it as a WAV file at outFilename. The boolean return reports whether
-   * the file was written, independent of any thrown exception (mirrors libdengjenSpeakToFile's own
-   * two-part success signal). params.nonblocking() has no effect here -- speakToFile is always
-   * synchronous; it only applies to speak().
-   */
   public boolean speakToFile(String text, SynthesisParams params, String outFilename) {
     MemorySegment voicePtr = requireOpenPtr();
     try (Arena arena = Arena.ofConfined()) {
@@ -238,21 +205,6 @@ public final class Voice implements AutoCloseable {
     }
   }
 
-  /**
-   * Synthesizes text and streams the resulting audio to handler, one event at a time. handler
-   * returns true to keep receiving events, false to stop early. If handler runs to the natural end
-   * of the stream, the last event delivered has type FINISHED or ERROR; if handler instead returns
-   * false, the stream stops immediately at whatever event triggered that, and no further event (in
-   * particular, no FINISHED) is delivered for this call. If params.nonblocking() is true, speak()
-   * returns immediately and handler continues firing from a native-managed thread until the stream
-   * ends by either of those means.
-   *
-   * <p>handler must not throw and must return promptly -- an exception thrown from handler is
-   * caught here, treated as "stop early", and never propagated back across this FFI boundary, since
-   * letting one unwind across the native call frames that invoke it would be undefined behavior. If
-   * handler needs to fail the caller, record the failure itself and check for it after speak()
-   * returns.
-   */
   public void speak(String text, SynthesisParams params, SynthesisEventHandler handler) {
     MemorySegment voicePtr = requireOpenPtr();
     SpeakTrampoline trampoline = SpeakTrampoline.create(handler);
@@ -269,18 +221,7 @@ public final class Voice implements AutoCloseable {
       }
       ErrorChecks.checkAndThrow(outError);
     } catch (RuntimeException | Error t) {
-      // Every throw reaching here leaves the stream never started, so
-      // the trampoline will never fire and release its own
-      // registration -- this call site owns it. That covers marshalling
-      // failing before the downcall (which would otherwise pin the
-      // handler in the static registry forever), the downcall itself
-      // failing, and libdengjenSpeak reporting an error: it only reports
-      // one when it failed before entering the synthesis loop, so no
-      // event can have been delivered (mirrors bindings/go's speak.go).
-      // One wide catch rather than one per throw site, so no future
-      // statement added above can slip through unreleased; release() is
-      // idempotent, so overlapping with the trampoline's own release
-      // would still only release once.
+
       trampoline.release();
       throw t;
     } finally {
@@ -288,16 +229,6 @@ public final class Voice implements AutoCloseable {
     }
   }
 
-  /**
-   * Interrupts the most recently started realtime-mode speak() call on this voice, if one is
-   * currently running; has no effect otherwise (lazy and parallel-mode syntheses cannot be
-   * interrupted this way). The handler still receives a final FINISHED event after a successful
-   * cancellation -- there is no separate "cancelled" event.
-   *
-   * <p>Callers must not call cancel() concurrently with close() on the same voice -- that races a
-   * use-after-free that only the caller can avoid, mirroring libdengjenCancel's own documented
-   * contract.
-   */
   public void cancel() {
     MemorySegment voicePtr = requireOpenPtr();
     try (Arena arena = Arena.ofConfined()) {

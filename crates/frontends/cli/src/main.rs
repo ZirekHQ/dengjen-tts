@@ -116,11 +116,6 @@ struct SynthesisRequest {
 }
 
 impl SynthesisRequest {
-    /// Merges this request onto `default_config`: the generic `parameters` are
-    /// applied first, then any explicitly-set named field (speaker/length_scale/
-    /// noise_scale/noise_w) overwrites its corresponding value, so a named field
-    /// always wins over a conflicting `parameters` key — matching gRPC's
-    /// `apply_synth_options` precedence.
     fn as_synthesis_config(&self, default_config: &SynthesisConfig) -> SynthesisConfig {
         let mut config = default_config.clone();
         for (key, value) in &self.parameters {
@@ -384,8 +379,7 @@ mod synthesis_processing_tests {
         // output through `AudioOutputConfig::apply` (real Sonic FFI, even with
         // every field `None`), which this test isn't exercising — that's
         // `audio-ops`'s own tested responsibility (Phase 3). Non-empty output
-        // is the right assertion here: it proves Lazy mode reached
-        // `consume_stream` at all.
+
         assert!(!buffer.is_empty());
     }
 
@@ -484,7 +478,7 @@ mod synthesis_processing_tests {
         let args = cli_with_output_file(Some(path.clone()));
         let req = SynthesisRequest {
             text: "hello".to_string(),
-            mode: Some(SynthesisMode::Lazy), // triggers the log::warn! branch
+            mode: Some(SynthesisMode::Lazy),
             ..Default::default()
         };
         let mut buffer: Vec<u8> = Vec::new();
@@ -501,9 +495,6 @@ mod synthesis_processing_tests {
 
     #[test]
     fn a_default_parameter_not_covered_by_any_named_field_survives_into_the_synthesized_request() {
-        // Simulates a future non-Piper backend whose default config carries a
-        // parameter with no CLI flag of its own — `resolve_default_synthesis_config`
-        // must not truncate it away before `as_synthesis_config` ever sees it.
         let mut default_config = SynthesisConfig::default();
         default_config
             .parameters
@@ -528,7 +519,7 @@ mod synthesis_processing_tests {
         let result = consume_stream(stream.into_iter(), &mut buffer);
 
         assert!(result.is_err());
-        assert_eq!(buffer.len(), 2 * 2); // only the first chunk's 2 samples were written
+        assert_eq!(buffer.len(), 2 * 2);
     }
 }
 
@@ -586,9 +577,6 @@ fn build_synthesizer(config_path: &std::path::Path) -> anyhow::Result<DengjenSpe
 fn resolve_default_synthesis_config(
     synthesizer: &DengjenSpeechSynthesizer,
 ) -> anyhow::Result<SynthesisConfig> {
-    // Non-Piper backends (e.g. Kokoro) return None here; their
-    // set_fallback_synthesis_config ignores whatever default we pass, so this
-    // default is inert for them.
     Ok(synthesizer
         .get_default_synthesis_config()?
         .unwrap_or_default())
@@ -829,8 +817,6 @@ mod tests {
 
     #[test]
     fn enumerate_output_path_is_cumulative_across_repeated_calls() {
-        // Matches the pre-existing behavior: each call operates on the previous
-        // call's already-suffixed path, so suffixes accumulate rather than replace.
         let first = enumerate_output_path(PathBuf::from("out.wav"), 1);
         let second = enumerate_output_path(first, 2);
         assert_eq!(second, PathBuf::from("out-1-2.wav"));

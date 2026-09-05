@@ -1,10 +1,3 @@
-//! Three-tier character-to-bopomofo resolution, ported from
-//! OHF-Voice/piper1-gpl's `src/piper/g2pw_onnx.py`, itself an inference-only
-//! port of GitYCC/g2pW (Apache-2.0). Resolution order (checked in
-//! `_prepare_data`, upstream lines 511-523): polyphonic characters go to the
-//! g2pW model; everything else resolves from `monophonic_chars_dict` first,
-//! `char_bopomofo_dict` second.
-
 use crate::g2pw::G2pwEngine;
 use dengjen_tts_core::{DengjenError, DengjenResult};
 use std::collections::HashMap;
@@ -93,9 +86,6 @@ pub(crate) fn get_phoneme_labels(
     (labels, char2phonemes)
 }
 
-/// Dictionary-only resolution (no model call) — used both directly for
-/// non-polyphonic characters and as the "does this even need the model"
-/// pre-check `resolve_char` performs before calling into `g2pw`.
 pub(crate) fn resolve_char_dictionary_only(dictionaries: &Dictionaries, c: char) -> Option<String> {
     dictionaries
         .monophonic

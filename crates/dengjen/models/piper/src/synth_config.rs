@@ -5,9 +5,6 @@ pub const NOISE_SCALE: &str = "noise_scale";
 pub const LENGTH_SCALE: &str = "length_scale";
 pub const NOISE_W: &str = "noise_w";
 
-/// Piper's own standard factory defaults, used when a `SynthesisConfig`'s generic
-/// `parameters` map omits one of these keys. `0.0` is not a usable length scale (or noise
-/// scale/weight), so a missing key must fall back to a real value, not `f32::default()`.
 const DEFAULT_NOISE_SCALE: f32 = 0.667;
 const DEFAULT_LENGTH_SCALE: f32 = 1.0;
 const DEFAULT_NOISE_W: f32 = 0.8;

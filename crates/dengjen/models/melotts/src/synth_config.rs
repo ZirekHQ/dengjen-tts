@@ -71,13 +71,6 @@ mod tests {
 
     #[test]
     fn preserves_unrelated_parameters_already_present_on_the_generic_config() {
-        // A generic SynthesisConfig carrying a parameter this crate doesn't know about
-        // (set by another backend, or a future MeloTTS parameter) must survive a
-        // MeloSynthesisConfig round-trip unless explicitly overwritten. This documents
-        // the current limitation: converting generic -> Melo -> generic drops any
-        // parameter key MeloSynthesisConfig has no field for, so any setter built on
-        // top of this struct must merge onto the full SynthesisConfig's `parameters`
-        // map directly rather than only through this round-trip.
         let mut generic = SynthesisConfig {
             speaker: Some(1),
             parameters: HashMap::new(),

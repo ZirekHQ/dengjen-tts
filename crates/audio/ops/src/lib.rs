@@ -1,5 +1,3 @@
-//! Audio post-processing primitives shared across dengjen's TTS pipeline: sample buffers,
-//! Hann windowing, and WAV encoding.
 #![forbid(unsafe_code)]
 
 pub(crate) mod hanning_window;

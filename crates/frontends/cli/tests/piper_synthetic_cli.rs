@@ -2,32 +2,9 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 
-// Drives the real `dengjen` binary against synthetic batch and streaming
-// ("realtime") Piper voices, so a behavior regression in the inference/chunking
-// internals shows up as a CLI-level failure, not just a unit-test failure whose
-// surface area a rewrite might also have changed.
-//
-// The realtime test deliberately does NOT pass `-o`/`--output-file`: the CLI's
-// `process_synthesis_request` (crates/frontends/cli/src/main.rs) takes an early
-// return whenever an output file is given, always routing through
-// `synthesize_to_file` -> `synthesize_parallel` -> `speak_one_sentence`, which
-// performs a single one-shot encoder+decoder pass regardless of `--mode`,
-// `--chunk-size`, or `--chunk-padding`. Only the no-output-file path reaches
-// `synthesize_streamed` -> `stream_synthesis` -> `SpeechStreamer`, which is the
-// code that actually invokes the decoder once per chunk via
-// `AdaptiveMelChunker`. Reading raw PCM bytes off stdout instead is what makes
-// this test exercise the multi-chunk decoder path Task 11 is about to rewrite.
-// (Unlike the batch test's `-o` output file, which goes through
-// `write_wave_samples_to_file` and is a real RIFF/WAVE file, stdout in
-// streaming mode carries headerless little-endian i16 PCM from
-// `AudioSamples::as_wave_bytes` — the name is misleading but there is no
-// RIFF header on this path.)
-
-// Must match ENCODER_NUM_FRAMES / HOP_LENGTH in generate_synthetic_piper.py,
-// and HOP_LENGTH must match the "hop_length" field in both config JSONs below.
 const ENCODER_NUM_FRAMES: usize = 200;
 const HOP_LENGTH: usize = 256;
-const EXPECTED_STREAM_PCM_BYTES: usize = ENCODER_NUM_FRAMES * HOP_LENGTH * 2; // i16 = 2 bytes/sample
+const EXPECTED_STREAM_PCM_BYTES: usize = ENCODER_NUM_FRAMES * HOP_LENGTH * 2;
 
 fn fixtures_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../dengjen/models/piper/tests/fixtures")
@@ -205,14 +182,7 @@ fn cli_streams_realtime_synthesis_from_a_synthetic_piper_voice() {
     //   --chunk-size 20:  one_shot = 200 <= (20*2 + 3*2)  = 200 <= 46  = false (chunked)
     //   --chunk-size 100: one_shot = 200 <= (100*2 + 3*2) = 200 <= 206 = true  (single decode)
     // The synthetic decoder's output is a position-dependent ramp (0, 1, 2, ...)
-    // sized to its z input's time dimension, not a constant: a one-shot decode
-    // (single continuous ramp) and a genuinely chunked decode (several shorter
-    // ramps, each restarting at 0 for its own chunk, then crossfaded) are
-    // therefore byte-distinguishable on stdout. This is deliberately exercised
-    // below by running both chunk sizes against the same input and asserting
-    // the outputs differ - if a future rewrite ever collapses streaming into
-    // one-shot, or the decoder stops reacting to its input's time dimension,
-    // these two runs would become byte-identical and this assertion would catch it.
+
     let dir = std::env::temp_dir().join("dengjen_cli_piper_synthetic_streaming_test");
     std::fs::remove_dir_all(&dir).ok();
     std::fs::create_dir_all(&dir).unwrap();
@@ -220,11 +190,6 @@ fn cli_streams_realtime_synthesis_from_a_synthetic_piper_voice() {
     let input_path = dir.join("input.txt");
     std::fs::write(&input_path, "test").unwrap();
 
-    // No `-o`: passing an output file makes the CLI take a code path
-    // (`synthesize_to_file` -> `synthesize_parallel`) that always does a single
-    // one-shot encoder+decoder pass and ignores --mode/--chunk-size/--chunk-padding
-    // entirely. Reading PCM bytes from stdout instead exercises the real
-    // `synthesize_streamed` -> `stream_synthesis` -> `SpeechStreamer` path.
     let chunked_output = run_streaming(&config_path, &input_path, "20");
     assert_streaming_success(&chunked_output, "chunk-size=20 (chunked)");
 
@@ -242,18 +207,6 @@ fn cli_streams_realtime_synthesis_from_a_synthetic_piper_voice() {
 
 #[test]
 fn cli_synthesizes_from_a_stdin_json_request_and_exits_cleanly_on_eof() {
-    // The only path with no CLI-level coverage before this test: when `-f` is
-    // omitted, `main` calls `synthesize_from_stdin_forever`, which reads one
-    // newline-delimited JSON `SynthesisRequest` per loop iteration straight
-    // from stdin, not from `-f`/CLI flags. `mode`/`chunk_size`/`chunk_padding`
-    // therefore have to come from the JSON body itself, unlike the `-f` path
-    // where they come from CLI args via `synthesis_request_from_cli`.
-    //
-    // This is also a regression test for a busy-spin bug (see issue #58):
-    // closing stdin after the one request used to make
-    // `get_synthesis_request_from_stdin` treat EOF the same as a JSON parse
-    // error and retry immediately without blocking, pegging a CPU core
-    // forever instead of exiting.
     let dir = std::env::temp_dir().join("dengjen_cli_piper_synthetic_stdin_test");
     std::fs::remove_dir_all(&dir).ok();
     std::fs::create_dir_all(&dir).unwrap();
@@ -268,8 +221,7 @@ fn cli_synthesizes_from_a_stdin_json_request_and_exits_cleanly_on_eof() {
         .expect("failed to spawn the dengjen binary");
 
     let mut child_stdin = child.stdin.take().expect("child stdin was not piped");
-    // chunk_size=100 falls into the one-shot branch (see run_streaming's
-    // comment above), matching EXPECTED_STREAM_PCM_BYTES exactly.
+
     writeln!(
         child_stdin,
         r#"{{"text": "test", "mode": "Realtime", "chunk_size": 100, "chunk_padding": 3}}"#
@@ -284,9 +236,6 @@ fn cli_synthesizes_from_a_stdin_json_request_and_exits_cleanly_on_eof() {
 
     drop(child_stdin);
 
-    // Poll with `try_wait` (bounded, non-blocking) instead of
-    // `wait_with_output` (unbounded): if the busy-spin bug ever comes back,
-    // this fails fast with a clear message instead of hanging the test suite.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     let status = loop {
         if let Some(status) = child.try_wait().expect("failed to poll the CLI") {

@@ -6,25 +6,24 @@ package dengjen_grpc;
 
 service DengjenGrpc {
 
-  // Return dengjen version
   rpc GetDengjenVersion(Empty) returns (Version) {}
 
-  // Load a voice given its config file path
+  
   rpc LoadVoice(VoiceConfigLocation) returns (VoiceDescriptor) {}
 
-  // Fetch details for a loaded voice
+  
   rpc GetVoiceInfo(VoiceRef) returns (VoiceDescriptor) {}
 
-  // Fetch a voice's current synthesis settings
+  
   rpc GetSynthesisOptions(VoiceRef) returns (SynthesisSettings) {}
 
-  // Update a voice's synthesis settings
+  
   rpc SetSynthesisOptions(VoiceSynthesisSettings) returns (SynthesisSettings) {}
 
-  // Synthesize speech for a text request, streamed in chunks
+  
   rpc SynthesizeUtterance(SynthesisRequest) returns (stream SynthesisChunk) {}
 
-  // Synthesize speech for a text request, streamed as raw audio in realtime
+  
   rpc SynthesizeUtteranceRealtime(SynthesisRequest) returns (stream RealtimeAudioChunk) {}
 }
 
@@ -66,7 +65,7 @@ message VoiceConfigLocation {
   string path = 1;
 }
 
-// A text-to-speech request: the voice, the text, and how to speak it
+
 message SynthesisRequest {
   string voice_key = 1;
   string text = 2;
@@ -79,9 +78,9 @@ message SynthesisSettings {
   optional float length_scale = 2;
   optional float noise_scale = 3;
   optional float noise_w = 4;
-  // Generic escape hatch for backend-specific knobs. Fields 1-4 take precedence
-  // over a conflicting key here; unknown keys are backend-dependent and may be
-  // ignored by a backend that doesn't recognize them.
+  
+  
+  
   map<string, float> parameters = 5;
 }
 
@@ -90,14 +89,14 @@ message VoiceSynthesisSettings{
     SynthesisSettings synthesis_options = 2;
 }
 
-// Describes the audio format a voice produces
+
 message AudioFormat {
   uint32 sample_rate = 1;
   uint32 num_channels = 2;
   uint32 sample_width = 3;
 }
 
-// A chunk of synthesized audio and its synthesis speed
+
 message SynthesisChunk {
   bytes audio_bytes = 1;
   float real_time_factor = 2;

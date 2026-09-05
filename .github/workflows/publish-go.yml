@@ -15,12 +15,6 @@ name: Publish Go bindings release
 on:
   push:
     tags:
-      # NOT "publish-*" or any prefix of it: .github/workflows/publish.yml
-      # (crates.io) also triggers on "publish-*", and a tag matching both
-      # would fire the crates.io publish workflow too — confirmed by a real
-      # collision (a "publish-go-v0.1.0" tag wrongly re-triggered it, which
-      # failed harmlessly since those crates were already published, but
-      # wasted a run and produced a confusing red X).
       - "go-release-v*"
   # Dispatched by tag-and-release.yml against `--ref main -f
   # tag=go-release-vX.Y.Z` right after it tags the version-bump merge commit
@@ -73,23 +67,12 @@ jobs:
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.6.0
       - if: matrix.platform.target != 'x86_64'
         name: install aarch64 cross toolchain
-        # g++ (not just gcc) is required: espeak-rs-sys's CMake build needs a
-        # C++ cross-compiler, confirmed by a real failed run
-        # ("ToolNotFound: failed to find tool aarch64-linux-gnu-g++").
         run: sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross
       - name: cargo build (release)
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         run: cargo build --release --locked -p libdengjen --target ${{ matrix.platform.rust-target }}
       - name: assert no unbundled runtime dependency
-        # `ort` is built with `copy-dylibs`, which on some targets drops a
-        # companion ONNX Runtime shared library next to the build output
-        # instead of linking it statically. The artifact upload below globs
-        # the release directory so any such companion ships alongside; this
-        # step makes the "or it is statically linked" half explicit, and
-        # fails loudly if the library needs an onnxruntime that would not be
-        # bundled. readelf is used rather than ldd because it parses ELF for
-        # any architecture, including the aarch64 cross-build.
         env:
           OUT_DIR: target/${{ matrix.platform.rust-target }}/release
         run: |
@@ -114,8 +97,6 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ${{ matrix.platform.artifact }}
-          # Globbed rather than naming liblibdengjen.so alone, so a companion
-          # runtime dylib (see the assertion step above) ships with it.
           path: |
             target/${{ matrix.platform.rust-target }}/release/*.so
             target/${{ matrix.platform.rust-target }}/release/*.so.*
@@ -140,12 +121,6 @@ jobs:
         with:
           submodules: recursive
           persist-credentials: false
-      # MSVC, not MinGW: ort-sys has no prebuilt ONNX Runtime binaries for
-      # x86_64-pc-windows-gnu at all (confirmed by a real failed run —
-      # "no prebuilt binaries available for target x86_64-pc-windows-gnu"),
-      # only for -msvc. cgo itself still needs a GCC-family Go toolchain on
-      # the consumer's machine regardless — that's a property of the
-      # *Go build*, not this Rust build, and is unaffected by this target.
       - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
         with:
           arch: x64
@@ -156,9 +131,6 @@ jobs:
       - name: cargo build (release)
         run: cargo build --release --locked -p libdengjen --target x86_64-pc-windows-msvc
       - name: assert no unbundled runtime dependency
-        # See the same step in build-linux for why this exists. llvm-objdump
-        # (from the LLVM install above) is used instead of MinGW's objdump,
-        # since this job no longer installs MinGW.
         shell: bash
         env:
           OUT_DIR: target/x86_64-pc-windows-msvc/release
@@ -184,16 +156,6 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: libdengjen-windows-amd64
-          # Only the DLL — no import library. rustc's MSVC-format .lib import
-          # library isn't consumable by the Go side's GCC-family (MinGW)
-          # linker, so it would be dead weight; instead cgo's -llibdengjen
-          # resolves via GNU ld's PE search order falling through to a
-          # direct link against libdengjen.dll itself (its last-resort
-          # `lib%s.dll` step, which matches this file's real name exactly) —
-          # correct and reliable here specifically because libdengjen is a
-          # plain C-ABI DLL, not because direct-DLL-linking is generally
-          # preferred. Globbed so a companion runtime dylib ships too — see
-          # the assertion step above.
           path: target/x86_64-pc-windows-msvc/release/*.dll
   build-macos:
     runs-on: macos-latest
@@ -216,16 +178,9 @@ jobs:
           targets: aarch64-apple-darwin
       - name: cargo build (release)
         env:
-          # Bakes an @rpath-relative install name into the dylib itself so a
-          # consumer binary's `-rpath` entry (added in the generated Go
-          # cgo file, Task 2) is actually enough to resolve it at process
-          # start. Without this, macOS bakes the build machine's absolute
-          # path into the dylib's own LC_ID_DYLIB, which no consumer's
-          # rpath can match.
           RUSTFLAGS: "-C link-args=-Wl,-install_name,@rpath/liblibdengjen.dylib"
         run: cargo build --release --locked -p libdengjen --target aarch64-apple-darwin
       - name: assert no unbundled runtime dependency
-        # See the same step in build-linux for why this exists.
         env:
           OUT_DIR: target/aarch64-apple-darwin/release
         run: |
@@ -250,8 +205,6 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: libdengjen-macos-arm64
-          # Globbed rather than naming liblibdengjen.dylib alone, so a
-          # companion runtime dylib ships with it — see the step above.
           path: target/aarch64-apple-darwin/release/*.dylib
 
   assemble-and-push:
@@ -301,31 +254,16 @@ jobs:
           set -euo pipefail
           dst="dengjen-tts-go"
 
-          # Remove everything from the previous release except .git, so
-          # deleted/renamed files don't linger.
           find "$dst" -mindepth 1 -maxdepth 1 -not -name '.git' -exec rm -rf {} +
 
           mkdir -p "$dst/lib/linux_amd64" "$dst/lib/linux_arm64" \
                    "$dst/lib/windows_amd64" "$dst/lib/darwin_arm64" \
                    "$dst/include"
-
-          # Copied under their real rustc output names, globbed so that any
-          # companion runtime dylib the build jobs bundled comes along. On
-          # Windows that means only libdengjen.dll (Windows cdylibs get no
-          # automatic "lib" prefix) — no import library ships, since it's
-          # MSVC-format and not consumable by the Go side's MinGW linker
-          # anyway (see build-windows's upload-artifact comment). Renaming
-          # the DLL would break it — the import name a consumer resolves at
-          # run time comes from the DLL's own export directory, not from its
-          # filename on disk.
           cp artifacts/libdengjen-linux-amd64/*.so*   "$dst/lib/linux_amd64/"
           cp artifacts/libdengjen-linux-arm64/*.so*   "$dst/lib/linux_arm64/"
           cp artifacts/libdengjen-windows-amd64/*.dll "$dst/lib/windows_amd64/"
           cp artifacts/libdengjen-macos-arm64/*.dylib "$dst/lib/darwin_arm64/"
           cp artifacts/libdengjen-header/libdengjen.h "$dst/include/"
-
-          # The globs above are permissive by design; assert the files the
-          # generated cgo directives actually link against are all present.
           for expected in lib/linux_amd64/liblibdengjen.so \
                           lib/linux_arm64/liblibdengjen.so \
                           lib/windows_amd64/libdengjen.dll \
@@ -344,11 +282,6 @@ jobs:
           done
 
           cat > "$dst/doc.go" <<'EOF'
-          // Package dengjen provides Go bindings for libdengjen, the dengjen-tts C
-          // API. Unlike github.com/ZirekHQ/dengjen-tts/bindings/go (the in-monorepo
-          // development copy this module is generated from on every release), this
-          // module ships prebuilt native binaries for linux/amd64, linux/arm64,
-          // windows/amd64, and darwin/arm64, and is go-gettable standalone.
           package dengjen
           EOF
 
@@ -358,14 +291,6 @@ jobs:
           go 1.22
           EOF
 
-          # These files carry nothing but -I/-L/-l/rpath directives on
-          # purpose. cgo's flag allowlist (cmd/go/internal/work/security.go)
-          # rejects any -D whose value contains '-' or '@', and the expanded
-          # ${SRCDIR} module-cache path always contains '@' (…-go@v0.1.0/…)
-          # while "espeak-ng-data" contains '-' — so embedding the data
-          # directory as a C macro fails unconditionally, on every platform.
-          # The data directory is resolved in plain Go instead, in
-          # espeak_dir.go below.
           gen_cgo() {
             goos="$1"; goarch="$2"; libdir="$3"; libname="$4"; extra_ldflags="$5"; outfile="$6"
             cat > "$dst/$outfile" <<EOF
@@ -384,19 +309,8 @@ jobs:
           gen_cgo linux   amd64 lib/linux_amd64   libdengjen "-Wl,-rpath,\${SRCDIR}/lib/linux_amd64"   cgo_linux_amd64.go
           gen_cgo linux   arm64 lib/linux_arm64   libdengjen "-Wl,-rpath,\${SRCDIR}/lib/linux_arm64"   cgo_linux_arm64.go
           gen_cgo darwin  arm64 lib/darwin_arm64  libdengjen "-Wl,-rpath,\${SRCDIR}/lib/darwin_arm64"  cgo_darwin_arm64.go
-          # Same -llibdengjen flag as the other three platforms, but on
-          # Windows it resolves differently: there's no import library (see
-          # build-windows's upload-artifact comment — MSVC-format .lib isn't
-          # usable by this MinGW-toolchain flag), so GNU ld falls through its
-          # PE search order to a direct link against libdengjen.dll, which
-          # matches this real filename exactly (its last-resort lib%s.dll
-          # step). Correct here because libdengjen exports a plain C ABI.
           gen_cgo windows amd64 lib/windows_amd64 libdengjen ""                                        cgo_windows_amd64.go
 
-          # Plain Go, no cgo and no build tags: it behaves identically on
-          # every platform, so it is written once rather than duplicated into
-          # each cgo_*.go (which would also risk being undefined on any
-          # platform that has no cgo file).
           cat > "$dst/espeak_dir.go" <<'EOF'
           package dengjen
 
@@ -406,14 +320,6 @@ jobs:
           	"runtime"
           )
 
-          // defaultEspeakDataDir returns the directory (bundled into this module)
-          // that holds espeak-ng-data, resolved via the source file's own location
-          // at build time. Under a -trimpath build (or any build where debug path
-          // info isn't embedded), runtime.Caller can't resolve a real path — in
-          // that case this returns "" and the caller (init, in espeak_data.go)
-          // leaves DENGJEN_ESPEAKNG_DATA_DIRECTORY unset rather than setting a
-          // bogus one, degrading to the same manual-configuration behavior the
-          // module's development copy already requires.
           func defaultEspeakDataDir() string {
           	_, file, _, ok := runtime.Caller(0)
           	if !ok {
@@ -435,12 +341,6 @@ jobs:
 
           import "os"
 
-          // init sets DENGJEN_ESPEAKNG_DATA_DIRECTORY to this module's bundled
-          // espeak-ng-data directory, unless the environment already has it set —
-          // so a fresh `go get` works with no manual setup, while an operator who
-          // has already pointed it elsewhere is never overridden. When the bundled
-          // directory can't be located (see defaultEspeakDataDir), the variable is
-          // left alone rather than set to a bogus path.
           func init() {
           	if _, set := os.LookupEnv("DENGJEN_ESPEAKNG_DATA_DIRECTORY"); set {
           		return
@@ -525,12 +425,6 @@ jobs:
             exit 1
           fi
 
-          # Orphan commit, force-pushed: every release replaces ~140MB of
-          # binaries and espeak-ng-data wholesale, and a normal commit would
-          # keep every previous release's blobs reachable forever. A
-          # parentless commit per release keeps the repository the size of
-          # one release instead of the sum of all of them. Nothing here is
-          # hand-authored, so there is no history worth preserving.
           git checkout --orphan release-snapshot
           git add -A
           git commit -m "release: ${{ steps.version.outputs.version }} (built from ZirekHQ/dengjen-tts@${GITHUB_SHA})"
@@ -541,16 +435,6 @@ jobs:
             exit 1
           fi
 
-          git tag "${{ steps.version.outputs.version }}"
-          git push --force origin HEAD:main
-          git push origin "${{ steps.version.outputs.version }}"
-
-          # Emitted only after the tag push succeeds, specifically so
-          # rollback-on-failure (below) can tell "this run's own tag push
-          # failed because the version already existed" apart from "this
-          # run's tag push succeeded but verify failed afterward" — in the
-          # first case there is no release_sha to compare against, so
-          # rollback must not delete anything.
           echo "release_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   verify:
@@ -586,11 +470,6 @@ jobs:
           go mod init verify
           go get "github.com/ZirekHQ/dengjen-tts-go@${{ needs.assemble-and-push.outputs.version }}"
 
-          # Windows resolves a DLL's imports from the exe's own directory,
-          # system directories, and PATH — never from the Go module cache —
-          # so without this the test binary can't even start on Windows.
-          # RUNNER_OS (not matrix.platform.runner) gates this so it stays
-          # correct if the matrix ever grows more Windows entries.
           if [[ "${RUNNER_OS:-}" == "Windows" ]]; then
             mod_dir="$(go list -m -f '{{.Dir}}' github.com/ZirekHQ/dengjen-tts-go)"
             export PATH="${mod_dir}/lib/windows_amd64:${PATH}"
@@ -605,12 +484,6 @@ jobs:
           	dengjen "github.com/ZirekHQ/dengjen-tts-go"
           )
 
-          // This asserts on a field to give the test real content, but its
-          // main value is implicit: on Linux/macOS a cgo-linked binary has
-          // a DT_NEEDED/LC_LOAD_DYLIB entry for libdengjen resolved at
-          // process start, before this test body ever runs — so `go test`
-          // succeeding at all is already proof the rpath and bundled
-          // binary resolved correctly for this platform.
           func TestModuleResolves(t *testing.T) {
           	params := dengjen.SynthesisParams{Mode: dengjen.SynthModeLazy, Rate: 10, Volume: 100, Pitch: 50}
           	if params.Rate != 10 {
@@ -633,23 +506,6 @@ jobs:
           token: ${{ secrets.DENGJEN_TTS_GO_DEPLOY_TOKEN }}
           persist-credentials: true
       - name: delete failed release tag
-        # The whole point of verifying before assemble-and-push's push is
-        # publicly cached is defeated if a failed verify still leaves the
-        # bad tag sitting in dengjen-tts-go forever — that permanently
-        # burns the version number. Deleting it here lets the same version
-        # be retried once the underlying problem is fixed.
-        #
-        # But: assemble-and-push's tag push has no --force, so if this run
-        # instead re-published an *already-released* version, that push
-        # step itself fails (assemble-and-push fails, we run) while
-        # version's earlier-set output still propagates — deleting by name
-        # alone would then delete a real, pre-existing, already-shipped
-        # release. release_sha is only set (in the "commit and push release
-        # snapshot" step) after this run's own tag push succeeds, so its
-        # absence means this run never got that far — nothing to roll back.
-        # If it IS set, confirm the tag on origin still resolves to this
-        # run's own commit before deleting, in case of a race with another
-        # run or a manual retag in between.
         run: |
           set -euo pipefail
           version="${{ needs.assemble-and-push.outputs.version }}"

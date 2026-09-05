@@ -12,26 +12,9 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.FileAttribute;
 import java.nio.file.attribute.PosixFilePermissions;
 
-/**
- * Resolves the native {@code libdengjen} shared library for {@link DengjenLib}. Two paths:
- *
- * <ul>
- *   <li>{@code -Ddengjen.native.library.path=<file>} — an explicit override, used by this module's
- *       own test suites (see {@code build.gradle.kts}) and available to any consumer who wants to
- *       point at a native library they built or placed themselves.
- *   <li>Otherwise: detect the running platform (see {@link NativePlatform}) and look for that
- *       platform's native library as a classpath resource under {@code natives/<classifier>/},
- *       which is exactly what this project's per-platform classifier jars contain. The resource is
- *       copied to a temp file — {@code SymbolLookup.libraryLookup} needs a real filesystem path,
- *       not an in-jar one.
- * </ul>
- */
 final class NativeLibraryLoader {
   private NativeLibraryLoader() {}
 
-  // Owner-only permissions for the extracted native library: the system temp directory is
-  // world-writable on multi-user hosts, and this file gets loaded and executed. POSIX permissions
-  // aren't supported on Windows, so fall back to the platform default there.
   private static final FileAttribute<?>[] OWNER_ONLY_PERMISSIONS =
       FileSystems.getDefault().supportedFileAttributeViews().contains("posix")
           ? new FileAttribute<?>[] {
@@ -47,10 +30,8 @@ final class NativeLibraryLoader {
     String classifier =
         NativePlatform.classifier(System.getProperty("os.name"), System.getProperty("os.arch"));
     String libraryName = System.mapLibraryName("libdengjen");
-    // NOSONAR(java:S1075): this is a classpath/JAR-entry path, not a filesystem path -- it must
-    // always use '/' per the JAR/ZIP spec and ClassLoader.getResourceAsStream's contract,
-    // regardless of the host OS. File.separator would be wrong here (and break on Windows).
-    String resourcePath = "natives/" + classifier + "/" + libraryName; // NOSONAR
+
+    String resourcePath = "natives/" + classifier + "/" + libraryName;
     Path extracted;
     try {
       extracted = extractResource(resourcePath, NativeLibraryLoader.class.getClassLoader());

@@ -1,10 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-// Regression test proving the CLI's melotts dispatch arm is actually wired, not just present
-// in source: drives the real `dengjen` binary against a synthetic MeloTTS voice end-to-end,
-// mirroring `kokoro_synthetic_cli.rs`'s own precedent for the Kokoro dispatch arm.
-
 fn melotts_fixture_model() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../dengjen/models/melotts/tests/fixtures/synthetic_melotts.onnx")

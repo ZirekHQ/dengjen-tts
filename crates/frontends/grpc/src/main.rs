@@ -171,14 +171,6 @@ impl DengjenGrpcService {
         })
     }
 
-    /// Turns an already-resolved generic synthesis config into gRPC-facing
-    /// `SynthesisSettings`, looking up the speaker's display name when set and
-    /// otherwise deferring to `on_unset_speaker` (the two config sources
-    /// disagree on the unset fallback). The named `length_scale`/`noise_scale`/
-    /// `noise_w` proto fields are read via `PiperSynthesisConfig` (works for any
-    /// backend: a key that backend doesn't recognize defaults to 0.0); the
-    /// generic `parameters` map echoes back every other key in
-    /// `config.parameters`, since fields 1-4 already cover the three named keys.
     fn synth_options_from_synthesis_config(
         model: &(impl DengjenModel + ?Sized),
         config: &SynthesisConfig,
@@ -209,12 +201,6 @@ impl DengjenGrpcService {
         })
     }
 
-    /// Builds `grpc::SynthesisSettings` for a backend with no tunable synthesis
-    /// config at all (e.g. Kokoro, whose `get_default_synthesis_config`/
-    /// `get_fallback_synthesis_config` always return `Ok(None)`). The scale
-    /// fields are `None` (meaning "not applicable", not "zero"), and the
-    /// speaker is resolved via `on_unset_speaker` — the same closure the
-    /// config-bearing path uses for its own unset-speaker case.
     fn synth_options_for_configless_backend(
         on_unset_speaker: impl FnOnce() -> DengjenGrpcResult<Option<String>>,
     ) -> DengjenGrpcResult<grpc::SynthesisSettings> {
@@ -238,8 +224,6 @@ impl DengjenGrpcService {
         }
     }
 
-    /// Reads a model's fallback synthesis config as gRPC-facing `SynthesisSettings`,
-    /// resolving an unset speaker to speaker ID `0`'s name.
     fn synth_options_from_model(
         model: &(impl DengjenModel + ?Sized),
     ) -> DengjenGrpcResult<grpc::SynthesisSettings> {
@@ -264,11 +248,6 @@ impl DengjenGrpcService {
         Self::synth_options_from_model(voice.model_ref())
     }
 
-    /// Applies each `Some` field of `synth_opts` onto the voice's fallback synthesis
-    /// config, leaving unset fields (and an unresolvable speaker name) untouched.
-    /// Tolerates a backend with no synthesis config at all (e.g. Kokoro) the same
-    /// way `synth_options_from_default_config`/`synth_options_from_model` do: an
-    /// empty default instead of an error.
     fn apply_synth_options(
         &self,
         voice_key: &str,
@@ -330,8 +309,6 @@ fn narrow_prosody_value(name: &str, value: u32) -> Result<u8, String> {
         .ok_or_else(|| format!("`{name}` must be in the range 0-100, got {value}"))
 }
 
-/// Converts the optional proto `ProsodyControls` into synth's `AudioOutputConfig`,
-/// narrowing each field from the proto's wider integer types.
 fn output_config_from_prosody(
     args: Option<grpc::ProsodyControls>,
 ) -> Result<Option<AudioOutputConfig>, String> {
@@ -393,8 +370,6 @@ mod prosody_tests {
 
     #[test]
     fn output_config_from_prosody_rejects_a_value_within_u8_range_but_above_the_documented_100() {
-        // 101-255 all fit in a u8, so u8::try_from alone doesn't catch them, even though the
-        // documented valid range for rate/volume/pitch is 0-100.
         let result = output_config_from_prosody(Some(grpc::ProsodyControls {
             rate: Some(101),
             volume: None,
@@ -405,10 +380,6 @@ mod prosody_tests {
     }
 }
 
-/// Drains a blocking synthesis-result iterator into a channel, mapping each
-/// produced item to its wire message via `to_message`. Stops early either by
-/// forwarding a mapped error (once, then returning) or silently once the
-/// receiver side has gone away (`blocking_send` failing).
 fn drain_stream_into_channel<Chunk, Message>(
     stream: impl Iterator<Item = DengjenResult<Chunk>>,
     tx: mpsc::Sender<Result<Message, Status>>,
@@ -548,15 +519,11 @@ impl DengjenGrpc for DengjenGrpcService {
     }
 }
 
-/// Initializes the global logger, defaulting to `info` level unless overridden
-/// via the `DENGJEN_GRPC` environment variable.
 fn setup_logging() {
     let log_filter = env_logger::Env::default().filter_or("DENGJEN_GRPC", "info");
     env_logger::init_from_env(log_filter);
 }
 
-/// Commits a CPU-backed ONNX Runtime environment named `"dengjen"` as the
-/// process-wide default. Returns `false` (without panicking) if commit fails.
 fn init_ort_environment() -> bool {
     let cpu_provider = ort::execution_providers::CPU::default().build();
     ort::init()
@@ -565,9 +532,6 @@ fn init_ort_environment() -> bool {
         .commit()
 }
 
-/// Resolves the TCP port to listen on from `DENGJEN_GRPC_SERVER_PORT`,
-/// falling back to [`DEFAULT_DENGJEN_GRPC_SERVER_PORT`] when the variable is
-/// unset or does not parse as a `u16`.
 fn resolve_listen_port() -> u16 {
     std::env::var("DENGJEN_GRPC_SERVER_PORT")
         .ok()
@@ -579,8 +543,6 @@ fn resolve_listen_port() -> u16 {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     setup_logging();
 
-    // A failed ORT init is logged but not fatal: voice loading will surface
-    // its own error later if the runtime is genuinely unusable.
     if !init_ort_environment() {
         log::error!("Could not initialize onnxruntime environment");
     }
@@ -755,8 +717,7 @@ mod voice_loading_tests {
 
         let _ = std::fs::remove_dir_all(&dir);
         assert_ne!(first_key, second_key);
-        // The old reduction factor collapsed the 64-bit hash to ~1.8M values; guard against
-        // that regression by requiring the full-width hex representation.
+
         assert_eq!(first_key.len(), 16);
     }
 
@@ -850,15 +811,9 @@ mod load_voice_dispatch_tests {
     fn load_voice_routes_kokoro_model_type_toward_the_kokoro_loader() {
         let dir = std::env::temp_dir().join("dengjen_grpc_load_voice_test_kokoro");
         std::fs::create_dir_all(&dir).unwrap();
-        // A syntactically valid but incomplete Kokoro config: detect_model_type reads it fine,
-        // but dengjen_tts_kokoro::from_config_path's own RawKokoroVoiceConfig requires
-        // `model_path` (crates/dengjen/models/kokoro/src/config.rs:8), which this JSON omits.
-        // If this had instead fallen through to Piper's loader, the error would name a
-        // Piper-required field (`audio`) instead — so asserting on `model_path` specifically
-        // proves the Kokoro branch was actually taken, not just that some error occurred.
+
         let path = write_temp_config(&dir, "config.json", r#"{"model_type": "kokoro"}"#);
-        // `Arc<dyn DengjenModel + Send + Sync>` isn't `Debug`, so `Result::unwrap_err` (which
-        // requires `T: Debug`) can't be used here; match instead.
+
         let err = match load_voice(&path) {
             Err(e) => format!("{}", e),
             Ok(_) => panic!("expected an error for an incomplete Kokoro config"),
@@ -874,12 +829,7 @@ mod load_voice_dispatch_tests {
     fn load_voice_routes_melotts_model_type_toward_the_melotts_loader() {
         let dir = std::env::temp_dir().join("dengjen_grpc_load_voice_test_melotts");
         std::fs::create_dir_all(&dir).unwrap();
-        // A syntactically valid but incomplete MeloTTS config: `audio` is supplied (so a
-        // wrongful fallthrough to Piper's loader would get past its own `audio` requirement),
-        // but `phonemizer` is omitted, which only MeloTTS's RawMeloVoiceConfig requires
-        // (crates/dengjen/models/melotts/src/config.rs:28) — Piper has no such field. Asserting
-        // on `phonemizer` specifically proves the MeloTTS branch was actually taken, not a
-        // fallthrough to Piper.
+
         let path = write_temp_config(
             &dir,
             "config.json",
@@ -953,9 +903,6 @@ mod synth_options_tests {
         service
     }
 
-    /// Stands in for a backend with no tunable synthesis config at all — e.g.
-    /// Kokoro, whose `get_default_synthesis_config`/`get_fallback_synthesis_config`
-    /// always return `Ok(None)` (see `crates/dengjen/models/kokoro/src/inference.rs`).
     struct ConfiglessModel {
         speakers: StdHashMap<i64, String>,
     }
@@ -1274,8 +1221,6 @@ mod synth_options_tests {
             )
             .unwrap();
 
-        // A second, unrelated update that only touches a named field must not
-        // wipe `custom_knob` set by the first call.
         let result = service
             .apply_synth_options(
                 "v1",

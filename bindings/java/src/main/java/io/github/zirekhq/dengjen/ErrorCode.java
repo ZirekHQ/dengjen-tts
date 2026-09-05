@@ -1,10 +1,5 @@
 package io.github.zirekhq.dengjen;
 
-/**
- * Mirrors the error-code constants and the {@code ErrorCode} typedef in libdengjen.h. These are
- * hand-maintained C #define macros -- cbindgen emits no typed enum for them -- so keep this in sync
- * with crates/frontends/capi/libdengjen.h by hand whenever that header's constants change.
- */
 public enum ErrorCode {
   PANIC(-1),
   INVALID_HANDLE(-1000),

@@ -15,37 +15,12 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
-/**
- * Binds a Java SynthesisEventHandler to the native SpeechSynthesisCallback a speak() call streams
- * its events through.
- *
- * <p>This deliberately mirrors bindings/go's design -- one process-wide callback function pointer
- * plus a registry keyed by the call's opaque user_data -- rather than allocating a fresh upcall
- * stub per call and freeing it when the stream ends. A per-call stub cannot be freed safely: an
- * upcall stub is a HotSpot code blob owned by its Arena, and the only moment a streaming call knows
- * it has ended is *inside* the final upcall, i.e. while that blob's own frame is still on the
- * stack. Closing the Arena there frees the blob under a live frame, and the next stack walk over
- * that thread (any safepoint or handshake -- including the global handshake another thread's
- * shared-Arena close triggers) crashes the VM in vframeStreamCommon::next(). That is a reproducible
- * SIGSEGV, not a theoretical one.
- *
- * <p>So the stub lives in Arena.global() and is never freed, and the only per-call resource is a
- * registry entry -- exactly the cgo.Handle bindings/go allocates per call. Releasing that entry is
- * what {@link #release()} does, and it carries bindings/go's leak-on-early-stop fix verbatim.
- */
 final class SpeakTrampoline {
-  /**
-   * Test hook: invoked synchronously right after a call's registry entry is released, on both the
-   * natural-termination and early-stop paths. Null in production; only ever set from a test.
-   * Mirrors bindings/go's testHandleDeleted, for the same reason: releasing the entry here is
-   * already deterministic (no GC involved), but this hook still lets a test assert the *specific*
-   * code path actually ran, not just that events stopped arriving.
-   */
+
   static final AtomicReference<Runnable> testCallReleased = new AtomicReference<>();
 
   private static final Map<Long, SpeakTrampoline> REGISTRY = new ConcurrentHashMap<>();
-  // Starts at 1: id 0 would marshal to a NULL user_data, which is what a
-  // callback-less call (speakToFile) passes.
+
   private static final AtomicLong NEXT_ID = new AtomicLong(1);
 
   private static final MemorySegment STUB;
@@ -79,30 +54,20 @@ final class SpeakTrampoline {
     this.id = id;
   }
 
-  /**
-   * Registers handler for one speak() call. The caller owns the registration until the stream ends
-   * or it calls {@link #release()}.
-   */
   static SpeakTrampoline create(SynthesisEventHandler handler) {
     SpeakTrampoline trampoline = new SpeakTrampoline(handler, NEXT_ID.getAndIncrement());
     REGISTRY.put(trampoline.id, trampoline);
     return trampoline;
   }
 
-  /** The single native SpeechSynthesisCallback every speak() call streams through. */
   static MemorySegment stubPointer() {
     return STUB;
   }
 
-  /** This call's opaque user_data: the registry key the stub uses to find this trampoline again. */
   MemorySegment userData() {
     return MemorySegment.ofAddress(id);
   }
 
-  /**
-   * Releases this call's registry entry. Safe to call more than once; only the first call has an
-   * effect.
-   */
   void release() {
     if (REGISTRY.remove(id) != null) {
       Runnable hook = testCallReleased.get();
@@ -112,16 +77,6 @@ final class SpeakTrampoline {
     }
   }
 
-  // Invoked from native code on whatever thread libdengjen's synthesis
-  // pipeline runs on -- must not let an exception escape across this FFI
-  // boundary (undefined behavior), so a handler exception is caught here
-  // and treated as "stop early" instead, the same contract bindings/go's
-  // onEvent documents (must not panic across the boundary).
-  //
-  // Package-private (not private) purely so SpeakTrampolineIntegrationTest can call it directly
-  // with synthetic events to cover defensive paths a real speak() call can't reliably trigger.
-  // The MethodHandles.lookup() call above that registers this as the native upcall stub already
-  // has full private access from inside this class, so this has no effect on the FFI wiring.
   static byte invoke(MemorySegment eventSegment, MemorySegment userData) {
     SpeakTrampoline trampoline = null;
     boolean freed = false;
@@ -129,28 +84,17 @@ final class SpeakTrampoline {
       trampoline = REGISTRY.get(userData.address());
       DecodedEvent decoded = decodeEvent(eventSegment);
 
-      // event was produced by exactly one SpeechSynthesisCallback invocation (this one) and
-      // is freed here exactly once, per libdengjenFreeSynthesisEvent's documented contract --
-      // which now includes the error message decodeEvent already read above, so it must not
-      // be freed a second time here (hence readMessage, not readAndFreeMessage).
       freeEventOrThrow(eventSegment);
       freed = true;
 
       if (trampoline == null) {
-        return 1; // already released -- tell the stream to stop
+        return 1;
       }
 
       boolean wantsMore =
           trampoline.handler.onEvent(
               new SynthesisEvent(decoded.type(), decoded.data(), decoded.error()));
 
-      // A Finished/Error event is the normal end of the stream, but the
-      // handler returning false also ends it -- either way this is the
-      // last time this trampoline runs for this call, so its registration
-      // must be released here. The `||` (not two independent branches) is
-      // load-bearing: a terminal event whose handler also returns false
-      // must still only release once. Mirrors bindings/go's callback.go
-      // `terminal || !wantsMore` fix exactly.
       boolean terminal = decoded.type() == EventType.FINISHED || decoded.type() == EventType.ERROR;
       if (terminal || !wantsMore) {
         trampoline.release();
@@ -159,17 +103,7 @@ final class SpeakTrampoline {
     } catch (
         @SuppressWarnings("java:S1181")
         Throwable t) {
-      // Must not let anything escape across this FFI boundary (undefined behavior in native
-      // code): an unrecognized event type, a handler-thrown exception or Error, a downcall
-      // failure, or anything else unexpected all degrade to "stop the stream" instead of
-      // crashing the process. The native event is freed here if the throw happened before
-      // freeEventOrThrow above got a chance to run, and the registry entry is released either
-      // way so a failure here can't leak it.
-      //
-      // java:S1181 (catch Exception, not Throwable) is suppressed above: Error subtypes are
-      // exactly what must be caught here too -- a handler throwing AssertionError (see
-      // VoiceIntegrationTest's speakHandlerThrowingAnErrorDoesNotCrossTheNativeBoundary... test)
-      // must not escape this native upcall either, which narrowing to Exception would miss.
+
       if (!freed) {
         tryFreeEvent(eventSegment);
       }
@@ -180,13 +114,6 @@ final class SpeakTrampoline {
     }
   }
 
-  // Records derive equals/hashCode/toString field-by-field, which for an array field means
-  // reference identity and a `[B@...` dump instead of comparing/printing its content -- same
-  // reasoning as SynthesisEvent's own override, applied here for the same array field.
-  //
-  // Package-private (not private) purely so SpeakTrampolineTest can construct and compare
-  // instances directly; decodeEvent()'s own logic is already covered indirectly through
-  // SpeakTrampolineIntegrationTest's calls into invoke().
   record DecodedEvent(EventType type, byte[] data, DengjenException error) {
     @Override
     public boolean equals(Object obj) {

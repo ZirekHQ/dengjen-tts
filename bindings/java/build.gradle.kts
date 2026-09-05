@@ -1,10 +1,10 @@
 import org.gradle.internal.os.OperatingSystem
 
-// Spotless (8.10.1) pulls jgit 7.7.1 onto this project's shared plugin classpath, which wins
-// Gradle's default "highest version" conflict resolution over the jgit 5.13.5 that
-// jreleaser-git-java-sdk actually declares -- but jgit 7.x removed org.eclipse.jgit.lib
-// .GpgObjectSigner, which JReleaser's ModelConfigurer still references, so jreleaserConfig fails
-// with NoClassDefFoundError unless jgit is pinned back to a version that still has it.
+
+
+
+
+
 buildscript {
     configurations.classpath {
         resolutionStrategy {
@@ -34,8 +34,8 @@ gitVersioning.apply {
         branch("main") { version = snapshotVersion }
         tag("java-v(?<version>.*)") { version = "\${ref.version}" }
     }
-    // Without this, the snapshot fallback's `git describe` matches ANY tag in the repo -- including
-    // the unrelated crates.io release tags -- instead of just the java-v* tags this module owns.
+    
+    
     describeTagPattern = "java-v.*"
     rev { version = snapshotVersion }
 }
@@ -54,10 +54,10 @@ fun currentNativeClassifier(): String {
     }
 }
 
-// Packages the current platform's already-built libdengjen (see `make native`) as a classifier
-// jar, using the exact natives/<classifier>/<file> layout NativeLibraryLoader looks for and the
-// real per-platform CI classifier jars (Task 6) will produce. Exists so the loader can be proven
-// against a real native library locally, without any publishing infrastructure.
+
+
+
+
 val nativeTestJar by tasks.registering(Jar::class) {
     archiveBaseName.set("dengjen-java-bindings-native-test")
     archiveClassifier.set(currentNativeClassifier())
@@ -109,9 +109,9 @@ testing {
                 }
             }
         }
-        // Exercises the bindings against a real trained voice; soft-skips
-        // (JUnit Assumptions.assumeTrue) when DENGJEN_KOKORO_TEST_VOICE_CONFIG
-        // is unset, same convention as the Rust *_e2e_real_voice.rs tests.
+        
+        
+        
         val e2e by registering(JvmTestSuite::class) {
             dependencies {
                 implementation(project())
@@ -136,9 +136,9 @@ testing {
                 all {
                     testTask.configure {
                         dependsOn(nativeTestJar)
-                        // Deliberately NOT given dengjen.native.library.path (unlike test/integrationTest/e2e in
-                        // Task 3) -- this suite exists specifically to force NativeLibraryLoader through its
-                        // classpath-resource path, not the override.
+                        
+                        
+                        
                         classpath += files(nativeTestJar.map { it.archiveFile })
                         jvmArgs("--enable-native-access=ALL-UNNAMED")
                         shouldRunAfter(tasks.test)
@@ -153,10 +153,10 @@ tasks.withType<Test>().configureEach {
     jvmArgs("--enable-native-access=ALL-UNNAMED")
 }
 
-// NativeLibraryLoader looks for a classifier jar on the classpath by default, which none of these
-// three suites carry -- point them at the native library `make native` builds instead, exactly
-// reproducing DengjenLib's old hardcoded ../../target/release resolution, just routed through the
-// same override property a published consumer would use.
+
+
+
+
 val devNativeLibraryPath = file("../../target/release/${System.mapLibraryName("libdengjen")}").absolutePath
 
 listOf("test", "integrationTest", "e2e").forEach { suiteName ->
@@ -165,10 +165,10 @@ listOf("test", "integrationTest", "e2e").forEach { suiteName ->
     }
 }
 
-// The jacoco plugin instruments every Test task (unit test, integrationTest, e2e) into its own
-// *.exec file under build/jacoco/; jacocoTestReport only reads test.exec by default, so it's
-// pointed at all three -- and depends on them running first -- to get a report covering the
-// whole suite rather than just the unit tests.
+
+
+
+
 tasks.jacocoTestReport {
     dependsOn(tasks.test, testing.suites.named("integrationTest"), testing.suites.named("e2e"))
     executionData(fileTree(layout.buildDirectory.dir("jacoco")).include("*.exec"))
@@ -227,8 +227,8 @@ tasks.named("check") {
 
 val nativeClassifiers = listOf("linux-x86_64", "linux-aarch64", "windows-x64", "macos-aarch64")
 
-// Matches what java-publish.yml's "Stage native library" step produces per classifier, and what
-// System.mapLibraryName("libdengjen") returns on each OS.
+
+
 fun expectedNativeLibraryFileName(classifier: String): String =
     when (classifier) {
         "linux-x86_64", "linux-aarch64" -> "liblibdengjen.so"
@@ -247,9 +247,9 @@ val nativeClassifierJars =
             val sourceDir = nativeArtifactsDir.dir(classifier)
             from(sourceDir) { into("natives/$classifier") }
             onlyIf { sourceDir.asFile.exists() }
-            // Maven Central is immutable -- an empty or wrong-content classifier jar would burn
-            // that version forever with a native library nobody can load, so fail loudly instead
-            // of silently publishing whatever (or nothing) happens to be in the directory.
+            
+            
+            
             doFirst {
                 val expectedName = expectedNativeLibraryFileName(classifier)
                 val files = sourceDir.asFile.listFiles().orEmpty()
@@ -269,24 +269,24 @@ publishing {
 }
 
 configure<org.jreleaser.gradle.plugin.JReleaserExtension> {
-    // bindings/java is a subdirectory of the dengjen-tts monorepo, not the git root -- without
-    // this, JReleaser's git detection only looks at basedir and fails with
-    // "repository not found: .../bindings/java" instead of walking up to find the repo's .git.
+    
+    
+    
     gitRootSearch = true
     release {
         github {
-            // The java-v* tag is pushed manually before this workflow ever runs (see Task 9) --
-            // JReleaser must not try to create it again.
+            
+            
             skipTag = true
-            // JReleaser defaults tagName to "v{{projectVersion}}", but this workflow's tags are
-            // java-v* -- without this, a real tag push creates a stray v<version> GitHub
-            // tag/release instead of matching the actual tag, and changelog commit-range
-            // resolution breaks too.
+            
+            
+            
+            
             tagName = "java-v{{projectVersion}}"
-            // GitHub's immutable-releases rollout finalizes a release as soon as it's published,
-            // so JReleaser's own follow-up upload of the untrimmed changelog asset (README.md)
-            // 422s against the now-immutable release. This flag makes JReleaser create the
-            // release as a draft, attach all assets, then publish -- the sequence GitHub requires.
+            
+            
+            
+            
             immutableRelease = true
             changelog {
                 formatted = org.jreleaser.model.Active.ALWAYS
