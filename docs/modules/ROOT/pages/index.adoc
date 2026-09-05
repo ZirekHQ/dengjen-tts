@@ -12,9 +12,9 @@ A cross-platform Rust engine for neural TTS models.
 * *Synthesis modes*: lazy, parallel, and batched, selectable per request
 * *Bindings*: native Rust, C-API (`libdengjen`), Python (`pyo3`), gRPC (any language over the wire), and a CLI
 
-Not yet supported, tracked on the issue tracker: native Go/Java/Kotlin bindings, MeloTTS model
-support, and a Matcha-TTS model loader. RHVoice-style formant/statistical synthesis is a
-different synthesis paradigm from this engine's neural-ONNX pipeline and isn't planned.
+Not yet supported, tracked on the issue tracker: native Go/Java/Kotlin bindings and a Matcha-TTS
+model loader. RHVoice-style formant/statistical synthesis is a different synthesis paradigm from
+this engine's neural-ONNX pipeline and isn't planned.
 
 == Crates
 
