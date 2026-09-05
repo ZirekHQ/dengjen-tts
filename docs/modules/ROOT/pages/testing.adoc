@@ -1,0 +1,17 @@
+= Testing
+
+Some packages, such as `espeak-phonemizer`, include tests. Running `cargo test` from the root of
+the workspace will likely fail, because `cargo` does not load `config` from sub packages when run
+from the workspace root.
+
+On Windows you need to add `espeak-ng.dll` to the library search path by modifying the `PATH`
+environment variable. For example, to add `espeak-ng.dll` to your path when building for the
+`x86_64-pc-windows-msvc` target, run the following command before `cargo test`:
+
+[source,cmd]
+----
+set PATH=%PATH%;{repo_path}\deps\windows\espeak-ng-build\i686\bin
+----
+
+Replace `repo_path` with the absolute path to the repository. Then `cd` to the package, and run
+`cargo test` from there.

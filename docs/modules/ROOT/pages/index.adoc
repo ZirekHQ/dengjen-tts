@@ -1,6 +1,51 @@
 = dengjen-tts
 
-A cross-platform inference engine for neural TTS models.
+A cross-platform Rust engine for neural TTS models.
 
-Docs spike: this component is aggregated into the org-wide
-https://zirekhq.github.io[ZirekHQ documentation site].
+== Features
+
+* *Models*: https://github.com/rhasspy/piper[Piper], https://github.com/hexgrad/kokoro[Kokoro], and https://github.com/myshell-ai/MeloTTS[MeloTTS] ONNX voices, including Kokoro per-voice style embeddings
+* *Phonemization*: eSpeak-ng (100+ languages, IPA output) and Arabic diacritization via `libtashkeel`
+* *Multi-speaker voices*: select by `speaker_id`
+* *Streaming synthesis*: chunked output (`chunk_size`/`chunk_padding`) and a realtime gRPC stream
+* *Prosody control*: rate, pitch, and volume via `sonic-sys` (libsonic)
+* *Synthesis modes*: lazy, parallel, and batched, selectable per request
+* *Bindings*: native Rust, C-API (`libdengjen`), Python (`pyo3`), gRPC (any language over the wire), and a CLI
+
+Not yet supported, tracked on the issue tracker: native Go/Java/Kotlin bindings, MeloTTS model
+support, and a Matcha-TTS model loader. RHVoice-style formant/statistical synthesis is a
+different synthesis paradigm from this engine's neural-ONNX pipeline and isn't planned.
+
+== Crates
+
+[cols="1,3"]
+|===
+|Crate |Purpose
+
+|`espeak-phonemizer`
+|Converts text to IPA phonemes using a patched version of eSpeak-ng
+
+|`dengjen-model`
+|Handles model loading and inference using `onnxruntime` via `ort`
+
+|`dengjen-tts`
+|Wraps `DengjenModel` and adds synthesized speech post-processing, including changing prosody. Also provides different modes of parallelism.
+
+|`dengjen-tts-grpc`
+|https://grpc.io/[GRPC] frontend for dengjen
+
+|`libdengjen`
+|C-API binding to dengjen
+
+|`dengjen-tts-python`
+|Python bindings to `dengjen-tts` using `pyo3`
+
+|`sonic-sys`
+|Rust FFI bindings to https://github.com/waywardgeek/sonic[Sonic]: a C library for controlling rate, volume, and pitch of generated speech
+|===
+
+== License
+
+Licensed under the GNU General Public License v3.0 or later (GPL-3.0-or-later). dengjen began as
+a fork of https://github.com/mush42/sonata[Sonata] by Musharraf Omer, originally MIT-licensed;
+retained attribution is in the repo's `NOTICE` file.

@@ -1,0 +1,42 @@
+= Installation
+
+Dengjen pulls its native dependencies (eSpeak-ng, Sonic, ...) in as git submodules, so clone
+recursively:
+
+[source,sh]
+----
+git clone --recurse-submodules https://github.com/ZirekHQ/dengjen-tts.git
+cd dengjen-tts
+----
+
+If you already cloned without `--recurse-submodules`, fetch them with:
+
+[source,sh]
+----
+git submodule update --init --recursive
+----
+
+Then build the workspace, or just the CLI frontend:
+
+[source,sh]
+----
+cargo build --release --workspace
+# or just the CLI
+cargo build --release -p dengjen-tts-cli
+----
+
+The resulting binary is at `target/release/dengjen` (`dengjen.exe` on Windows).
+
+== Runtime data directory
+
+eSpeak-ng needs its `espeak-ng-data` directory at runtime. Dengjen looks for it next to the
+running executable by default; if it lives elsewhere (or you're running via `cargo run`), point
+to it with:
+
+[source,sh]
+----
+export DENGJEN_ESPEAKNG_DATA_DIRECTORY=/path/to/directory/containing/espeak-ng-data
+----
+
+On Windows you also need `espeak-ng.dll` on your `PATH` — see xref:testing.adoc[Testing] for the
+exact variable to set.
