@@ -8,8 +8,6 @@ import (
 	"fmt"
 )
 
-
-
 type FFIError struct {
 	Code    int32
 	Message string
@@ -22,13 +20,7 @@ func (e *FFIError) Error() string {
 	return e.Message
 }
 
-
-
-
-
 var ErrVoiceClosed = &FFIError{Code: -2, Message: "voice is closed"}
-
-
 
 func checkError(cErr C.struct_ExternError) error {
 	if cErr.code == 0 {

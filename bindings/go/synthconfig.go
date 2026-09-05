@@ -10,15 +10,12 @@ import (
 	"unsafe"
 )
 
-
-
 type SynthConfig struct {
 	Speaker     uint32
 	LengthScale float32
 	NoiseScale  float32
 	NoiseW      float32
 }
-
 
 func (v *Voice) PiperDefaultSynthConfig() (SynthConfig, error) {
 	if v.ptr == nil {
@@ -39,7 +36,6 @@ func (v *Voice) PiperDefaultSynthConfig() (SynthConfig, error) {
 	}, nil
 }
 
-
 func (v *Voice) SetPiperSynthConfig(cfg SynthConfig) error {
 	if v.ptr == nil {
 		return ErrVoiceClosed
@@ -56,9 +52,6 @@ func (v *Voice) SetPiperSynthConfig(cfg SynthConfig) error {
 	return checkError(cErr)
 }
 
-
-
-
 func (v *Voice) SetSynthesisParameter(key string, value float32) error {
 	if v.ptr == nil {
 		return ErrVoiceClosed
@@ -70,8 +63,6 @@ func (v *Voice) SetSynthesisParameter(key string, value float32) error {
 	runtime.KeepAlive(v)
 	return checkError(cErr)
 }
-
-
 
 func (v *Voice) SynthesisParameter(key string) (value float32, ok bool, err error) {
 	if v.ptr == nil {

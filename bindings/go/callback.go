@@ -10,7 +10,6 @@ import (
 	"unsafe"
 )
 
-
 type EventType int32
 
 const (
@@ -19,17 +18,11 @@ const (
 	EventError    EventType = C.SYNTH_EVENT_ERROR
 )
 
-
 type SynthesisEvent struct {
 	Type EventType
-	Data []byte 
-	Err  error  
+	Data []byte
+	Err  error
 }
-
-
-
-
-
 
 type callbackToken struct{}
 
@@ -54,7 +47,6 @@ func registerCallback(fn func(SynthesisEvent) bool) *callbackToken {
 	return token
 }
 
-
 func releaseCallback(token *callbackToken) {
 	callbackRegistryMu.Lock()
 	entry, ok := callbackRegistry[token]
@@ -69,15 +61,9 @@ func releaseCallback(token *callbackToken) {
 	}
 }
 
-
-
-
-
-
-
 var testCallbackDataReleased func()
 
-
+//export goDengjenSpeechCallback
 func goDengjenSpeechCallback(event C.struct_SynthesisEvent, userData unsafe.Pointer) C.uint8_t {
 	token := (*callbackToken)(userData)
 	callbackRegistryMu.Lock()
@@ -102,19 +88,11 @@ func goDengjenSpeechCallback(event C.struct_SynthesisEvent, userData unsafe.Poin
 			}
 		}
 	}
-	
-	
-	
-	
-	
+
 	C.libdengjenFreeSynthesisEvent(event)
 
 	wantsMore := onEvent == nil || onEvent(goEvent)
 
-	
-	
-	
-	
 	terminal := event.event_type == C.SYNTH_EVENT_FINISHED || event.event_type == C.SYNTH_EVENT_ERROR
 	if terminal || !wantsMore {
 		releaseCallback(token)

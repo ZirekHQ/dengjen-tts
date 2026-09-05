@@ -19,20 +19,17 @@ import (
 	"unsafe"
 )
 
-
 const (
 	SynthModeLazy     int32 = C.SYNTH_MODE_LAZY
 	SynthModeParallel int32 = C.SYNTH_MODE_PARALLEL
 	SynthModeRealtime int32 = C.SYNTH_MODE_REALTIME
 )
 
-
-
 type SynthesisParams struct {
 	Mode              int32
-	Rate              uint8 
-	Volume            uint8 
-	Pitch             uint8 
+	Rate              uint8
+	Volume            uint8
+	Pitch             uint8
 	AppendedSilenceMs uint32
 	Nonblocking       bool
 }
@@ -43,12 +40,6 @@ func boolToUint8(b bool) C.uint8_t {
 	}
 	return 0
 }
-
-
-
-
-
-
 
 func (v *Voice) SpeakToFile(text string, params SynthesisParams, outFilename string) (bool, error) {
 	if v.ptr == nil {
@@ -76,20 +67,6 @@ func (v *Voice) SpeakToFile(text string, params SynthesisParams, outFilename str
 	return wrote != 0, nil
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 func (v *Voice) Speak(text string, params SynthesisParams, onEvent func(SynthesisEvent) bool) error {
 	if v.ptr == nil {
 		return ErrVoiceClosed
@@ -113,24 +90,13 @@ func (v *Voice) Speak(text string, params SynthesisParams, onEvent func(Synthesi
 	var cErr C.struct_ExternError
 	C.libdengjenSpeak(v.ptr, C.FfiStr(cText), cParams, &cErr)
 	if err := checkError(cErr); err != nil {
-		
-		
-		
+
 		releaseCallback(token)
 		return err
 	}
 	runtime.KeepAlive(v)
 	return nil
 }
-
-
-
-
-
-
-
-
-
 
 func (v *Voice) Cancel() error {
 	if v.ptr == nil {

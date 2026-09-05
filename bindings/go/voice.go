@@ -10,21 +10,15 @@ import (
 	"unsafe"
 )
 
-
-
-
 type Voice struct {
 	ptr *C.struct_DengjenVoice
 }
-
 
 type AudioInfo struct {
 	SampleRate  uint32
 	NumChannels uint32
 	SampleWidth uint32
 }
-
-
 
 func LoadVoice(configPath string) (*Voice, error) {
 	cPath := C.CString(configPath)
@@ -40,15 +34,11 @@ func LoadVoice(configPath string) (*Voice, error) {
 	return v, nil
 }
 
-
 func (v *Voice) Close() error {
 	if v.ptr == nil {
 		return nil
 	}
-	
-	
-	
-	
+
 	C.libdengjenUnloadDengjenVoice(v.ptr)
 	v.ptr = nil
 	runtime.SetFinalizer(v, nil)

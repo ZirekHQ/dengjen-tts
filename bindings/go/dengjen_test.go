@@ -1,9 +1,5 @@
 package dengjen
 
-
-
-
-
 import (
 	"errors"
 	"os"
@@ -165,9 +161,7 @@ func TestSpeakToFileWritesAWavFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected an output WAV file: %v", err)
 	}
-	
-	
-	
+
 	const expectedLen = 44 + 8000*2
 	if len(data) != expectedLen {
 		t.Errorf("expected a %d-byte WAV file, got %d bytes", expectedLen, len(data))
@@ -224,28 +218,6 @@ func TestSpeakOnEventReturningFalseStopsEarly(t *testing.T) {
 	}
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 func TestSpeakOnEventReturningFalseReleasesCallbackData(t *testing.T) {
 	v, err := LoadVoice(syntheticPiperConfigPath(t))
 	if err != nil {
@@ -266,11 +238,6 @@ func TestSpeakOnEventReturningFalseReleasesCallbackData(t *testing.T) {
 		t.Fatalf("Speak failed: %v", err)
 	}
 
-	
-	
-	
-	
-	
 	if !released {
 		t.Fatal("the callbackData for an early-stopped Speak call was never " +
 			"released (testCallbackDataReleased hook never fired), leaking onEvent's closure")
@@ -296,7 +263,6 @@ func TestSpeakRealtimeModeThenCancelDoesNotPanicOrDeadlock(t *testing.T) {
 	}
 	defer v.Close()
 
-	
 	events := make(chan SynthesisEvent, 64)
 	done := make(chan error, 1)
 	params := SynthesisParams{Mode: SynthModeRealtime, Rate: 10, Volume: 100, Pitch: 50, Nonblocking: true}
@@ -318,9 +284,6 @@ func TestSpeakRealtimeModeThenCancelDoesNotPanicOrDeadlock(t *testing.T) {
 		t.Fatal("Cancel did not return within 5s — possible deadlock")
 	}
 
-	
-	
-	
 	deadline := time.After(5 * time.Second)
 	for {
 		select {
