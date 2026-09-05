@@ -1,0 +1,44 @@
+= Synthesizing speech
+
+Dengjen synthesizes speech from a https://github.com/rhasspy/piper[Piper] voice. Download a
+voice's `.onnx` model and matching `.onnx.json` config from the
+https://huggingface.co/rhasspy/piper-voices[Piper voices] repository and keep both files
+together, e.g. `voices/en_US-lessac-medium.onnx` and `voices/en_US-lessac-medium.onnx.json`.
+
+A voice doesn't have to come from the official Piper voices repository — any VITS-family ONNX
+export using the same 3/4-input tensor convention (phoneme ids, lengths, scales, optional
+speaker id) can be loaded by writing a matching `.onnx.json` manifest with
+`"model_type": "vits"`. The minimal required fields are `audio` (sample rate), `inference`
+(`noise_scale`/`length_scale`/`noise_w`), and `phoneme_id_map` (the symbol vocabulary);
+`phoneme_type` selects the phonemizer (`espeak` is the default if omitted, and needs an
+`espeak.voice` entry — `text`, `hebrew`, and `pinyin` don't).
+
+A https://github.com/myshell-ai/MeloTTS[MeloTTS] voice — its own VITS-derived ONNX export, with
+a `tones` tensor alongside phone ids — is loaded with `"model_type": "melotts"`. The required
+fields are `audio` (sample rate), `inference`
+(`noise_scale`/`length_scale`/`noise_scale_w`), `phone_id_map` and `tone_id_map` (the phone and
+tone symbol vocabularies), and `model_path`; `phonemizer` selects the phonemization backend and
+must be one of `{"type": "espeak", "voice": "<espeak-ng voice name>"}` (covers English, Spanish,
+French, Japanese, Korean) or `{"type": "pinyin", "model_dir": "<g2pW model directory>"}`
+(Chinese, with real tone extraction — requires building with the `pinyin` feature).
+
+== CLI
+
+Synthesize text from a file to a WAV file, using the `dengjen-cli` frontend:
+
+[source,sh]
+----
+cargo run --release -p dengjen-tts-cli -- voices/en_US-lessac-medium.onnx.json \
+    -f input.txt \
+    -o output.wav
+----
+
+Or send a single request as JSON on stdin and capture the WAV bytes written to stdout:
+
+[source,sh]
+----
+echo '{"text": "Hello world"}' | cargo run --release -p dengjen-tts-cli -- voices/en_US-lessac-medium.onnx.json > output.wav
+----
+
+Run `dengjen --help` (or `cargo run --release -p dengjen-tts-cli -- --help`) for the full list
+of options, including synthesis mode, speaker id, rate/pitch/volume, and streaming chunk size.
