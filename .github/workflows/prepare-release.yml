@@ -43,8 +43,18 @@ jobs:
           # else unexpected) means the computation itself is broken (e.g. no
           # vX.Y.Z tag exists at all), and must fail loudly instead, or a
           # broken tag state would silently suppress every future release.
-          version="$(bash scripts/next-version.sh)"
-          rc=$?
+          #
+          # The command substitution below is deliberately the condition of
+          # an `if`, not a bare assignment -- GitHub Actions runs `run:`
+          # steps as `bash -e {0}` regardless of this script's own `set`
+          # flags, and a bare `version="$(...)"` is a simple command that
+          # `-e` would abort on before `rc=$?` ever ran, making the exit-1
+          # skip case below unreachable.
+          if version="$(bash scripts/next-version.sh)"; then
+            rc=0
+          else
+            rc=$?
+          fi
           if [ "$rc" -eq 0 ]; then
             echo "version=${version}" >> "$GITHUB_OUTPUT"
           elif [ "$rc" -eq 1 ]; then
