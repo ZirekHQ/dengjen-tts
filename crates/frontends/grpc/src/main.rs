@@ -6,11 +6,13 @@ use dengjen_tts_core::{
 };
 use grpc::dengjen_grpc_server::{DengjenGrpc, DengjenGrpcServer};
 use std::collections::HashMap;
+use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
+use tokio::net::TcpListener;
 use tokio::sync::mpsc;
-use tokio_stream::wrappers::ReceiverStream;
+use tokio_stream::wrappers::{ReceiverStream, TcpListenerStream};
 use tonic::transport::Server;
 use tonic::{Request, Response, Status};
 use xxhash_rust::xxh3::xxh3_64;
@@ -539,6 +541,10 @@ fn resolve_listen_port() -> u16 {
         .unwrap_or(DEFAULT_DENGJEN_GRPC_SERVER_PORT)
 }
 
+fn listening_announcement(port: u16) -> String {
+    format!("DENGJEN_GRPC_LISTENING port={port}")
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     setup_logging();
@@ -551,10 +557,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
         resolve_listen_port(),
     );
-    log::info!("Starting Dengjen GRPC server at address: {}", addr);
+    let listener = TcpListener::bind(addr).await?;
+    let bound_port = listener.local_addr()?.port();
+    println!("{}", listening_announcement(bound_port));
+    std::io::stdout().flush()?;
+    log::info!("Dengjen GRPC server listening on 127.0.0.1:{bound_port}");
 
     let server = DengjenGrpcServer::new(DengjenGrpcService::new());
-    Server::builder().add_service(server).serve(addr).await?;
+    Server::builder()
+        .add_service(server)
+        .serve_with_incoming(TcpListenerStream::new(listener))
+        .await?;
 
     Ok(())
 }
@@ -626,6 +639,27 @@ mod error_mapping_tests {
         let status: Status =
             DengjenGrpcError::from(DengjenError::OperationError("x".into())).into();
         assert_eq!(status.code(), tonic::Code::Unknown);
+    }
+}
+
+#[cfg(test)]
+mod listening_announcement_tests {
+    use super::*;
+
+    #[test]
+    fn listening_announcement_reports_the_given_port() {
+        assert_eq!(
+            listening_announcement(49314),
+            "DENGJEN_GRPC_LISTENING port=49314"
+        );
+    }
+
+    #[test]
+    fn listening_announcement_reports_an_ephemeral_high_port() {
+        assert_eq!(
+            listening_announcement(65535),
+            "DENGJEN_GRPC_LISTENING port=65535"
+        );
     }
 }
 
