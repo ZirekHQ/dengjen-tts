@@ -180,15 +180,21 @@ jobs:
         env:
           STEPS_VERSION_OUTPUTS_VERSION: ${{ steps.version.outputs.version }}
       - name: create release
-        uses: softprops/action-gh-release@e598afbe1493e6b1bafb1f389cabb956eab91231 # v3.0.3
-        with:
-          tag_name: ${{ inputs.tag || github.ref_name }}
-          # action-gh-release defaults an unset target_commitish to the
-          # repo's default branch, not the commit this run actually
-          # checked out -- on a workflow_dispatch run (this tag doesn't
-          # exist yet), that would create grpc-release-vX.Y.Z pointing at
-          # whatever main is by the time this step runs, not the tagged
-          # release commit. Pin it explicitly.
-          target_commitish: ${{ github.sha }}
-          name: dengjen-tts-grpc ${{ steps.version.outputs.version }}
-          files: ${{ steps.package.outputs.zip_name }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          # gh release create defaults an unset --target to the repo's
+          # default branch, not the commit this run actually checked out --
+          # on a workflow_dispatch run (this tag doesn't exist yet), that
+          # would create grpc-release-vX.Y.Z pointing at whatever main is by
+          # the time this step runs, not the tagged release commit. Pin it
+          # explicitly.
+          RELEASE_SHA: ${{ github.sha }}
+          ZIP_NAME: ${{ steps.package.outputs.zip_name }}
+        run: |
+          gh release create $env:RELEASE_TAG $env:ZIP_NAME `
+            --target $env:RELEASE_SHA `
+            --title "dengjen-tts-grpc $env:RELEASE_VERSION" `
+            --notes ""
