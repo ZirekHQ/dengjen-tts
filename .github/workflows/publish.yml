@@ -1,18 +1,19 @@
 name: Publish to crates.io
 
-# Triggered automatically by tag-and-release.yml right after it tags a
-# merged version-bump PR's commit vX.Y.Z (via `gh workflow run`, using the
-# one event type GITHUB_TOKEN is allowed to start a new run for). Also
-# dispatchable by hand -- from the Actions tab, or `gh workflow run
-# publish.yml` -- which is the retry path if a partial run fails: every
-# step below is idempotent (skips a crate crates.io already has, via
-# .github/scripts/publish-crate-if-needed.sh), so re-running this from
-# scratch after a failure is always safe, no new tag needed. Deliberately
-# not tag-triggered itself: a `push: tags:` listener here would mean any
-# human pushing an unrelated v*-shaped tag by mistake fires a real,
-# irreversible crates.io publish.
+# Called directly as a job (`uses:`) from tag-and-release.yml's single
+# release pipeline, in the same run that tags vX.Y.Z -- so it and the other
+# release targets share one `environment: release` approval screen instead
+# of each needing a separate click. Also dispatchable by hand -- from the
+# Actions tab, or `gh workflow run publish.yml` -- which is the retry path
+# if a partial run fails: every step below is idempotent (skips a crate
+# crates.io already has, via .github/scripts/publish-crate-if-needed.sh),
+# so re-running this from scratch after a failure is always safe, no new
+# tag needed. Deliberately not tag-triggered itself: a `push: tags:`
+# listener here would mean any human pushing an unrelated v*-shaped tag by
+# mistake fires a real, irreversible crates.io publish.
 on:
   workflow_dispatch: {}
+  workflow_call: {}
 
 permissions:
   contents: read

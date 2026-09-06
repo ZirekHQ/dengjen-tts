@@ -16,17 +16,22 @@ on:
   push:
     tags:
       - "go-release-v*"
-  # Dispatched by tag-and-release.yml against `--ref main -f
-  # tag=go-release-vX.Y.Z` right after it tags the version-bump merge commit
-  # vX.Y.Z. No real "go-release-v*" tag needs to pre-exist on this repo for
-  # that -- the value below only feeds "extract target version" below,
-  # which strips its "go-release-" prefix to get the plain vX.Y.Z tag this
-  # job pushes to the separate ZirekHQ/dengjen-tts-go repo. Also usable for
-  # a manual retrigger; assemble-and-push's own idempotency (it fails
-  # outright, without force-pushing a new tag, if the target version's tag
-  # already exists there) makes a retry against an already-released version
-  # safe.
+  # Called directly as a job (`uses:`) from tag-and-release.yml's single
+  # release pipeline right after it tags the version-bump merge commit
+  # vX.Y.Z, passing tag=go-release-vX.Y.Z. No real "go-release-v*" tag needs
+  # to pre-exist on this repo for that -- the value below only feeds
+  # "extract target version" below, which strips its "go-release-" prefix to
+  # get the plain vX.Y.Z tag this job pushes to the separate
+  # ZirekHQ/dengjen-tts-go repo. Also usable for a manual retrigger; the
+  # `check` job below makes a retry against an already-released version safe
+  # by skipping the build entirely instead of re-running it.
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "go-release-vX.Y.Z tag name to release (e.g. go-release-v1.2.3)"
+        required: true
+        type: string
+  workflow_call:
     inputs:
       tag:
         description: "go-release-vX.Y.Z tag name to release (e.g. go-release-v1.2.3)"
@@ -37,7 +42,32 @@ permissions:
   contents: read
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      - name: Check whether this version's tag already exists on dengjen-tts-go
+        id: check
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          GO_REPO_TOKEN: ${{ secrets.DENGJEN_TTS_GO_DEPLOY_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#go-release-}"
+          existing="$(git ls-remote --refs "https://x-access-token:${GO_REPO_TOKEN}@github.com/ZirekHQ/dengjen-tts-go" "refs/tags/${version}" | cut -f1)"
+          if [ -n "$existing" ]; then
+            echo "::notice::${version} is already released on ZirekHQ/dengjen-tts-go -- skipping"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
   build-linux:
+    needs: check
+    if: needs.check.outputs.skip != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -107,6 +137,8 @@ jobs:
           name: libdengjen-header
           path: crates/frontends/capi/libdengjen.h
   build-windows:
+    needs: check
+    if: needs.check.outputs.skip != 'true'
     runs-on: windows-2022
     permissions:
       contents: read
@@ -158,6 +190,8 @@ jobs:
           name: libdengjen-windows-amd64
           path: target/x86_64-pc-windows-msvc/release/*.dll
   build-macos:
+    needs: check
+    if: needs.check.outputs.skip != 'true'
     runs-on: macos-latest
     permissions:
       contents: read
@@ -208,7 +242,8 @@ jobs:
           path: target/aarch64-apple-darwin/release/*.dylib
 
   assemble-and-push:
-    needs: [build-linux, build-windows, build-macos]
+    needs: [check, build-linux, build-windows, build-macos]
+    if: needs.check.outputs.skip != 'true'
     runs-on: ubuntu-latest
     environment: release
     permissions:

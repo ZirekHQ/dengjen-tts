@@ -4,12 +4,19 @@ on:
   push:
     tags:
       - "java-v*"
-  # Dispatched by tag-and-release.yml against `--ref main -f tag=java-vX.Y.Z`
-  # right after it tags the version-bump merge commit vX.Y.Z -- no real
-  # `java-v*` tag needs to exist on this repo for that, since the value below
-  # is only ever used as a version string (VERSIONING_GIT_TAG), not resolved
-  # as a git ref. Also usable for a manual retrigger from the Actions tab.
+  # Called directly as a job (`uses:`) from tag-and-release.yml's single
+  # release pipeline right after it tags the version-bump merge commit
+  # vX.Y.Z, passing tag=java-vX.Y.Z -- no real `java-v*` tag needs to exist
+  # on this repo for that, since the value below is only ever used as a
+  # version string (VERSIONING_GIT_TAG), not resolved as a git ref. Also
+  # usable for a manual retrigger from the Actions tab.
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "java-vX.Y.Z version string to publish (e.g. java-v1.2.3)"
+        required: true
+        type: string
+  workflow_call:
     inputs:
       tag:
         description: "java-vX.Y.Z version string to publish (e.g. java-v1.2.3)"
@@ -20,7 +27,32 @@ permissions:
   contents: read
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      - name: Check whether this version is already on Maven Central
+        id: check
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#java-v}"
+          url="https://repo1.maven.org/maven2/io/github/zirekhq/dengjen-tts/${version}/dengjen-tts-${version}.pom"
+          status="$(curl -s -o /dev/null -w '%{http_code}' "$url")"
+          if [ "$status" = "200" ]; then
+            echo "::notice::dengjen-tts ${version} is already on Maven Central -- skipping"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
   build-natives:
+    needs: check
+    if: needs.check.outputs.skip != 'true'
     runs-on: ${{ matrix.platform.runner }}
     permissions:
       contents: read
@@ -82,7 +114,8 @@ jobs:
           path: native-artifacts/${{ matrix.platform.classifier }}
 
   release:
-    needs: build-natives
+    needs: [check, build-natives]
+    if: needs.check.outputs.skip != 'true'
     runs-on: ubuntu-latest
     environment: release
     permissions:

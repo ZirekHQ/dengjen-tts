@@ -7,14 +7,22 @@ on:
       # (publish-go.yml) — a prefix collision has already bitten this repo
       # once (see publish-go.yml's own comment on the same issue).
       - "grpc-release-v*"
-  # Dispatched by tag-and-release.yml against `--ref main -f
-  # tag=grpc-release-vX.Y.Z` right after it tags the version-bump merge
-  # commit vX.Y.Z. No real "grpc-release-v*" tag needs to pre-exist on this
-  # repo for that -- the value below only feeds version extraction and the
-  # GitHub Release's tag_name, and softprops/action-gh-release creates that
-  # tag itself if it's not already there, same end state a manual tag push
-  # used to produce directly. Also usable for a manual retrigger.
+  # Called directly as a job (`uses:`) from tag-and-release.yml's single
+  # release pipeline right after it tags the version-bump merge commit
+  # vX.Y.Z, passing tag=grpc-release-vX.Y.Z. No real "grpc-release-v*" tag
+  # needs to pre-exist on this repo for that -- the value below only feeds
+  # version extraction and the GitHub Release's tag_name, and
+  # softprops/action-gh-release creates that tag itself if it's not already
+  # there, same end state a manual tag push used to produce directly. Also
+  # usable for a manual retrigger; the `check` job below skips the (Windows,
+  # so not cheap) build entirely if this version already has a release.
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "grpc-release-vX.Y.Z tag name to release (e.g. grpc-release-v1.2.3)"
+        required: true
+        type: string
+  workflow_call:
     inputs:
       tag:
         description: "grpc-release-vX.Y.Z tag name to release (e.g. grpc-release-v1.2.3)"
@@ -25,7 +33,30 @@ permissions:
   contents: read
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      - name: Check whether this version already has a GitHub Release
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/${{ github.repository }}/releases/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "::notice::${RELEASE_TAG} already has a GitHub Release -- skipping"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
   build-windows:
+    needs: check
+    if: needs.check.outputs.skip != 'true'
     runs-on: windows-2022
     environment: release
     permissions:
