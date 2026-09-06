@@ -9,8 +9,8 @@ diagram].
 == Container
 
 dengjen-tts is a single Rust workspace exposing the same synthesis engine
-through five different frontends, plus native Go and Java bindings that call
-the C ABI directly.
+through four different frontends. Go and Java bindings call the C ABI
+frontend directly rather than being separate frontends of their own.
 
 [source,mermaid]
 ----
@@ -82,7 +82,7 @@ classDiagram
     class KokoroModel
     class MeloTTSModel
     class DengjenSpeechSynthesizer {
-        -inner: DengjenModel
+        -backend: DengjenModel
         +speak_batch()
     }
 
