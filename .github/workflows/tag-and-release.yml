@@ -116,7 +116,9 @@ jobs:
     runs-on: ubuntu-latest
     environment: release
     steps:
-      - run: echo "Approved v${{ needs.tag-and-release.outputs.version }} for release"
+      - env:
+          VERSION: ${{ needs.tag-and-release.outputs.version }}
+        run: echo "Approved v${VERSION} for release"
 
   # Each of these calls the target workflow directly as a job of this same
   # run (rather than `gh workflow run`-dispatching a separate run against
