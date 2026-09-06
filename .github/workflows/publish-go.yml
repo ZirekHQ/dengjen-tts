@@ -453,6 +453,8 @@ jobs:
       - name: commit and push release snapshot
         id: push-release
         working-directory: dengjen-tts-go
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
           git config user.name "dengjen-tts-go release bot"
@@ -465,7 +467,7 @@ jobs:
 
           git checkout --orphan release-snapshot
           git add -A
-          git commit -m "release: ${{ steps.version.outputs.version }} (built from ZirekHQ/dengjen-tts@${GITHUB_SHA})"
+          git commit -m "release: ${VERSION} (built from ZirekHQ/dengjen-tts@${GITHUB_SHA})"
 
           commits="$(git rev-list --count HEAD)"
           if [[ "$commits" -ne 1 ]]; then
@@ -473,9 +475,8 @@ jobs:
             exit 1
           fi
 
-          release_tag="${{ steps.version.outputs.version }}"
-          git tag "$release_tag"
-          git push origin "refs/tags/${release_tag}"
+          git tag "$VERSION"
+          git push origin "refs/tags/${VERSION}"
 
           echo "release_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
