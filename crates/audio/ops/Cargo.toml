@@ -1,5 +1,5 @@
 [package]
-name = "audio-ops"
+name = "dengjen-audio-ops"
 version.workspace = true
 edition = "2021"
 license.workspace = true

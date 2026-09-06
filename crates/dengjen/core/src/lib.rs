@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::error::Error as StdError;
 use std::fmt;
 
-pub use audio_ops::{Audio, AudioInfo, AudioSamples, WaveWriterError};
+pub use dengjen_audio_ops::{Audio, AudioInfo, AudioSamples, WaveWriterError};
 
 mod cancellation;
 mod synthesis_config;

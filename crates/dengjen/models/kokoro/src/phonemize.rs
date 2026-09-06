@@ -32,7 +32,7 @@ fn espeak_ipa_to_kokoro(ipa: &str) -> String {
 
 #[cfg(feature = "espeak")]
 pub fn text_to_kokoro_phonemes(text: &str, language: &str) -> DengjenResult<Vec<String>> {
-    let sentences = espeak_phonemizer::text_to_phonemes(text, language, None, true, false)
+    let sentences = dengjen_espeak_phonemizer::text_to_phonemes(text, language, None, true, false)
         .map_err(|e| DengjenError::PhonemizationError(e.to_string()))?;
     Ok(sentences.iter().map(|s| espeak_ipa_to_kokoro(s)).collect())
 }
@@ -128,7 +128,7 @@ mod tests {
     #[test]
     fn text_to_kokoro_phonemes_strips_language_switch_flags() {
         let _guard = lock_espeak();
-        // Same mixed-script input as espeak-phonemizer's own test_lang_switch_flags,
+        // Same mixed-script input as dengjen-espeak-phonemizer's own test_lang_switch_flags,
 
         let Some(result) = phonemize_or_skip("Hello معناها مرحباً", "ar") else {
             return;

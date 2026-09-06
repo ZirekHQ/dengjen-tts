@@ -2,7 +2,7 @@
 # espeak-ng's global state is now guarded by ESPEAK_LOCK in src/lib.rs, so
 # concurrent test threads no longer corrupt each other's output. This is kept
 # as belt-and-suspenders serialization for local `cargo test` runs; CI's
-# "cargo test (espeak-phonemizer, single-threaded)" step also passes
+# "cargo test (dengjen-espeak-phonemizer, single-threaded)" step also passes
 # `--test-threads=1` explicitly (see .github/workflows/CI.yml).
 RUST_TEST_THREADS = { value = "1", force = true }
 # Set espeak-ng-data directory

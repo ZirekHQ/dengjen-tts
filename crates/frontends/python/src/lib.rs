@@ -579,7 +579,7 @@ pub fn phonemize_text(
     } else {
         std::borrow::Cow::from(text)
     };
-    espeak_phonemizer::text_to_phonemes(
+    dengjen_espeak_phonemizer::text_to_phonemes(
         &text,
         language,
         phoneme_separator,

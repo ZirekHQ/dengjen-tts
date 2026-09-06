@@ -8,7 +8,7 @@ A cross-platform Rust engine for neural TTS models.
 * *Phonemization*: eSpeak-ng (100+ languages, IPA output) and Arabic diacritization via `libtashkeel`
 * *Multi-speaker voices*: select by `speaker_id`
 * *Streaming synthesis*: chunked output (`chunk_size`/`chunk_padding`) and a realtime gRPC stream
-* *Prosody control*: rate, pitch, and volume via `sonic-sys` (libsonic)
+* *Prosody control*: rate, pitch, and volume via `dengjen-sonic-sys` (libsonic)
 * *Synthesis modes*: lazy, parallel, and batched, selectable per request
 * *Bindings*: native Rust, C-API (`libdengjen`), Python (`pyo3`), gRPC (any language over the wire), and a CLI
 
@@ -22,7 +22,7 @@ this engine's neural-ONNX pipeline and isn't planned.
 |===
 |Crate |Purpose
 
-|`espeak-phonemizer`
+|`dengjen-espeak-phonemizer`
 |Converts text to IPA phonemes using a patched version of eSpeak-ng
 
 |`dengjen-model`
@@ -40,7 +40,7 @@ this engine's neural-ONNX pipeline and isn't planned.
 |`dengjen-tts-python`
 |Python bindings to `dengjen-tts` using `pyo3`
 
-|`sonic-sys`
+|`dengjen-sonic-sys`
 |Rust FFI bindings to https://github.com/waywardgeek/sonic[Sonic]: a C library for controlling rate, volume, and pitch of generated speech
 |===
 

@@ -378,7 +378,7 @@ mod synthesis_processing_tests {
         // Not an exact byte count: `process_synthesis_request` always wraps
         // output through `AudioOutputConfig::apply` (real Sonic FFI, even with
         // every field `None`), which this test isn't exercising — that's
-        // `audio-ops`'s own tested responsibility (Phase 3). Non-empty output
+        // `dengjen-audio-ops`'s own tested responsibility (Phase 3). Non-empty output
 
         assert!(!buffer.is_empty());
     }

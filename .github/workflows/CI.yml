@@ -231,8 +231,8 @@ jobs:
         with:
           submodules: recursive
           persist-credentials: false
-      - name: cargo test (workspace, excluding espeak-phonemizer, dengjen-tts, and dengjen-tts-kokoro)
-        run: cargo test --workspace --exclude espeak-phonemizer --exclude dengjen-tts --exclude dengjen-tts-kokoro --no-fail-fast
+      - name: cargo test (workspace, excluding dengjen-espeak-phonemizer, dengjen-tts, and dengjen-tts-kokoro)
+        run: cargo test --workspace --exclude dengjen-espeak-phonemizer --exclude dengjen-tts --exclude dengjen-tts-kokoro --no-fail-fast
       - name: locate espeak-ng-data directory
         run: |
           data_dir="$(dirname "$(find /usr -maxdepth 5 -type d -name espeak-ng-data -not -path '/usr/share/doc/*' | head -n1)")"
@@ -241,8 +241,8 @@ jobs:
             exit 1
           fi
           echo "DENGJEN_ESPEAKNG_DATA_DIRECTORY=$data_dir" >> "$GITHUB_ENV"
-      - name: cargo test (espeak-phonemizer, single-threaded)
-        run: cargo test -p espeak-phonemizer -- --test-threads=1
+      - name: cargo test (dengjen-espeak-phonemizer, single-threaded)
+        run: cargo test -p dengjen-espeak-phonemizer -- --test-threads=1
       - name: cargo test (dengjen-tts-piper, hebrew and pinyin features enabled)
         run: cargo test -p dengjen-tts-piper --no-default-features --features espeak,tashkeel,hebrew,pinyin
       - name: cargo test (dengjen-tts-piper, espeak feature disabled)

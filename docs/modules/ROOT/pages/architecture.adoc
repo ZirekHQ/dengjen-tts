@@ -50,7 +50,7 @@ C4Component
         Component(piper, "dengjen-tts-piper", "Rust crate", "VitsModel / VitsStreamingModel")
         Component(kokoro, "dengjen-tts-kokoro", "Rust crate", "KokoroModel")
         Component(melotts, "dengjen-tts-melotts", "Rust crate", "MeloTTSModel")
-        Component(sonic, "sonic-sys", "FFI binding", "libsonic, used for prosody (pitch/speed) adjustment")
+        Component(sonic, "dengjen-sonic-sys", "FFI binding", "libsonic, used for prosody (pitch/speed) adjustment")
     }
 
     Rel(synth, core, "Implements")

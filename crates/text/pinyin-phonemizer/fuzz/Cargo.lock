@@ -32,14 +32,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3d036a3c4ab069c7b410a2ce876bd74808d2d0888a82667669f8e783a898bf1"
 
 [[package]]
-name = "audio-ops"
-version = "1.0.0"
-dependencies = [
- "once_cell",
- "riff-wave",
-]
-
-[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -199,10 +191,30 @@ dependencies = [
 ]
 
 [[package]]
-name = "dengjen-tts-core"
-version = "0.2.0"
+name = "dengjen-audio-ops"
+version = "1.2.0"
 dependencies = [
- "audio-ops",
+ "once_cell",
+ "riff-wave",
+]
+
+[[package]]
+name = "dengjen-pinyin-phonemizer"
+version = "1.2.0"
+dependencies = [
+ "dengjen-tts-core",
+ "ndarray",
+ "ort",
+ "serde",
+ "serde_json",
+ "tokenizers",
+]
+
+[[package]]
+name = "dengjen-tts-core"
+version = "1.2.0"
+dependencies = [
+ "dengjen-audio-ops",
  "once_cell",
 ]
 
@@ -565,23 +577,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
-name = "pinyin-phonemizer"
-version = "0.1.0"
-dependencies = [
- "dengjen-tts-core",
- "ndarray",
- "ort",
- "serde",
- "serde_json",
- "tokenizers",
-]
-
-[[package]]
 name = "pinyin-phonemizer-fuzz"
 version = "0.0.0"
 dependencies = [
+ "dengjen-pinyin-phonemizer",
  "libfuzzer-sys",
- "pinyin-phonemizer",
 ]
 
 [[package]]

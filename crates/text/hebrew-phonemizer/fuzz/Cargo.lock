@@ -12,14 +12,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "audio-ops"
-version = "1.0.0"
-dependencies = [
- "once_cell",
- "riff-wave",
-]
-
-[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -68,10 +60,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
-name = "dengjen-tts-core"
-version = "0.2.0"
+name = "dengjen-audio-ops"
+version = "1.2.0"
 dependencies = [
- "audio-ops",
+ "once_cell",
+ "riff-wave",
+]
+
+[[package]]
+name = "dengjen-hebrew-phonemizer"
+version = "1.2.0"
+dependencies = [
+ "dengjen-tts-core",
+ "ndarray",
+ "ort",
+ "unicode-normalization",
+]
+
+[[package]]
+name = "dengjen-tts-core"
+version = "1.2.0"
+dependencies = [
+ "dengjen-audio-ops",
  "once_cell",
 ]
 
@@ -115,21 +125,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "hebrew-phonemizer"
-version = "0.1.0"
-dependencies = [
- "dengjen-tts-core",
- "ndarray",
- "ort",
- "unicode-normalization",
-]
-
-[[package]]
 name = "hebrew-phonemizer-fuzz"
 version = "0.0.0"
 dependencies = [
  "arbitrary",
- "hebrew-phonemizer",
+ "dengjen-hebrew-phonemizer",
  "libfuzzer-sys",
  "ort",
 ]

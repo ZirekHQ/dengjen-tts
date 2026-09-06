@@ -10,6 +10,6 @@
 # differs from the currently loaded one. This is vendored upstream C code, not something
 # dengjen's Rust FFI layer controls. Reproduced locally on 2026-08-16 via:
 #   DENGJEN_ESPEAKNG_DATA_DIRECTORY=<path> RUSTFLAGS="-Z sanitizer=address" \
-#     cargo +nightly test -p espeak-phonemizer -Zbuild-std \
+#     cargo +nightly test -p dengjen-espeak-phonemizer -Zbuild-std \
 #     --target x86_64-unknown-linux-gnu -- --test-threads=1
 leak:DoVoiceChange

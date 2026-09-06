@@ -18,7 +18,7 @@ crate-type = ["cdylib"]
 default = ["tashkeel", "espeak"]
 ort-dylib = ["ort/load-dynamic"]
 tashkeel = ["dep:dengjen-tashkeel", "dengjen-tts-piper/tashkeel"]
-espeak = ["dep:espeak-phonemizer", "dengjen-tts-piper/espeak", "dengjen-tts-kokoro/espeak", "dengjen-tts-melotts/espeak"]
+espeak = ["dep:dengjen-espeak-phonemizer", "dengjen-tts-piper/espeak", "dengjen-tts-kokoro/espeak", "dengjen-tts-melotts/espeak"]
 
 
 cuda = ["dengjen-tts-piper/cuda", "dengjen-tts-kokoro/cuda", "dengjen-tts-melotts/cuda"]
@@ -26,7 +26,7 @@ coreml = ["dengjen-tts-piper/coreml", "dengjen-tts-kokoro/coreml", "dengjen-tts-
 directml = ["dengjen-tts-piper/directml", "dengjen-tts-kokoro/directml", "dengjen-tts-melotts/directml"]
 
 [dependencies]
-espeak-phonemizer = { workspace = true, optional = true }
+dengjen-espeak-phonemizer = { workspace = true, optional = true }
 dengjen-tts-core.workspace = true
 dengjen-tts.workspace = true
 

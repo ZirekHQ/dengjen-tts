@@ -36,11 +36,11 @@ dengjen-tts = { path = "crates/dengjen/synth", version = "1.2.0" }
 dengjen-tts-piper = { path = "crates/dengjen/models/piper", version = "1.2.0" }
 dengjen-tts-kokoro = { path = "crates/dengjen/models/kokoro", version = "1.2.0", default-features = false }
 dengjen-tts-melotts = { path = "crates/dengjen/models/melotts", version = "1.2.0", default-features = false }
-espeak-phonemizer = { path = "crates/text/espeak-phonemizer", version = "1.2.0" }
-hebrew-phonemizer = { path = "crates/text/hebrew-phonemizer", version = "1.2.0" }
-pinyin-phonemizer = { path = "crates/text/pinyin-phonemizer", version = "1.2.0" }
-sonic-sys = { path = "crates/audio/sonic-sys", version = "1.2.0" }
-audio-ops = { path = "crates/audio/ops", version = "1.2.0" }
+dengjen-espeak-phonemizer = { path = "crates/text/espeak-phonemizer", version = "1.2.0" }
+dengjen-hebrew-phonemizer = { path = "crates/text/hebrew-phonemizer", version = "1.2.0" }
+dengjen-pinyin-phonemizer = { path = "crates/text/pinyin-phonemizer", version = "1.2.0" }
+dengjen-sonic-sys = { path = "crates/audio/sonic-sys", version = "1.2.0" }
+dengjen-audio-ops = { path = "crates/audio/ops", version = "1.2.0" }
 
 
 

@@ -115,7 +115,7 @@ jobs:
   # Miri can't run this workspace's unsafe code: every unsafe block here calls into real linked
   # C libraries (onnxruntime, libsonic, espeak-ng), and Miri doesn't support arbitrary FFI.
   # AddressSanitizer does support real FFI, so it's used instead — validated locally to be clean
-  # against libdengjen (the public C ABI) and dengjen-tts (the sonic-sys FFI boundary).
+  # against libdengjen (the public C ABI) and dengjen-tts (the dengjen-sonic-sys FFI boundary).
   asan:
     runs-on: ubuntu-latest
     steps:
@@ -147,13 +147,13 @@ jobs:
         # entirely); everything else, including the synthetic-model tests in the same binary,
         # still runs.
         run: cargo +nightly test -p libdengjen -p dengjen-tts -Zbuild-std --target x86_64-unknown-linux-gnu -- --skip test_lazy_stream --skip test_parallel_stream --skip test_realtime_stream
-      - name: cargo test under AddressSanitizer (espeak-phonemizer, single-threaded)
+      - name: cargo test under AddressSanitizer (dengjen-espeak-phonemizer, single-threaded)
         env:
           RUSTFLAGS: -Z sanitizer=address
           # See .github/asan-suppressions/lsan.txt: espeak-ng's own SetVoiceByName leaks a
           # small voice-table allocation on every voice switch. Vendored upstream C, not ours.
           LSAN_OPTIONS: suppressions=${{ github.workspace }}/.github/asan-suppressions/lsan.txt
-        run: cargo +nightly test -p espeak-phonemizer -Zbuild-std --target x86_64-unknown-linux-gnu -- --test-threads=1
+        run: cargo +nightly test -p dengjen-espeak-phonemizer -Zbuild-std --target x86_64-unknown-linux-gnu -- --test-threads=1
 
   # Build-only smoke check so the fuzz targets don't silently bit-rot. Actual fuzzing
   # (finding new crashes) is a longer-running job better suited to a schedule than every PR —
@@ -219,8 +219,8 @@ jobs:
       - uses: taiki-e/install-action@b6b84cf49ebfe0176417bdce007c624f0db37f20 # v2.86.2
         with:
           tool: cargo-llvm-cov
-      - name: cargo llvm-cov (workspace, excluding espeak-phonemizer, dengjen-tts, and dengjen-tts-kokoro)
-        run: cargo llvm-cov --no-report --workspace --exclude espeak-phonemizer --exclude dengjen-tts --exclude dengjen-tts-kokoro --no-fail-fast
+      - name: cargo llvm-cov (workspace, excluding dengjen-espeak-phonemizer, dengjen-tts, and dengjen-tts-kokoro)
+        run: cargo llvm-cov --no-report --workspace --exclude dengjen-espeak-phonemizer --exclude dengjen-tts --exclude dengjen-tts-kokoro --no-fail-fast
       - name: locate espeak-ng-data directory
         run: |
           data_dir="$(dirname "$(find /usr -maxdepth 5 -type d -name espeak-ng-data -not -path '/usr/share/doc/*' | head -n1)")"
@@ -229,8 +229,8 @@ jobs:
             exit 1
           fi
           echo "DENGJEN_ESPEAKNG_DATA_DIRECTORY=$data_dir" >> "$GITHUB_ENV"
-      - name: cargo llvm-cov (espeak-phonemizer, single-threaded)
-        run: cargo llvm-cov --no-report -p espeak-phonemizer -- --test-threads=1
+      - name: cargo llvm-cov (dengjen-espeak-phonemizer, single-threaded)
+        run: cargo llvm-cov --no-report -p dengjen-espeak-phonemizer -- --test-threads=1
       - name: cargo llvm-cov (dengjen-tts-piper, hebrew and pinyin features enabled)
         run: cargo llvm-cov --no-report -p dengjen-tts-piper --no-default-features --features espeak,tashkeel,hebrew,pinyin
       - name: cargo llvm-cov (dengjen-tts-piper, espeak feature disabled)

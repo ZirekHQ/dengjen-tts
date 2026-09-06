@@ -10,7 +10,7 @@ A cross-platform Rust engine for neural TTS models.
 * **Phonemization**: eSpeak-ng (100+ languages, IPA output) and Arabic diacritization via `libtashkeel`
 * **Multi-speaker voices**: select by `speaker_id`
 * **Streaming synthesis**: chunked output (`chunk_size`/`chunk_padding`) and a realtime gRPC stream
-* **Prosody control**: rate, pitch, and volume via `sonic-sys` (libsonic)
+* **Prosody control**: rate, pitch, and volume via `dengjen-sonic-sys` (libsonic)
 * **Synthesis modes**: lazy, parallel, and batched, selectable per request
 * **Bindings**: native Rust, C-API (`libdengjen`), Python (`pyo3`), gRPC (any language over the wire), and a CLI
 
@@ -26,13 +26,13 @@ this engine's neural-ONNX pipeline and isn't planned.
 
 # Crates
 
-- `espeak-phonemizer`: Converts text to `IPA` phonemes using a patched version of eSpeak-ng
+- `dengjen-espeak-phonemizer`: Converts text to `IPA` phonemes using a patched version of eSpeak-ng
 - `dengjen-model`: Handles model loading and inference using `onnxruntime` via `ort`
 - `dengjen-tts`: Wraps `DengjenModel` and adds synthesized speech post-processing, including changing prosody. Also provides different modes of parallelism.
 - `dengjen-tts-grpc`: [GRPC](https://grpc.io/) frontend for dengjen
 - `libdengjen`: C-API binding to dengjen
 - `dengjen-tts-python`: Python bindings to `dengjen-tts` using `pyo3`
-- `sonic-sys`: Rust FFI bindings to [Sonic](https://github.com/waywardgeek/sonic): a `C` library for controlling various aspects of generated speech, such as rate, volume, and pitch
+- `dengjen-sonic-sys`: Rust FFI bindings to [Sonic](https://github.com/waywardgeek/sonic): a `C` library for controlling various aspects of generated speech, such as rate, volume, and pitch
 
 # Building
 
@@ -93,7 +93,7 @@ Run `dengjen --help` (or `cargo run --release -p dengjen-tts-cli -- --help`) for
 
 # A note on testing
 
-Some packages, such as `espeak-phonemizer`, include tests. Running `cargo test` from the root of the workspace will likely fail, because `cargo` does not load `config` from sub packages when ran from the workspace root.
+Some packages, such as `dengjen-espeak-phonemizer`, include tests. Running `cargo test` from the root of the workspace will likely fail, because `cargo` does not load `config` from sub packages when ran from the workspace root.
 
 On Windows you need to add `espeak-ng.dll` to the library search path by modifying the **PATH** environment variable.
 

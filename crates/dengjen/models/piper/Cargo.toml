@@ -13,10 +13,10 @@ workspace = true
 [features]
 default = ["tashkeel", "espeak"]
 tashkeel = ["dep:dengjen-tashkeel"]
-hebrew = ["dep:hebrew-phonemizer"]
-pinyin = ["dep:pinyin-phonemizer"]
+hebrew = ["dep:dengjen-hebrew-phonemizer"]
+pinyin = ["dep:dengjen-pinyin-phonemizer"]
 
-espeak = ["dep:espeak-phonemizer"]
+espeak = ["dep:dengjen-espeak-phonemizer"]
 
 
 cuda = ["ort/cuda"]
@@ -24,9 +24,9 @@ coreml = ["ort/coreml"]
 directml = ["ort/directml"]
 
 [dependencies]
-espeak-phonemizer = { workspace = true, optional = true }
-hebrew-phonemizer = { workspace = true, optional = true }
-pinyin-phonemizer = { workspace = true, optional = true }
+dengjen-espeak-phonemizer = { workspace = true, optional = true }
+dengjen-hebrew-phonemizer = { workspace = true, optional = true }
+dengjen-pinyin-phonemizer = { workspace = true, optional = true }
 dengjen-tts-core.workspace = true
 ndarray = "0.17"
 serde = { version = "1.0.160", features = ["derive"] }

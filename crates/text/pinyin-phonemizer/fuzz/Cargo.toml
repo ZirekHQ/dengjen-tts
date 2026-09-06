@@ -12,7 +12,7 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 
-[dependencies.pinyin-phonemizer]
+[dependencies.dengjen-pinyin-phonemizer]
 path = ".."
 
 [[bin]]
