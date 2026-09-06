@@ -90,7 +90,7 @@ jobs:
         # libdengjen (the crate publish-go.yml's build-windows job builds),
         # which compiles no proto and never needed this.
         run: choco install protoc -y --no-progress
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           submodules: recursive
           persist-credentials: false

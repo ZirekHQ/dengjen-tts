@@ -26,7 +26,7 @@ jobs:
         run: git config --global protocol.file.allow always
       - name: install build dependencies
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev llvm-dev cmake protobuf-compiler
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           submodules: recursive
           persist-credentials: false
@@ -61,7 +61,7 @@ jobs:
       issues: write
       checks: write
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           persist-credentials: false
       - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
@@ -71,7 +71,7 @@ jobs:
   fmt:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
@@ -84,7 +84,7 @@ jobs:
   deny:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           submodules: recursive
           persist-credentials: false
@@ -103,7 +103,7 @@ jobs:
     steps:
       - name: git-submodule-fix
         run: git config --global protocol.file.allow always
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           submodules: recursive
           persist-credentials: false
@@ -123,7 +123,7 @@ jobs:
         run: git config --global protocol.file.allow always
       - name: install build dependencies
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev llvm-dev cmake protobuf-compiler espeak-ng
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           submodules: recursive
           persist-credentials: false
@@ -168,7 +168,7 @@ jobs:
         run: git config --global protocol.file.allow always
       - name: install build dependencies
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev llvm-dev cmake protobuf-compiler
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           submodules: recursive
           persist-credentials: false
@@ -207,7 +207,7 @@ jobs:
       # GitHub's code coverage feature (see the upload step below) annotates the PR's file-diff
       # view against the head commit -- checking out the merge commit here means the upload
       # never lines up with anything the PR view actually shows.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           submodules: recursive
@@ -275,7 +275,7 @@ jobs:
         run: git config --global protocol.file.allow always
       - name: install libclang and espeak-ng
         run: sudo apt-get update && sudo apt-get install -y llvm llvm-dev llvm-runtime libclang-dev espeak-ng
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           submodules: recursive
           persist-credentials: false
@@ -297,7 +297,7 @@ jobs:
         run: git config --global protocol.file.allow always
       - name: install build dependencies
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev llvm-dev cmake protobuf-compiler
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           fetch-depth: 0 # needed so git-versioning's `git describe` can find the java-v* tag; shallow clones have no tags
           submodules: recursive
@@ -323,7 +323,7 @@ jobs:
         run: git config --global protocol.file.allow always
       - name: install build dependencies
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev llvm-dev cmake protobuf-compiler
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           submodules: recursive
           persist-credentials: false

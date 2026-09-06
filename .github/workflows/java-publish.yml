@@ -96,7 +96,7 @@ jobs:
     steps:
       - name: git-submodule-fix
         run: git config --global protocol.file.allow always
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           submodules: recursive
           persist-credentials: false
@@ -146,7 +146,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           fetch-depth: 0 # needed for JReleaser's conventional-commits changelog; VERSIONING_GIT_TAG (below) drives the actual version resolution
           persist-credentials: false

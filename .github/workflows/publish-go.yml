@@ -92,7 +92,7 @@ jobs:
         run: git config --global protocol.file.allow always
       - name: install build dependencies
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev llvm-dev cmake protobuf-compiler
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           submodules: recursive
           persist-credentials: false
@@ -101,7 +101,7 @@ jobs:
           toolchain: "1.97.1"
           targets: ${{ matrix.platform.rust-target }}
       - if: matrix.platform.target != 'x86_64'
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.6.0
+        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
       - if: matrix.platform.target != 'x86_64'
         name: install aarch64 cross toolchain
         run: sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross
@@ -156,7 +156,7 @@ jobs:
         run: git config --global protocol.file.allow always
       - name: install-clang
         run: choco install llvm -y --no-progress
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           submodules: recursive
           persist-credentials: false
@@ -209,7 +209,7 @@ jobs:
         run: |
           brew install llvm
           echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           submodules: recursive
           persist-credentials: false
@@ -260,12 +260,12 @@ jobs:
     steps:
       - name: git-submodule-fix
         run: git config --global protocol.file.allow always
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           path: dengjen-tts
           submodules: recursive
           persist-credentials: false
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           repository: ZirekHQ/dengjen-tts-go
           path: dengjen-tts-go
@@ -546,7 +546,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           repository: ZirekHQ/dengjen-tts-go
           token: ${{ secrets.DENGJEN_TTS_GO_DEPLOY_TOKEN }}

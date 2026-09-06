@@ -37,7 +37,7 @@ jobs:
         run: git config --global protocol.file.allow always
       - name: install build dependencies
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev llvm-dev cmake protobuf-compiler
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           submodules: recursive
           persist-credentials: false
