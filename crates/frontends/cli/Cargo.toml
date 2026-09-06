@@ -3,6 +3,9 @@ name = "dengjen-tts-cli"
 version.workspace = true
 edition = "2021"
 license.workspace = true
+description = "Command-line interface for the dengjen-tts speech synthesis engine"
+repository.workspace = true
+homepage.workspace = true
 
 [lints]
 workspace = true

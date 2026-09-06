@@ -3,6 +3,9 @@ name = "libdengjen"
 version.workspace = true
 edition = "2021"
 license.workspace = true
+description = "C API bindings for the dengjen-tts speech synthesis engine"
+repository.workspace = true
+homepage.workspace = true
 
 [lints]
 workspace = true

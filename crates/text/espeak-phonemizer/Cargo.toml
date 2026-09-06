@@ -3,6 +3,9 @@ name = "espeak-phonemizer"
 version.workspace = true
 edition = "2021"
 license.workspace = true
+description = "eSpeak NG-based phonemizer for the dengjen-tts speech synthesis engine"
+repository.workspace = true
+homepage.workspace = true
 
 [lints]
 workspace = true
