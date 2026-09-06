@@ -1,18 +1,28 @@
 name: Publish to crates.io
 
-# Triggered automatically by tag-and-release.yml right after it tags a
-# merged version-bump PR's commit vX.Y.Z (via `gh workflow run`, using the
-# one event type GITHUB_TOKEN is allowed to start a new run for). Also
-# dispatchable by hand -- from the Actions tab, or `gh workflow run
-# publish.yml` -- which is the retry path if a partial run fails: every
-# step below is idempotent (skips a crate crates.io already has, via
+# Called directly as a job (`uses:`) from tag-and-release.yml's single
+# release pipeline, in the same run that tags vX.Y.Z -- gated by that
+# pipeline's own dedicated `approve` job (environment: release), not by an
+# environment on the job below, so one approval covers this and the other
+# three release targets atomically instead of each needing (and being
+# separately grantable) its own click. Also dispatchable by hand -- from
+# the Actions tab, or `gh workflow run publish.yml` -- which is the retry
+# path if a partial run fails: every step below is idempotent (skips a
+# crate crates.io already has, via
 # .github/scripts/publish-crate-if-needed.sh), so re-running this from
-# scratch after a failure is always safe, no new tag needed. Deliberately
-# not tag-triggered itself: a `push: tags:` listener here would mean any
-# human pushing an unrelated v*-shaped tag by mistake fires a real,
-# irreversible crates.io publish.
+# scratch after a failure is always safe, no new tag needed. A manual
+# workflow_dispatch run like that carries no approval gate of its own
+# (removed in favor of the shared one above) -- restrict who can trigger it
+# via repo/environment permissions if that's a concern. Deliberately not
+# tag-triggered itself: a `push: tags:` listener here would mean any human
+# pushing an unrelated v*-shaped tag by mistake fires a real, irreversible
+# crates.io publish.
 on:
   workflow_dispatch: {}
+  workflow_call:
+    secrets:
+      CARGO_REGISTRY_TOKEN:
+        required: true
 
 permissions:
   contents: read
@@ -20,7 +30,6 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    environment: release
     permissions:
       contents: read
     steps:
