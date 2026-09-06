@@ -3,6 +3,9 @@ name = "dengjen-tts-grpc"
 version.workspace = true
 edition = "2021"
 license.workspace = true
+description = "gRPC server frontend for the dengjen-tts speech synthesis engine"
+repository.workspace = true
+homepage.workspace = true
 
 [lints]
 workspace = true

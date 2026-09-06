@@ -89,3 +89,57 @@ jobs:
         run: |
           bash .github/scripts/wait-for-crate.sh hebrew-phonemizer "$VERSION"
           bash .github/scripts/wait-for-crate.sh pinyin-phonemizer "$VERSION"
+
+      - name: publish tier 4 (espeak-phonemizer)
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: bash .github/scripts/publish-crate-if-needed.sh espeak-phonemizer "$VERSION"
+      - name: wait for tier 4 to index
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: bash .github/scripts/wait-for-crate.sh espeak-phonemizer "$VERSION"
+
+      - name: publish tier 5 (dengjen-tts-piper, dengjen-tts-kokoro, dengjen-tts-melotts)
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          bash .github/scripts/publish-crate-if-needed.sh dengjen-tts-piper "$VERSION"
+          bash .github/scripts/publish-crate-if-needed.sh dengjen-tts-kokoro "$VERSION"
+          bash .github/scripts/publish-crate-if-needed.sh dengjen-tts-melotts "$VERSION"
+      - name: wait for tier 5 to index
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          bash .github/scripts/wait-for-crate.sh dengjen-tts-piper "$VERSION"
+          bash .github/scripts/wait-for-crate.sh dengjen-tts-kokoro "$VERSION"
+          bash .github/scripts/wait-for-crate.sh dengjen-tts-melotts "$VERSION"
+
+      - name: publish tier 6 (dengjen-tts)
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: bash .github/scripts/publish-crate-if-needed.sh dengjen-tts "$VERSION"
+      - name: wait for tier 6 to index
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: bash .github/scripts/wait-for-crate.sh dengjen-tts "$VERSION"
+
+      - name: publish tier 7 (dengjen-tts-cli, dengjen-tts-grpc, dengjen-tts-python, libdengjen)
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          bash .github/scripts/publish-crate-if-needed.sh dengjen-tts-cli "$VERSION"
+          bash .github/scripts/publish-crate-if-needed.sh dengjen-tts-grpc "$VERSION"
+          bash .github/scripts/publish-crate-if-needed.sh dengjen-tts-python "$VERSION"
+          bash .github/scripts/publish-crate-if-needed.sh libdengjen "$VERSION"
+      - name: wait for tier 7 to index
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          bash .github/scripts/wait-for-crate.sh dengjen-tts-cli "$VERSION"
+          bash .github/scripts/wait-for-crate.sh dengjen-tts-grpc "$VERSION"
+          bash .github/scripts/wait-for-crate.sh dengjen-tts-python "$VERSION"
+          bash .github/scripts/wait-for-crate.sh libdengjen "$VERSION"

@@ -3,6 +3,9 @@ name = "dengjen-tts"
 version.workspace = true
 edition = "2021"
 license.workspace = true
+description = "Speech synthesis orchestration engine combining neural TTS model backends with audio post-processing"
+repository.workspace = true
+homepage.workspace = true
 
 [lints]
 workspace = true
