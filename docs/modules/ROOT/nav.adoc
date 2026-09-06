@@ -2,3 +2,4 @@
 * xref:installation.adoc[Installation]
 * xref:usage.adoc[Usage]
 * xref:testing.adoc[Testing]
+* xref:architecture.adoc[Architecture]
