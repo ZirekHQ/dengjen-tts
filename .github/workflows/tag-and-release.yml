@@ -14,16 +14,6 @@ name: Tag and trigger release
 # go-release-vX.Y.Z (the ZirekHQ/dengjen-tts-go mirror), and
 # grpc-release-vX.Y.Z (the gRPC server's GitHub Release) -- into the single
 # "review and merge the bump PR" gate.
-#
-# dengjen-espeak-ng-sys is deliberately NOT dispatched here. It is not a
-# workspace member, is never touched by scripts/bump-version.sh, and
-# carries its own independent version (see
-# .github/publish-templates/dengjen-espeak-ng-sys/Cargo.toml) on its own
-# size-capped release cadence, unrelated to the workspace version this
-# workflow tags -- a workspace version bump does not imply an
-# dengjen-espeak-ng-sys release is due. Publishing it stays a fully
-# separate, manually-tagged process (publish-espeak-ng-sys-*), unchanged by
-# this workflow.
 on:
   push:
     branches:
@@ -115,6 +105,6 @@ jobs:
           gh workflow run publish-grpc.yml --ref "v${VERSION}" -f "tag=grpc-release-v${VERSION}" || failed=1
           gh workflow run publish-go.yml --ref "v${VERSION}" -f "tag=go-release-v${VERSION}" || failed=1
           if [ "$failed" -eq 1 ]; then
-            echo "::error::One or more downstream workflow dispatches failed -- check the Actions tab and manually dispatch any that didn't fire (safe to re-dispatch any of these five for the same version: CI.yml/publish.yml/java-publish.yml/publish-grpc.yml are version-checked or idempotent, and publish-go.yml's own assemble-and-push step refuses to overwrite an already-released version's tag on ZirekHQ/dengjen-tts-go). dengjen-espeak-ng-sys is never dispatched here -- it has its own separate, manually-tagged release process (publish-espeak-ng-sys-*), unrelated to this version."
+            echo "::error::One or more downstream workflow dispatches failed -- check the Actions tab and manually dispatch any that didn't fire (safe to re-dispatch any of these five for the same version: CI.yml/publish.yml/java-publish.yml/publish-grpc.yml are version-checked or idempotent, and publish-go.yml's own assemble-and-push step refuses to overwrite an already-released version's tag on ZirekHQ/dengjen-tts-go)."
             exit 1
           fi

@@ -8,11 +8,6 @@ name: Prepare release
 # vX.Y.Z and triggers every downstream release workflow (crates.io, Maven
 # Central, PyPI, the ZirekHQ/dengjen-tts-go mirror, the gRPC server's
 # GitHub Release) automatically, no further manual tag pushes needed.
-# dengjen-espeak-ng-sys is the one exception -- it's not a workspace
-# member, isn't touched by scripts/bump-version.sh, and keeps its own
-# independent version and manually-tagged release process
-# (publish-espeak-ng-sys-*), unrelated to the workspace version bumped
-# here.
 on:
   workflow_dispatch: {}
 
@@ -79,5 +74,5 @@ jobs:
           git commit -m "chore: bump workspace version -> ${VERSION}"
           git push -u origin "$branch"
           gh pr create --title "chore: bump workspace version -> ${VERSION}" \
-            --body "Computed by \`prepare-release.yml\` from Conventional Commit subjects since the last tag (see \`scripts/next-version.sh\`). **Merging this releases v${VERSION}**: \`tag-and-release.yml\` tags this merge commit \`v${VERSION}\` and triggers \`publish.yml\` (crates.io), \`java-publish.yml\` (Maven Central), \`publish-go.yml\` (the ZirekHQ/dengjen-tts-go mirror), \`publish-grpc.yml\` (the gRPC server's GitHub Release), and \`CI.yml\`'s release job (PyPI) automatically. Review the version and the diff before merging -- there's no further manual gate after this for those five. \`dengjen-espeak-ng-sys\` is NOT part of this: it keeps its own independent version and its own manually-tagged release (\`publish-espeak-ng-sys-*\`)." \
+            --body "Computed by \`prepare-release.yml\` from Conventional Commit subjects since the last tag (see \`scripts/next-version.sh\`). **Merging this releases v${VERSION}**: \`tag-and-release.yml\` tags this merge commit \`v${VERSION}\` and triggers \`publish.yml\` (crates.io), \`java-publish.yml\` (Maven Central), \`publish-go.yml\` (the ZirekHQ/dengjen-tts-go mirror), \`publish-grpc.yml\` (the gRPC server's GitHub Release), and \`CI.yml\`'s release job (PyPI) automatically. Review the version and the diff before merging -- there's no further manual gate after this for those five." \
             --base main --head "$branch"
