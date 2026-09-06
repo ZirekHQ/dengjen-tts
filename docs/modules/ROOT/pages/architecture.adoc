@@ -1,0 +1,95 @@
+= Architecture
+
+This page shows dengjen-tts's own structure as a https://c4model.com/[C4]
+Container, Component, and Code diagram. For how it fits into the wider
+ZirekHQ speech stack, see the
+https://zirekhq.github.io/en/home/architecture.html[org-wide System Context
+diagram].
+
+== Container
+
+dengjen-tts is a single Rust workspace exposing the same synthesis engine
+through four different frontends. Go and Java bindings call the C ABI
+frontend directly rather than being separate frontends of their own.
+
+[source,mermaid]
+----
+C4Container
+    Person(caller, "Caller", "CLI user, bound language, or another process")
+
+    System_Boundary(dengjen, "dengjen-tts") {
+        Container(cli, "dengjen", "Rust binary")
+        Container(capi, "libdengjen", "C ABI", "Consumed by the Go and Java bindings")
+        Container(pyext, "pydengjen", "Python extension")
+        Container(grpc, "dengjen-tts-grpc", "gRPC server", "Vendored by dengjen-nvda")
+        Container(engine, "Synthesis engine", "Rust library", "See Component diagram")
+    }
+
+    Rel(caller, cli, "Invokes")
+    Rel(caller, capi, "Calls, via Go/Java bindings")
+    Rel(caller, pyext, "Imports")
+    Rel(caller, grpc, "Calls over gRPC")
+    Rel(cli, engine, "Uses")
+    Rel(capi, engine, "Uses")
+    Rel(pyext, engine, "Uses")
+    Rel(grpc, engine, "Uses")
+----
+
+== Component
+
+The engine's model backends (Piper, Kokoro, MeloTTS) implement a shared
+`DengjenModel` trait; the engine itself wraps a chosen model in a decorator
+that adds prosody post-processing and parallel/batched dispatch.
+
+[source,mermaid]
+----
+C4Component
+    Container_Boundary(engine, "Synthesis engine") {
+        Component(core, "dengjen-tts-core", "Rust crate", "Defines the DengjenModel trait and shared types (Audio, SynthesisConfig, DengjenError)")
+        Component(synth, "DengjenSpeechSynthesizer", "Rust struct (dengjen-tts / synth crate)", "Wraps an inner DengjenModel; applies prosody and dispatches via a rayon thread pool")
+        Component(piper, "dengjen-tts-piper", "Rust crate", "VitsModel / VitsStreamingModel")
+        Component(kokoro, "dengjen-tts-kokoro", "Rust crate", "KokoroModel")
+        Component(melotts, "dengjen-tts-melotts", "Rust crate", "MeloTTSModel")
+        Component(sonic, "sonic-sys", "FFI binding", "libsonic, used for prosody (pitch/speed) adjustment")
+    }
+
+    Rel(synth, core, "Implements")
+    Rel(piper, core, "Implements")
+    Rel(kokoro, core, "Implements")
+    Rel(melotts, core, "Implements")
+    Rel(synth, piper, "Wraps one model, e.g.")
+    Rel(synth, sonic, "Post-processes via")
+----
+
+== Code
+
+The interesting shape here is that `DengjenSpeechSynthesizer` is a decorator:
+it implements the exact same `DengjenModel` trait it wraps, rather than
+exposing a separate API for "a model with prosody applied."
+
+[source,mermaid]
+----
+classDiagram
+    class DengjenModel {
+        <<trait>>
+        +phonemize_text()
+        +speak_batch()
+        +speak_one_sentence()
+        +audio_output_info()
+    }
+    class VitsModel
+    class VitsStreamingModel
+    class KokoroModel
+    class MeloTTSModel
+    class DengjenSpeechSynthesizer {
+        -backend: Arc~DengjenModel~
+        +speak_batch()
+    }
+
+    DengjenModel <|.. VitsModel
+    DengjenModel <|.. VitsStreamingModel
+    DengjenModel <|.. KokoroModel
+    DengjenModel <|.. MeloTTSModel
+    DengjenModel <|.. DengjenSpeechSynthesizer
+    DengjenSpeechSynthesizer o-- DengjenModel : wraps
+----
