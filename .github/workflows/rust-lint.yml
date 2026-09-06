@@ -282,9 +282,11 @@ jobs:
       - name: download real Kokoro voice fixture
         run: |
           mkdir -p /tmp/kokoro-real-voice
-          curl -fsSL "${{ vars.KOKORO_TEST_VOICE_ARCHIVE_URL }}" -o /tmp/kokoro-voice.tar.gz
+          curl -fsSL "${VARS_KOKORO_TEST_VOICE_ARCHIVE_URL}" -o /tmp/kokoro-voice.tar.gz
           tar -xzf /tmp/kokoro-voice.tar.gz -C /tmp/kokoro-real-voice --strip-components=1
           echo "DENGJEN_KOKORO_TEST_VOICE_CONFIG=/tmp/kokoro-real-voice/config.json" >> "$GITHUB_ENV"
+        env:
+          VARS_KOKORO_TEST_VOICE_ARCHIVE_URL: ${{ vars.KOKORO_TEST_VOICE_ARCHIVE_URL }}
       - name: cargo test (dengjen-tts-kokoro, real voice e2e)
         run: cargo test -p dengjen-tts-kokoro --features espeak --test e2e_real_voice
       - name: cargo test (dengjen-tts-cli, kokoro real voice e2e)

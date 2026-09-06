@@ -67,7 +67,9 @@ jobs:
 
       - name: Bump version
         if: steps.next.outputs.skip != 'true'
-        run: bash scripts/bump-version.sh "${{ steps.next.outputs.version }}"
+        run: bash scripts/bump-version.sh "${STEPS_NEXT_OUTPUTS_VERSION}"
+        env:
+          STEPS_NEXT_OUTPUTS_VERSION: ${{ steps.next.outputs.version }}
 
       - name: Open release PR
         if: steps.next.outputs.skip != 'true'

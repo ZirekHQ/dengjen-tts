@@ -420,7 +420,7 @@ jobs:
           linux/arm64, windows/amd64, and darwin/arm64.
 
           \`\`\`bash
-          go get github.com/ZirekHQ/dengjen-tts-go@${{ steps.version.outputs.version }}
+          go get github.com/ZirekHQ/dengjen-tts-go@${STEPS_VERSION_OUTPUTS_VERSION}
           \`\`\`
 
           This repository is generated on every release from
@@ -453,6 +453,8 @@ jobs:
           fmt-check:
           	@test -z "$$(gofmt -l .)" || (gofmt -l . && exit 1)
           EOF
+        env:
+          STEPS_VERSION_OUTPUTS_VERSION: ${{ steps.version.outputs.version }}
       - name: commit and push release snapshot
         id: push-release
         working-directory: dengjen-tts-go
@@ -509,13 +511,14 @@ jobs:
           GOPROXY: direct
           GONOSUMDB: github.com/ZirekHQ/dengjen-tts-go
           GOFLAGS: '-mod=mod'
+          NEEDS_ASSEMBLE_AND_PUSH_OUTPUTS_VERSION: ${{ needs.assemble-and-push.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p /tmp/dengjen-go-verify
           cd /tmp/dengjen-go-verify
           go mod init verify
-          go get "github.com/ZirekHQ/dengjen-tts-go@${{ needs.assemble-and-push.outputs.version }}"
+          go get "github.com/ZirekHQ/dengjen-tts-go@${NEEDS_ASSEMBLE_AND_PUSH_OUTPUTS_VERSION}"
 
           if [[ "${RUNNER_OS:-}" == "Windows" ]]; then
             mod_dir="$(go list -m -f '{{.Dir}}' github.com/ZirekHQ/dengjen-tts-go)"
@@ -555,12 +558,12 @@ jobs:
       - name: delete failed release tag
         run: |
           set -euo pipefail
-          version="${{ needs.assemble-and-push.outputs.version }}"
+          version="${NEEDS_ASSEMBLE_AND_PUSH_OUTPUTS_VERSION}"
           if [[ -z "$version" ]]; then
             echo "assemble-and-push produced no version output; nothing was tagged, nothing to roll back" >&2
             exit 0
           fi
-          expected_sha="${{ needs.assemble-and-push.outputs.release_sha }}"
+          expected_sha="${NEEDS_ASSEMBLE_AND_PUSH_OUTPUTS_RELEASE_SHA}"
           if [[ -z "$expected_sha" ]]; then
             echo "This run's own tag push never succeeded; nothing to roll back" >&2
             exit 0
@@ -575,3 +578,6 @@ jobs:
           else
             echo "::warning::tag ${version} was not present on origin (already deleted, or the push that would have created it never happened)"
           fi
+        env:
+          NEEDS_ASSEMBLE_AND_PUSH_OUTPUTS_VERSION: ${{ needs.assemble-and-push.outputs.version }}
+          NEEDS_ASSEMBLE_AND_PUSH_OUTPUTS_RELEASE_SHA: ${{ needs.assemble-and-push.outputs.release_sha }}
