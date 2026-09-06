@@ -473,6 +473,10 @@ jobs:
             exit 1
           fi
 
+          release_tag="${{ steps.version.outputs.version }}"
+          git tag "$release_tag"
+          git push origin "refs/tags/${release_tag}"
+
           echo "release_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   verify:

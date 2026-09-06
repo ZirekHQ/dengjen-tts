@@ -46,12 +46,24 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          set -euo pipefail
-          if gh api "repos/${{ github.repository }}/releases/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
+          set -uo pipefail
+          resp="$(gh api "repos/${{ github.repository }}/releases/tags/${RELEASE_TAG}" 2>&1)"
+          rc=$?
+          if [ "$rc" -eq 0 ]; then
             echo "::notice::${RELEASE_TAG} already has a GitHub Release -- skipping"
             echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
+            exit 0
+          fi
+          # Only a definite 404 means "no release yet" -- anything else
+          # (auth, rate-limit, a 5xx blip) must fail the preflight instead
+          # of silently falling through to skip=false, which would let the
+          # build proceed on an inconclusive check.
+          status="$(printf '%s' "$resp" | jq -r '.status // empty' 2>/dev/null)"
+          if [ "$status" = "404" ]; then
             echo "skip=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::unexpected error checking for an existing GitHub Release for ${RELEASE_TAG}: ${resp}" >&2
+            exit 1
           fi
 
   build-windows:

@@ -54,12 +54,23 @@ jobs:
           version="${RELEASE_TAG#java-v}"
           url="https://repo1.maven.org/maven2/io/github/zirekhq/dengjen-tts/${version}/dengjen-tts-${version}.pom"
           status="$(curl -s -o /dev/null -w '%{http_code}' "$url")"
-          if [ "$status" = "200" ]; then
-            echo "::notice::dengjen-tts ${version} is already on Maven Central -- skipping"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
+          # Only a definite 404 means "not published yet" -- anything else
+          # (a 429/5xx blip, a network hiccup) must fail the preflight
+          # instead of silently falling through to skip=false, which would
+          # let the build proceed on an inconclusive check.
+          case "$status" in
+            200)
+              echo "::notice::dengjen-tts ${version} is already on Maven Central -- skipping"
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              ;;
+            404)
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "::error::unexpected HTTP ${status} checking Maven Central for dengjen-tts ${version}" >&2
+              exit 1
+              ;;
+          esac
 
   build-natives:
     needs: check
