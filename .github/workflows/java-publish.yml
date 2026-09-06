@@ -6,10 +6,14 @@ on:
       - "java-v*"
   # Called directly as a job (`uses:`) from tag-and-release.yml's single
   # release pipeline right after it tags the version-bump merge commit
-  # vX.Y.Z, passing tag=java-vX.Y.Z -- no real `java-v*` tag needs to exist
+  # vX.Y.Z, passing tag=java-vX.Y.Z -- gated by that pipeline's own
+  # dedicated `approve` job (environment: release), not by an environment
+  # on the `release` job below, so one approval covers this and the other
+  # three release targets atomically. No real `java-v*` tag needs to exist
   # on this repo for that, since the value below is only ever used as a
   # version string (VERSIONING_GIT_TAG), not resolved as a git ref. Also
-  # usable for a manual retrigger from the Actions tab.
+  # usable for a manual retrigger from the Actions tab -- that path carries
+  # no approval gate of its own (removed in favor of the shared one above).
   workflow_dispatch:
     inputs:
       tag:
@@ -139,7 +143,6 @@ jobs:
     needs: [check, build-natives]
     if: needs.check.outputs.skip != 'true'
     runs-on: ubuntu-latest
-    environment: release
     permissions:
       contents: write
     steps:

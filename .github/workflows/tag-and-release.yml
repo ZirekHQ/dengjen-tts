@@ -11,16 +11,23 @@ name: Tag and trigger release
 # as a job in *this same run*: crates.io (publish.yml), Maven Central
 # (java-publish.yml), the ZirekHQ/dengjen-tts-go mirror (publish-go.yml),
 # and the gRPC server's GitHub Release (publish-grpc.yml) are called
-# directly via `uses:`, not dispatched as separate workflow runs -- each
-# still gates on its own `environment: release` job, but because they're
-# jobs of one run, GitHub's "Review pending deployments" screen lists all
-# of them together and a reviewer approves the batch in one action instead
-# of visiting four separate runs. PyPI (CI.yml's release job) is the one
-# exception: it carries no environment gate, so it's still fired with a
-# plain `gh workflow run` against the tag, same as before. Collapses what
-# used to be five separate manual tag pushes into the single "review and
-# merge the bump PR" gate, now backed by a single approval click for the
-# four that need one.
+# directly via `uses:`, not dispatched as separate workflow runs. All four
+# gate on the single `approve` job below (the only job in this file with
+# `environment: release`) rather than each having its own environment --
+# one approval unblocks all four atomically, and there's no way to approve
+# only some of them, unlike letting each called job independently reference
+# the environment (which GitHub would let a reviewer approve piecemeal in
+# the same "review pending deployments" screen). The tradeoff: since
+# publish.yml/java-publish.yml/publish-go.yml/publish-grpc.yml no longer
+# carry their own environment gate, a direct manual `workflow_dispatch` (or,
+# for the latter three, a hand-pushed java-v*/go-release-v*/grpc-release-v*
+# tag) on any of them now publishes with no approval at all -- see each
+# file's own header comment. PyPI (CI.yml's release job) is the one target
+# excluded from this gate entirely: it carries no environment protection of
+# its own, so it's still fired with a plain `gh workflow run` against the
+# tag, same as before. Collapses what used to be five separate manual tag
+# pushes into the single "review and merge the bump PR" gate, now backed by
+# one all-or-nothing approval click for the four that need one.
 on:
   push:
     branches:
@@ -99,17 +106,26 @@ jobs:
         # batch into the others' approval.
         run: gh workflow run CI.yml --ref "v${VERSION}"
 
+  # The one job in this file gated on the `release` environment. All four
+  # release-target jobs below `needs: approve`, so a single reviewer
+  # decision unblocks (or leaves blocked) all four together -- there's no
+  # per-target approval to grant or withhold separately.
+  approve:
+    name: Approve release
+    needs: tag-and-release
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - run: echo "Approved v${{ needs.tag-and-release.outputs.version }} for release"
+
   # Each of these calls the target workflow directly as a job of this same
   # run (rather than `gh workflow run`-dispatching a separate run against
   # the vX.Y.Z tag), so the checkout inside each defaults to this run's own
   # github.sha -- which is already the version-bump commit this job just
-  # tagged, no explicit --ref needed. Each still declares its own
-  # `environment: release` internally; because all four are jobs of this
-  # one run, GitHub presents them as one batch of pending deployments for a
-  # reviewer to approve together.
+  # tagged, no explicit --ref needed.
   crates:
     name: crates.io
-    needs: tag-and-release
+    needs: [tag-and-release, approve]
     permissions:
       contents: read
     uses: $/.github/workflows/publish.yml
@@ -118,7 +134,7 @@ jobs:
 
   java:
     name: Maven Central (Java bindings)
-    needs: tag-and-release
+    needs: [tag-and-release, approve]
     permissions:
       contents: write
     uses: $/.github/workflows/java-publish.yml
@@ -133,7 +149,7 @@ jobs:
 
   go:
     name: dengjen-tts-go mirror
-    needs: tag-and-release
+    needs: [tag-and-release, approve]
     permissions:
       contents: read
     uses: $/.github/workflows/publish-go.yml
@@ -144,7 +160,7 @@ jobs:
 
   grpc:
     name: gRPC server GitHub Release
-    needs: tag-and-release
+    needs: [tag-and-release, approve]
     permissions:
       contents: write
     uses: $/.github/workflows/publish-grpc.yml

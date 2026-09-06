@@ -18,13 +18,17 @@ on:
       - "go-release-v*"
   # Called directly as a job (`uses:`) from tag-and-release.yml's single
   # release pipeline right after it tags the version-bump merge commit
-  # vX.Y.Z, passing tag=go-release-vX.Y.Z. No real "go-release-v*" tag needs
-  # to pre-exist on this repo for that -- the value below only feeds
-  # "extract target version" below, which strips its "go-release-" prefix to
-  # get the plain vX.Y.Z tag this job pushes to the separate
-  # ZirekHQ/dengjen-tts-go repo. Also usable for a manual retrigger; the
-  # `check` job below makes a retry against an already-released version safe
-  # by skipping the build entirely instead of re-running it.
+  # vX.Y.Z, passing tag=go-release-vX.Y.Z -- gated by that pipeline's own
+  # dedicated `approve` job (environment: release), not by an environment
+  # on `assemble-and-push` below, so one approval covers this and the other
+  # three release targets atomically. No real "go-release-v*" tag needs to
+  # pre-exist on this repo for that -- the value below only feeds "extract
+  # target version" below, which strips its "go-release-" prefix to get the
+  # plain vX.Y.Z tag this job pushes to the separate ZirekHQ/dengjen-tts-go
+  # repo. Also usable for a manual retrigger -- that path carries no
+  # approval gate of its own (removed in favor of the shared one above);
+  # the `check` job below at least makes a retry against an already-
+  # released version safe by skipping the build entirely.
   workflow_dispatch:
     inputs:
       tag:
@@ -248,7 +252,6 @@ jobs:
     needs: [check, build-linux, build-windows, build-macos]
     if: needs.check.outputs.skip != 'true'
     runs-on: ubuntu-latest
-    environment: release
     permissions:
       contents: read
     outputs:

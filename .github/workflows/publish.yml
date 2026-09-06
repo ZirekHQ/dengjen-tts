@@ -1,16 +1,22 @@
 name: Publish to crates.io
 
 # Called directly as a job (`uses:`) from tag-and-release.yml's single
-# release pipeline, in the same run that tags vX.Y.Z -- so it and the other
-# release targets share one `environment: release` approval screen instead
-# of each needing a separate click. Also dispatchable by hand -- from the
-# Actions tab, or `gh workflow run publish.yml` -- which is the retry path
-# if a partial run fails: every step below is idempotent (skips a crate
-# crates.io already has, via .github/scripts/publish-crate-if-needed.sh),
-# so re-running this from scratch after a failure is always safe, no new
-# tag needed. Deliberately not tag-triggered itself: a `push: tags:`
-# listener here would mean any human pushing an unrelated v*-shaped tag by
-# mistake fires a real, irreversible crates.io publish.
+# release pipeline, in the same run that tags vX.Y.Z -- gated by that
+# pipeline's own dedicated `approve` job (environment: release), not by an
+# environment on the job below, so one approval covers this and the other
+# three release targets atomically instead of each needing (and being
+# separately grantable) its own click. Also dispatchable by hand -- from
+# the Actions tab, or `gh workflow run publish.yml` -- which is the retry
+# path if a partial run fails: every step below is idempotent (skips a
+# crate crates.io already has, via
+# .github/scripts/publish-crate-if-needed.sh), so re-running this from
+# scratch after a failure is always safe, no new tag needed. A manual
+# workflow_dispatch run like that carries no approval gate of its own
+# (removed in favor of the shared one above) -- restrict who can trigger it
+# via repo/environment permissions if that's a concern. Deliberately not
+# tag-triggered itself: a `push: tags:` listener here would mean any human
+# pushing an unrelated v*-shaped tag by mistake fires a real, irreversible
+# crates.io publish.
 on:
   workflow_dispatch: {}
   workflow_call:
@@ -24,7 +30,6 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    environment: release
     permissions:
       contents: read
     steps:

@@ -9,13 +9,18 @@ on:
       - "grpc-release-v*"
   # Called directly as a job (`uses:`) from tag-and-release.yml's single
   # release pipeline right after it tags the version-bump merge commit
-  # vX.Y.Z, passing tag=grpc-release-vX.Y.Z. No real "grpc-release-v*" tag
-  # needs to pre-exist on this repo for that -- the value below only feeds
+  # vX.Y.Z, passing tag=grpc-release-vX.Y.Z -- gated by that pipeline's own
+  # dedicated `approve` job (environment: release), not by an environment
+  # on `build-windows` below, so one approval covers this and the other
+  # three release targets atomically. No real "grpc-release-v*" tag needs
+  # to pre-exist on this repo for that -- the value below only feeds
   # version extraction and the GitHub Release's tag_name, and
   # softprops/action-gh-release creates that tag itself if it's not already
   # there, same end state a manual tag push used to produce directly. Also
-  # usable for a manual retrigger; the `check` job below skips the (Windows,
-  # so not cheap) build entirely if this version already has a release.
+  # usable for a manual retrigger -- that path carries no approval gate of
+  # its own (removed in favor of the shared one above); the `check` job
+  # below at least skips the (Windows, so not cheap) build entirely if this
+  # version already has a release.
   workflow_dispatch:
     inputs:
       tag:
@@ -70,7 +75,6 @@ jobs:
     needs: check
     if: needs.check.outputs.skip != 'true'
     runs-on: windows-2022
-    environment: release
     permissions:
       contents: write
     env:
