@@ -1,5 +1,7 @@
 # Dengjen
 
+[Project board](https://github.com/orgs/ZirekHQ/projects/1) — live roadmap and status for this repo's issues.
+
 A cross-platform Rust engine for neural TTS models.
 
 ## Features
