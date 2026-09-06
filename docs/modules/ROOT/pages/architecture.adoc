@@ -82,7 +82,7 @@ classDiagram
     class KokoroModel
     class MeloTTSModel
     class DengjenSpeechSynthesizer {
-        -backend: DengjenModel
+        -backend: Arc~DengjenModel~
         +speak_batch()
     }
 
