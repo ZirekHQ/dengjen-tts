@@ -1,7 +1,7 @@
 #![no_main]
 
 use arbitrary::Arbitrary;
-use hebrew_phonemizer::num_classes;
+use dengjen_hebrew_phonemizer::num_classes;
 use libfuzzer_sys::fuzz_target;
 use ort::value::Shape;
 

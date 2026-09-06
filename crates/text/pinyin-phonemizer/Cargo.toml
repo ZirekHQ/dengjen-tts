@@ -1,5 +1,5 @@
 [package]
-name = "pinyin-phonemizer"
+name = "dengjen-pinyin-phonemizer"
 version.workspace = true
 edition = "2021"
 license.workspace = true

@@ -1,4 +1,4 @@
-use audio_ops::AudioSamples;
+use dengjen_audio_ops::AudioSamples;
 use divan::Bencher;
 
 const SAMPLE_COUNT: usize = 44_100 * 10;

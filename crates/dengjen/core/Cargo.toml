@@ -11,5 +11,5 @@ homepage.workspace = true
 workspace = true
 
 [dependencies]
-audio-ops.workspace = true
+dengjen-audio-ops.workspace = true
 once_cell = "1.18.0"

@@ -121,16 +121,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
-name = "audio-ops"
-version = "1.2.0"
-dependencies = [
- "divan",
- "once_cell",
- "proptest",
- "riff-wave",
-]
-
-[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -524,6 +514,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "dengjen-audio-ops"
+version = "1.2.0"
+dependencies = [
+ "divan",
+ "once_cell",
+ "proptest",
+ "riff-wave",
+]
+
+[[package]]
+name = "dengjen-espeak-phonemizer"
+version = "1.2.0"
+dependencies = [
+ "dengjen-espeak-rs-sys",
+ "ffi-support",
+ "once_cell",
+ "regex",
+]
+
+[[package]]
 name = "dengjen-espeak-rs-sys"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -534,6 +544,36 @@ dependencies = [
  "glob",
  "lzma-rs",
  "tar",
+]
+
+[[package]]
+name = "dengjen-hebrew-phonemizer"
+version = "1.2.0"
+dependencies = [
+ "dengjen-tts-core",
+ "ndarray",
+ "ort",
+ "unicode-normalization",
+]
+
+[[package]]
+name = "dengjen-pinyin-phonemizer"
+version = "1.2.0"
+dependencies = [
+ "dengjen-tts-core",
+ "ndarray",
+ "ort",
+ "serde",
+ "serde_json",
+ "tokenizers",
+]
+
+[[package]]
+name = "dengjen-sonic-sys"
+version = "1.2.0"
+dependencies = [
+ "bindgen 0.69.5",
+ "cc",
 ]
 
 [[package]]
@@ -557,7 +597,8 @@ dependencies = [
 name = "dengjen-tts"
 version = "1.2.0"
 dependencies = [
- "audio-ops",
+ "dengjen-audio-ops",
+ "dengjen-sonic-sys",
  "dengjen-tts-core",
  "dengjen-tts-kokoro",
  "dengjen-tts-piper",
@@ -568,7 +609,6 @@ dependencies = [
  "proptest",
  "rayon",
  "serde_json",
- "sonic-sys",
  "tempfile",
 ]
 
@@ -593,7 +633,7 @@ dependencies = [
 name = "dengjen-tts-core"
 version = "1.2.0"
 dependencies = [
- "audio-ops",
+ "dengjen-audio-ops",
  "once_cell",
 ]
 
@@ -622,8 +662,8 @@ dependencies = [
 name = "dengjen-tts-kokoro"
 version = "1.2.0"
 dependencies = [
+ "dengjen-espeak-phonemizer",
  "dengjen-tts-core",
- "espeak-phonemizer",
  "ndarray",
  "ort",
  "serde",
@@ -634,11 +674,11 @@ dependencies = [
 name = "dengjen-tts-melotts"
 version = "1.2.0"
 dependencies = [
+ "dengjen-espeak-phonemizer",
+ "dengjen-pinyin-phonemizer",
  "dengjen-tts-core",
- "espeak-phonemizer",
  "ndarray",
  "ort",
- "pinyin-phonemizer",
  "serde",
  "serde_json",
 ]
@@ -647,13 +687,13 @@ dependencies = [
 name = "dengjen-tts-piper"
 version = "1.2.0"
 dependencies = [
+ "dengjen-espeak-phonemizer",
+ "dengjen-hebrew-phonemizer",
+ "dengjen-pinyin-phonemizer",
  "dengjen-tashkeel",
  "dengjen-tts-core",
- "espeak-phonemizer",
- "hebrew-phonemizer",
  "ndarray",
  "ort",
- "pinyin-phonemizer",
  "serde",
  "serde_json",
 ]
@@ -662,13 +702,13 @@ dependencies = [
 name = "dengjen-tts-python"
 version = "1.2.0"
 dependencies = [
+ "dengjen-espeak-phonemizer",
  "dengjen-tashkeel",
  "dengjen-tts",
  "dengjen-tts-core",
  "dengjen-tts-kokoro",
  "dengjen-tts-melotts",
  "dengjen-tts-piper",
- "espeak-phonemizer",
  "fs_extra",
  "once_cell",
  "ort",
@@ -771,16 +811,6 @@ name = "esaxx-rs"
 version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d817e038c30374a4bcb22f94d0a8a0e216958d4c3dcde369b1439fec4bdda6e6"
-
-[[package]]
-name = "espeak-phonemizer"
-version = "1.2.0"
-dependencies = [
- "dengjen-espeak-rs-sys",
- "ffi-support",
- "once_cell",
- "regex",
-]
 
 [[package]]
 name = "fancy-regex"
@@ -962,16 +992,6 @@ name = "hashbrown"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
-
-[[package]]
-name = "hebrew-phonemizer"
-version = "1.2.0"
-dependencies = [
- "dengjen-tts-core",
- "ndarray",
- "ort",
- "unicode-normalization",
-]
 
 [[package]]
 name = "heck"
@@ -1537,18 +1557,6 @@ name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
-
-[[package]]
-name = "pinyin-phonemizer"
-version = "1.2.0"
-dependencies = [
- "dengjen-tts-core",
- "ndarray",
- "ort",
- "serde",
- "serde_json",
- "tokenizers",
-]
 
 [[package]]
 name = "pkg-config"
@@ -2125,14 +2133,6 @@ dependencies = [
  "byteorder 1.5.0",
  "libc",
  "winapi",
-]
-
-[[package]]
-name = "sonic-sys"
-version = "1.2.0"
-dependencies = [
- "bindgen 0.69.5",
- "cc",
 ]
 
 [[package]]

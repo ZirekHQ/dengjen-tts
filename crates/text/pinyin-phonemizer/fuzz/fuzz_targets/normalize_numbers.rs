@@ -1,7 +1,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use pinyin_phonemizer::normalize_numbers;
+use dengjen_pinyin_phonemizer::normalize_numbers;
 
 
 

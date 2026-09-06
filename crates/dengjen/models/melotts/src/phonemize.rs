@@ -2,13 +2,13 @@ use crate::config::PhonemizerConfig;
 use dengjen_tts_core::{DengjenError, DengjenResult};
 
 #[cfg(feature = "pinyin")]
-pub(crate) type PinyinBackend = pinyin_phonemizer::PinyinEngine;
+pub(crate) type PinyinBackend = dengjen_pinyin_phonemizer::PinyinEngine;
 #[cfg(not(feature = "pinyin"))]
 pub(crate) type PinyinBackend = ();
 
 #[cfg(feature = "pinyin")]
 pub(crate) fn create_pinyin_backend(model_dir: &std::path::Path) -> DengjenResult<PinyinBackend> {
-    pinyin_phonemizer::create_pinyin_engine(model_dir)
+    dengjen_pinyin_phonemizer::create_pinyin_engine(model_dir)
 }
 #[cfg(not(feature = "pinyin"))]
 pub(crate) fn create_pinyin_backend(_model_dir: &std::path::Path) -> DengjenResult<PinyinBackend> {
@@ -23,14 +23,14 @@ pub(crate) fn pinyin_phone_tone_pairs(
     engine: &PinyinBackend,
     text: &str,
 ) -> DengjenResult<Vec<Vec<(String, String)>>> {
-    let token_sentences = pinyin_phonemizer::text_to_pinyin_tokens(engine, text)?;
+    let token_sentences = dengjen_pinyin_phonemizer::text_to_pinyin_tokens(engine, text)?;
     Ok(token_sentences
         .into_iter()
         .map(|tokens| {
             tokens
                 .into_iter()
                 .flat_map(|token| match token {
-                    pinyin_phonemizer::PinyinToken::Syllable {
+                    dengjen_pinyin_phonemizer::PinyinToken::Syllable {
                         initial,
                         finale,
                         tone,
@@ -43,7 +43,9 @@ pub(crate) fn pinyin_phone_tone_pairs(
                         pairs.push((finale, tone_symbol));
                         pairs
                     }
-                    pinyin_phonemizer::PinyinToken::Passthrough(s) => vec![(s, "_".to_string())],
+                    dengjen_pinyin_phonemizer::PinyinToken::Passthrough(s) => {
+                        vec![(s, "_".to_string())]
+                    }
                 })
                 .collect()
         })
@@ -65,7 +67,7 @@ pub(crate) fn espeak_phone_tone_pairs(
     text: &str,
     voice: &str,
 ) -> DengjenResult<Vec<Vec<(String, String)>>> {
-    let sentences = espeak_phonemizer::text_to_phonemes(text, voice, None, true, false)
+    let sentences = dengjen_espeak_phonemizer::text_to_phonemes(text, voice, None, true, false)
         .map_err(|e| DengjenError::PhonemizationError(e.to_string()))?;
     Ok(sentences
         .into_iter()

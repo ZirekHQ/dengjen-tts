@@ -8,12 +8,12 @@ pub(crate) type TashkeelEngine = dengjen_tashkeel::DynamicInferenceEngine;
 pub(crate) type TashkeelEngine = ();
 
 #[cfg(feature = "hebrew")]
-pub(crate) type HebrewEngine = hebrew_phonemizer::NakdimonEngine;
+pub(crate) type HebrewEngine = dengjen_hebrew_phonemizer::NakdimonEngine;
 #[cfg(not(feature = "hebrew"))]
 pub(crate) type HebrewEngine = ();
 
 #[cfg(feature = "pinyin")]
-pub(crate) type PinyinEngine = pinyin_phonemizer::PinyinEngine;
+pub(crate) type PinyinEngine = dengjen_pinyin_phonemizer::PinyinEngine;
 #[cfg(not(feature = "pinyin"))]
 pub(crate) type PinyinEngine = ();
 
@@ -42,7 +42,7 @@ pub(crate) fn phonemize_dispatch(
         PhonemeType::Text => Some(Ok(vec![text.to_string()].into())),
         #[cfg(feature = "hebrew")]
         PhonemeType::Hebrew => Some(match hebrew_engine {
-            Some(engine) => hebrew_phonemizer::text_to_hebrew_phonemes(engine, text),
+            Some(engine) => dengjen_hebrew_phonemizer::text_to_hebrew_phonemes(engine, text),
             None => Err(DengjenError::PhonemizationError(
                 "This voice's phoneme_type is `hebrew` but no Hebrew engine was initialized"
                     .to_string(),
@@ -54,7 +54,7 @@ pub(crate) fn phonemize_dispatch(
         ))),
         #[cfg(feature = "pinyin")]
         PhonemeType::Pinyin => Some(match pinyin_engine {
-            Some(engine) => pinyin_phonemizer::text_to_pinyin_phonemes(engine, text),
+            Some(engine) => dengjen_pinyin_phonemizer::text_to_pinyin_phonemes(engine, text),
             None => Err(DengjenError::PhonemizationError(
                 "This voice's phoneme_type is `pinyin` but no pinyin engine was initialized"
                     .to_string(),
@@ -106,7 +106,7 @@ pub(crate) fn create_hebrew_engine(
     };
 
     let resolved_model_path = resolve_hebrew_model_path(config_path, model_path);
-    hebrew_phonemizer::create_nakdimon_engine(&resolved_model_path).map(Some)
+    dengjen_hebrew_phonemizer::create_nakdimon_engine(&resolved_model_path).map(Some)
 }
 
 #[cfg(feature = "hebrew")]
@@ -137,7 +137,7 @@ pub(crate) fn create_pinyin_engine(
     };
 
     let resolved_model_dir = resolve_pinyin_model_dir(config_path, model_dir);
-    pinyin_phonemizer::create_pinyin_engine(&resolved_model_dir).map(Some)
+    dengjen_pinyin_phonemizer::create_pinyin_engine(&resolved_model_dir).map(Some)
 }
 
 #[cfg(feature = "pinyin")]

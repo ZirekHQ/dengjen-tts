@@ -1,6 +1,6 @@
 = Testing
 
-Some packages, such as `espeak-phonemizer`, include tests. Running `cargo test` from the root of
+Some packages, such as `dengjen-espeak-phonemizer`, include tests. Running `cargo test` from the root of
 the workspace will likely fail, because `cargo` does not load `config` from sub packages when run
 from the workspace root.
 

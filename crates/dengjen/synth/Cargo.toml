@@ -15,8 +15,8 @@ name = "dengjen_tts"
 
 [dependencies]
 dengjen-tts-core.workspace = true
-sonic-sys.workspace = true
-audio-ops.workspace = true
+dengjen-sonic-sys.workspace = true
+dengjen-audio-ops.workspace = true
 rayon = "1.7.0"
 once_cell = "1.18.0"
 flume = { version = "0.11.0", default-features = false, features = ["async"] }

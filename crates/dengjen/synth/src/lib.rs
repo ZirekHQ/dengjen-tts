@@ -95,32 +95,33 @@ impl AudioOutputConfig {
         // error return on a zero-sample result included — destroys that
         // same handle first, so no stream ever outlives this block.
         unsafe {
-            let stream = sonic_sys::sonicCreateStream(sample_rate as i32, num_channels as i32);
+            let stream =
+                dengjen_sonic_sys::sonicCreateStream(sample_rate as i32, num_channels as i32);
 
             if let Some(pct) = self.rate {
                 let speed =
                     utils::percent_to_param(pct, SPEED_PARAM_RANGE.min, SPEED_PARAM_RANGE.max);
-                sonic_sys::sonicSetSpeed(stream, speed);
+                dengjen_sonic_sys::sonicSetSpeed(stream, speed);
             }
 
             if let Some(pct) = self.volume.filter(|&pct| pct != 0) {
                 let volume =
                     utils::percent_to_param(pct, VOLUME_PARAM_RANGE.min, VOLUME_PARAM_RANGE.max);
-                sonic_sys::sonicSetVolume(stream, volume);
+                dengjen_sonic_sys::sonicSetVolume(stream, volume);
             }
             if let Some(pct) = self.pitch {
                 let pitch =
                     utils::percent_to_param(pct, PITCH_PARAM_RANGE.min, PITCH_PARAM_RANGE.max);
-                sonic_sys::sonicSetPitch(stream, pitch);
+                dengjen_sonic_sys::sonicSetPitch(stream, pitch);
             }
 
             let frame_count = input.len() / num_channels;
-            sonic_sys::sonicWriteFloatToStream(stream, input.as_ptr(), frame_count as i32);
-            sonic_sys::sonicFlushStream(stream);
+            dengjen_sonic_sys::sonicWriteFloatToStream(stream, input.as_ptr(), frame_count as i32);
+            dengjen_sonic_sys::sonicFlushStream(stream);
 
-            let available_frames = sonic_sys::sonicSamplesAvailable(stream);
+            let available_frames = dengjen_sonic_sys::sonicSamplesAvailable(stream);
             if available_frames <= 0 {
-                sonic_sys::sonicDestroyStream(stream);
+                dengjen_sonic_sys::sonicDestroyStream(stream);
                 return Err(DengjenError::OperationError(
                     "Sonic Error: failed to apply audio config. Invalid parameter value for rate, volume, or pitch".to_string(),
                 ));
@@ -128,14 +129,14 @@ impl AudioOutputConfig {
 
             let mut output: Vec<f32> = Vec::with_capacity(available_frames as usize * num_channels);
 
-            let frames_read = sonic_sys::sonicReadFloatFromStream(
+            let frames_read = dengjen_sonic_sys::sonicReadFloatFromStream(
                 stream,
                 output.spare_capacity_mut().as_mut_ptr().cast(),
                 available_frames,
             );
             output.set_len(frames_read.max(0) as usize * num_channels);
 
-            sonic_sys::sonicDestroyStream(stream);
+            dengjen_sonic_sys::sonicDestroyStream(stream);
 
             if self.volume == Some(0) {
                 output.fill(0.0);
@@ -291,7 +292,7 @@ impl DengjenSpeechSynthesizer {
 
         let info = self.backend.audio_output_info()?;
         let samples = AudioSamples::from(collected);
-        audio_ops::write_wave_samples_to_file(
+        dengjen_audio_ops::write_wave_samples_to_file(
             filename,
             samples.to_i16_vec().iter(),
             info.sample_rate as u32,

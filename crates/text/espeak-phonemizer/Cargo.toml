@@ -1,5 +1,5 @@
 [package]
-name = "espeak-phonemizer"
+name = "dengjen-espeak-phonemizer"
 version.workspace = true
 edition = "2021"
 license.workspace = true

@@ -1,5 +1,5 @@
 [package]
-name = "hebrew-phonemizer"
+name = "dengjen-hebrew-phonemizer"
 version.workspace = true
 edition = "2021"
 license.workspace = true
