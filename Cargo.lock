@@ -122,7 +122,7 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
 name = "audio-ops"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "divan",
  "once_cell",
@@ -555,7 +555,7 @@ dependencies = [
 
 [[package]]
 name = "dengjen-tts"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "audio-ops",
  "dengjen-tts-core",
@@ -574,7 +574,7 @@ dependencies = [
 
 [[package]]
 name = "dengjen-tts-cli"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -591,7 +591,7 @@ dependencies = [
 
 [[package]]
 name = "dengjen-tts-core"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "audio-ops",
  "once_cell",
@@ -599,7 +599,7 @@ dependencies = [
 
 [[package]]
 name = "dengjen-tts-grpc"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "async-stream",
  "dengjen-tts",
@@ -620,7 +620,7 @@ dependencies = [
 
 [[package]]
 name = "dengjen-tts-kokoro"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "dengjen-tts-core",
  "espeak-phonemizer",
@@ -632,7 +632,7 @@ dependencies = [
 
 [[package]]
 name = "dengjen-tts-melotts"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "dengjen-tts-core",
  "espeak-phonemizer",
@@ -645,7 +645,7 @@ dependencies = [
 
 [[package]]
 name = "dengjen-tts-piper"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "dengjen-tashkeel",
  "dengjen-tts-core",
@@ -660,7 +660,7 @@ dependencies = [
 
 [[package]]
 name = "dengjen-tts-python"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "dengjen-tashkeel",
  "dengjen-tts",
@@ -774,7 +774,7 @@ checksum = "d817e038c30374a4bcb22f94d0a8a0e216958d4c3dcde369b1439fec4bdda6e6"
 
 [[package]]
 name = "espeak-phonemizer"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "dengjen-espeak-rs-sys",
  "ffi-support",
@@ -965,7 +965,7 @@ checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 
 [[package]]
 name = "hebrew-phonemizer"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "dengjen-tts-core",
  "ndarray",
@@ -1193,7 +1193,7 @@ checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
 
 [[package]]
 name = "libdengjen"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "cbindgen",
  "dengjen-tts",
@@ -1540,7 +1540,7 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
 name = "pinyin-phonemizer"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "dengjen-tts-core",
  "ndarray",
@@ -2129,7 +2129,7 @@ dependencies = [
 
 [[package]]
 name = "sonic-sys"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "bindgen 0.69.5",
  "cc",
