@@ -4,7 +4,7 @@
 
 use std::os::raw::{c_char, c_int};
 
-use espeak_rs_sys as _;
+use dengjen_espeak_rs_sys as _;
 
 pub type espeak_ERROR = c_int;
 pub const espeak_ERROR_EE_OK: espeak_ERROR = 0;

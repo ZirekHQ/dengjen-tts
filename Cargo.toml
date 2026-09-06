@@ -55,13 +55,6 @@ all = { level = "warn", priority = -1 }
 missing_safety_doc = "deny"
 undocumented_unsafe_blocks = "deny"
 
-[patch.crates-io]
-
-
-
-
-espeak-rs-sys = { path = "./deps/espeak-rs-piper/crates/espeak-rs-sys" }
-
 [profile.release]
 opt-level = 3
 lto = true
