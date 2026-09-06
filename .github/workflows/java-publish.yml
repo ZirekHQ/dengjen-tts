@@ -22,6 +22,17 @@ on:
         description: "java-vX.Y.Z version string to publish (e.g. java-v1.2.3)"
         required: true
         type: string
+    secrets:
+      JRELEASER_MAVENCENTRAL_USERNAME:
+        required: true
+      JRELEASER_MAVENCENTRAL_PASSWORD:
+        required: true
+      JRELEASER_GPG_PASSPHRASE:
+        required: true
+      JRELEASER_GPG_SECRET_KEY:
+        required: true
+      JRELEASER_GPG_PUBLIC_KEY:
+        required: true
 
 permissions:
   contents: read

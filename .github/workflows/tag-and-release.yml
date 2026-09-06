@@ -112,35 +112,41 @@ jobs:
     needs: tag-and-release
     permissions:
       contents: read
-    uses: ./.github/workflows/publish.yml
-    secrets: inherit
+    uses: $/.github/workflows/publish.yml
+    secrets:
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
   java:
     name: Maven Central (Java bindings)
     needs: tag-and-release
     permissions:
       contents: write
-    uses: ./.github/workflows/java-publish.yml
+    uses: $/.github/workflows/java-publish.yml
     with:
       tag: java-v${{ needs.tag-and-release.outputs.version }}
-    secrets: inherit
+    secrets:
+      JRELEASER_MAVENCENTRAL_USERNAME: ${{ secrets.JRELEASER_MAVENCENTRAL_USERNAME }}
+      JRELEASER_MAVENCENTRAL_PASSWORD: ${{ secrets.JRELEASER_MAVENCENTRAL_PASSWORD }}
+      JRELEASER_GPG_PASSPHRASE: ${{ secrets.JRELEASER_GPG_PASSPHRASE }}
+      JRELEASER_GPG_SECRET_KEY: ${{ secrets.JRELEASER_GPG_SECRET_KEY }}
+      JRELEASER_GPG_PUBLIC_KEY: ${{ secrets.JRELEASER_GPG_PUBLIC_KEY }}
 
   go:
     name: dengjen-tts-go mirror
     needs: tag-and-release
     permissions:
       contents: read
-    uses: ./.github/workflows/publish-go.yml
+    uses: $/.github/workflows/publish-go.yml
     with:
       tag: go-release-v${{ needs.tag-and-release.outputs.version }}
-    secrets: inherit
+    secrets:
+      DENGJEN_TTS_GO_DEPLOY_TOKEN: ${{ secrets.DENGJEN_TTS_GO_DEPLOY_TOKEN }}
 
   grpc:
     name: gRPC server GitHub Release
     needs: tag-and-release
     permissions:
       contents: write
-    uses: ./.github/workflows/publish-grpc.yml
+    uses: $/.github/workflows/publish-grpc.yml
     with:
       tag: grpc-release-v${{ needs.tag-and-release.outputs.version }}
-    secrets: inherit

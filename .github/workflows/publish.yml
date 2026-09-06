@@ -13,7 +13,10 @@ name: Publish to crates.io
 # mistake fires a real, irreversible crates.io publish.
 on:
   workflow_dispatch: {}
-  workflow_call: {}
+  workflow_call:
+    secrets:
+      CARGO_REGISTRY_TOKEN:
+        required: true
 
 permissions:
   contents: read
