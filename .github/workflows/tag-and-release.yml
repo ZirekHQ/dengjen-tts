@@ -33,8 +33,7 @@ on:
     branches:
       - main
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
   tag-and-release:
@@ -115,6 +114,7 @@ jobs:
     needs: tag-and-release
     runs-on: ubuntu-latest
     environment: release
+    permissions: {}
     steps:
       - env:
           VERSION: ${{ needs.tag-and-release.outputs.version }}
