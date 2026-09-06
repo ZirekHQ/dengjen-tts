@@ -44,7 +44,7 @@ jobs:
           target: ${{ matrix.platform.target }}
           args: --release --out dist
           working-directory: ./crates/frontends/python
-          sccache: 'true'
+          sccache: false
           manylinux: 2_28
           # Pinned so Renovate (see renovate.json) can bump it deliberately,
           # rather than the action re-resolving "latest" over the network
@@ -139,7 +139,7 @@ jobs:
           target: ${{ matrix.platform.target }}
           args: --release --out dist
           working-directory: ./crates/frontends/python
-          sccache: 'true'
+          sccache: false
           # Pinned so Renovate (see renovate.json) can bump it deliberately,
           # rather than the action re-resolving "latest" over the network
           # on every retry.
@@ -179,7 +179,7 @@ jobs:
           target: ${{ matrix.platform.target }}
           args: --release --out dist
           working-directory: ./crates/frontends/python
-          sccache: 'true'
+          sccache: false
           # Pinned so Renovate (see renovate.json) can bump it deliberately,
           # rather than the action re-resolving "latest" over the network
           # on every retry.
