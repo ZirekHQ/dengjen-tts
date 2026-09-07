@@ -372,9 +372,10 @@ impl SpeechSynthesisTaskProvider {
     }
 
     fn shape_output(&self, mut audio: Audio) -> DengjenAudioResult {
+        let num_channels = audio.info.num_channels;
         audio
             .samples
-            .trim_trailing_silence(TRAILING_SILENCE_THRESHOLD);
+            .trim_trailing_silence(TRAILING_SILENCE_THRESHOLD, num_channels);
         match &self.output_config {
             Some(config) => config.apply(audio),
             None => Ok(audio),
