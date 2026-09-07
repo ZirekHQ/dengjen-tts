@@ -108,7 +108,17 @@ jobs:
         run: echo "CMAKE_GENERATOR=Ninja" >> "$GITHUB_ENV"
       - name: install libclang (linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y llvm llvm-dev llvm-runtime libclang-dev
+        timeout-minutes: 15
+        run: |
+          for attempt in 1 2 3; do
+            if timeout 60 sudo apt-get update && timeout 180 sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y llvm llvm-dev llvm-runtime libclang-dev; then
+              exit 0
+            fi
+            echo "::warning::apt-get install attempt ${attempt} failed, retrying" >&2
+            sleep 10
+          done
+          echo "::error::apt-get install failed after 3 attempts" >&2
+          exit 1
       - name: install libclang (windows)
         if: runner.os == 'Windows'
         run: choco install llvm
