@@ -92,16 +92,16 @@ jobs:
         run: git config --global protocol.file.allow always
       - name: install build dependencies
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev llvm-dev cmake protobuf-compiler
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           submodules: recursive
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           toolchain: "1.97.1"
           targets: ${{ matrix.platform.rust-target }}
       - if: matrix.platform.target != 'x86_64'
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.6.0
+        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
       - if: matrix.platform.target != 'x86_64'
         name: install aarch64 cross toolchain
         run: sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu libc6-dev-arm64-cross
@@ -156,14 +156,14 @@ jobs:
         run: git config --global protocol.file.allow always
       - name: install-clang
         run: choco install llvm -y --no-progress
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           submodules: recursive
           persist-credentials: false
       - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
         with:
           arch: x64
-      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           toolchain: "1.97.1"
           targets: x86_64-pc-windows-msvc
@@ -209,11 +209,11 @@ jobs:
         run: |
           brew install llvm
           echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           submodules: recursive
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           toolchain: "1.97.1"
           targets: aarch64-apple-darwin
@@ -260,12 +260,12 @@ jobs:
     steps:
       - name: git-submodule-fix
         run: git config --global protocol.file.allow always
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           path: dengjen-tts
           submodules: recursive
           persist-credentials: false
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           repository: ZirekHQ/dengjen-tts-go
           path: dengjen-tts-go
@@ -420,7 +420,7 @@ jobs:
           linux/arm64, windows/amd64, and darwin/arm64.
 
           \`\`\`bash
-          go get github.com/ZirekHQ/dengjen-tts-go@${{ steps.version.outputs.version }}
+          go get github.com/ZirekHQ/dengjen-tts-go@${STEPS_VERSION_OUTPUTS_VERSION}
           \`\`\`
 
           This repository is generated on every release from
@@ -453,6 +453,8 @@ jobs:
           fmt-check:
           	@test -z "$$(gofmt -l .)" || (gofmt -l . && exit 1)
           EOF
+        env:
+          STEPS_VERSION_OUTPUTS_VERSION: ${{ steps.version.outputs.version }}
       - name: commit and push release snapshot
         id: push-release
         working-directory: dengjen-tts-go
@@ -503,18 +505,20 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.22'
+          cache: false
       - name: fetch and build the just-published module (direct, bypassing the proxy cache)
         env:
           GOPROXY: direct
           GONOSUMDB: github.com/ZirekHQ/dengjen-tts-go
           GOFLAGS: '-mod=mod'
+          NEEDS_ASSEMBLE_AND_PUSH_OUTPUTS_VERSION: ${{ needs.assemble-and-push.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p /tmp/dengjen-go-verify
           cd /tmp/dengjen-go-verify
           go mod init verify
-          go get "github.com/ZirekHQ/dengjen-tts-go@${{ needs.assemble-and-push.outputs.version }}"
+          go get "github.com/ZirekHQ/dengjen-tts-go@${NEEDS_ASSEMBLE_AND_PUSH_OUTPUTS_VERSION}"
 
           if [[ "${RUNNER_OS:-}" == "Windows" ]]; then
             mod_dir="$(go list -m -f '{{.Dir}}' github.com/ZirekHQ/dengjen-tts-go)"
@@ -546,7 +550,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           repository: ZirekHQ/dengjen-tts-go
           token: ${{ secrets.DENGJEN_TTS_GO_DEPLOY_TOKEN }}
@@ -554,12 +558,12 @@ jobs:
       - name: delete failed release tag
         run: |
           set -euo pipefail
-          version="${{ needs.assemble-and-push.outputs.version }}"
+          version="${NEEDS_ASSEMBLE_AND_PUSH_OUTPUTS_VERSION}"
           if [[ -z "$version" ]]; then
             echo "assemble-and-push produced no version output; nothing was tagged, nothing to roll back" >&2
             exit 0
           fi
-          expected_sha="${{ needs.assemble-and-push.outputs.release_sha }}"
+          expected_sha="${NEEDS_ASSEMBLE_AND_PUSH_OUTPUTS_RELEASE_SHA}"
           if [[ -z "$expected_sha" ]]; then
             echo "This run's own tag push never succeeded; nothing to roll back" >&2
             exit 0
@@ -574,3 +578,6 @@ jobs:
           else
             echo "::warning::tag ${version} was not present on origin (already deleted, or the push that would have created it never happened)"
           fi
+        env:
+          NEEDS_ASSEMBLE_AND_PUSH_OUTPUTS_VERSION: ${{ needs.assemble-and-push.outputs.version }}
+          NEEDS_ASSEMBLE_AND_PUSH_OUTPUTS_RELEASE_SHA: ${{ needs.assemble-and-push.outputs.release_sha }}
