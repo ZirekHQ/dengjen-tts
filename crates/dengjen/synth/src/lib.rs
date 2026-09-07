@@ -40,6 +40,10 @@ const SPEED_PARAM_RANGE: ParamRange = ParamRange { min: 0.5, max: 5.5 };
 const VOLUME_PARAM_RANGE: ParamRange = ParamRange { min: 0.0, max: 1.0 };
 const PITCH_PARAM_RANGE: ParamRange = ParamRange { min: 0.5, max: 1.5 };
 
+/// Amplitude, as a fraction of full scale, below which a vocoder's trailing
+/// output is treated as the model's own baked-in silence rather than speech.
+const TRAILING_SILENCE_THRESHOLD: f32 = 0.015;
+
 pub static SYNTHESIS_THREAD_POOL: Lazy<ThreadPool> = Lazy::new(|| {
     let core_count = std::thread::available_parallelism()
         .map(usize::from)
@@ -367,7 +371,10 @@ impl SpeechSynthesisTaskProvider {
         Ok(self.model.phonemize_text(&self.text)?.to_vec())
     }
 
-    fn shape_output(&self, audio: Audio) -> DengjenAudioResult {
+    fn shape_output(&self, mut audio: Audio) -> DengjenAudioResult {
+        audio
+            .samples
+            .trim_trailing_silence(TRAILING_SILENCE_THRESHOLD);
         match &self.output_config {
             Some(config) => config.apply(audio),
             None => Ok(audio),
@@ -1426,6 +1433,72 @@ mod lazy_parallel_tests {
         // dispatched to synthesize_streamed rather than silently no-op'ing.
         let first = stream.next().unwrap();
         assert!(matches!(first, Err(DengjenError::UnsupportedOperation(_))));
+    }
+
+    struct TrailingSilenceModel;
+
+    impl DengjenModel for TrailingSilenceModel {
+        fn audio_output_info(&self) -> DengjenResult<AudioInfo> {
+            Ok(AudioInfo {
+                sample_rate: 16000,
+                num_channels: 1,
+                sample_width: 2,
+            })
+        }
+        fn phonemize_text(&self, _text: &str) -> DengjenResult<Phonemes> {
+            Ok(Phonemes::from(vec!["one".to_string()]))
+        }
+        fn speak_batch(&self, phoneme_batches: Vec<String>) -> DengjenResult<Vec<Audio>> {
+            phoneme_batches
+                .into_iter()
+                .map(|ph| self.speak_one_sentence(ph))
+                .collect()
+        }
+        fn speak_one_sentence(&self, _phonemes: String) -> DengjenAudioResult {
+            let samples = AudioSamples::from(vec![0.8, -0.6, 0.9, 0.01, -0.005, 0.0]);
+            Ok(Audio::new(samples, 16000, None))
+        }
+        fn get_default_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
+            Ok(None)
+        }
+        fn get_fallback_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
+            Ok(None)
+        }
+        fn set_fallback_synthesis_config(&self, _c: &SynthesisConfig) -> DengjenResult<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn shape_output_trims_the_models_trailing_near_silence_even_without_an_output_config() {
+        let model: Arc<dyn DengjenModel + Send + Sync> = Arc::new(TrailingSilenceModel);
+        let synth = DengjenSpeechSynthesizer::new(model).unwrap();
+        let results: Vec<_> = synth
+            .synthesize_lazy("irrelevant".to_string(), None)
+            .unwrap()
+            .collect();
+        assert_eq!(results.len(), 1);
+        let audio = results.into_iter().next().unwrap().unwrap();
+        assert_eq!(audio.into_vec(), vec![0.8, -0.6, 0.9]);
+    }
+
+    #[test]
+    fn shape_output_trims_the_models_tail_before_appending_configured_silence() {
+        let model: Arc<dyn DengjenModel + Send + Sync> = Arc::new(TrailingSilenceModel);
+        let synth = DengjenSpeechSynthesizer::new(model).unwrap();
+        let output_config = Some(AudioOutputConfig {
+            rate: None,
+            volume: None,
+            pitch: None,
+            appended_silence_ms: Some(1),
+        });
+        let results: Vec<_> = synth
+            .synthesize_lazy("irrelevant".to_string(), output_config)
+            .unwrap()
+            .collect();
+        let audio = results.into_iter().next().unwrap().unwrap();
+        // 3 samples survive trimming; 16 is 1ms of requested silence at 16kHz.
+        assert_eq!(audio.len(), 3 + 16);
     }
 }
 

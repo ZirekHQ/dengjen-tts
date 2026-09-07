@@ -750,8 +750,10 @@ mod model_and_synthesizer_tests {
                 .collect()
         }
         fn speak_one_sentence(&self, _phonemes: String) -> DengjenAudioResult {
+            // Above the synth pipeline's trailing-silence trim threshold, else
+            // this stub gets trimmed away to nothing.
             Ok(Audio::new(
-                AudioSamples::new(vec![0.0; 100]),
+                AudioSamples::new(vec![0.5; 100]),
                 22050,
                 Some(1.5),
             ))
