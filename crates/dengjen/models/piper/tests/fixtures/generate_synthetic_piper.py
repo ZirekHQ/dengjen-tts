@@ -21,8 +21,11 @@ def build_batch_model(path):
     scales = helper.make_tensor_value_info("scales", TensorProto.FLOAT, [3])
     output = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 1, BATCH_OUTPUT_SAMPLES])
 
+    # Above the synth pipeline's trailing-silence trim threshold: a stub at
+    # or below it gets trimmed to nothing before it reaches the CLI's
+    # sample-count assertion.
     audio_const = numpy_helper.from_array(
-        np.zeros((1, 1, BATCH_OUTPUT_SAMPLES), dtype=np.float32), name="audio_const"
+        np.full((1, 1, BATCH_OUTPUT_SAMPLES), 0.5, dtype=np.float32), name="audio_const"
     )
     identity = helper.make_node("Identity", inputs=["audio_const"], outputs=["output"])
 

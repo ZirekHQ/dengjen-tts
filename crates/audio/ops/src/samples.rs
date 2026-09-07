@@ -213,6 +213,21 @@ impl AudioSamples {
         self.0.splice(clamped, retained);
     }
 
+    pub fn trim_trailing_silence(&mut self, threshold: f32, num_channels: usize) {
+        let num_channels = num_channels.max(1);
+        let is_active = |sample: &f32| sample.is_finite() && sample.abs() > threshold;
+        let frame_count = self.0.len() / num_channels;
+        let last_active_frame = (0..frame_count).rev().find(|&frame| {
+            self.0[frame * num_channels..(frame + 1) * num_channels]
+                .iter()
+                .any(is_active)
+        });
+        match last_active_frame {
+            Some(frame) => self.0.truncate((frame + 1) * num_channels),
+            None => self.0.clear(),
+        }
+    }
+
     pub fn to_decibel(&self) -> Vec<f32> {
         self.0
             .iter()
@@ -502,6 +517,64 @@ mod tests {
         let mut buffer = AudioSamples::from(vec![1.0, 0.0, 3.0]);
         buffer.strip_silence(1..100, 0.0);
         assert_eq!(buffer.into_vec(), vec![1.0, 3.0]);
+    }
+
+    #[test]
+    fn trim_trailing_silence_removes_a_trailing_run_below_the_threshold() {
+        let mut buffer = AudioSamples::from(vec![0.8, -0.6, 0.02, 0.01, -0.005, 0.0]);
+        buffer.trim_trailing_silence(0.015, 1);
+        assert_eq!(buffer.into_vec(), vec![0.8, -0.6, 0.02]);
+    }
+
+    #[test]
+    fn trim_trailing_silence_leaves_a_mid_buffer_quiet_passage_untouched() {
+        let mut buffer = AudioSamples::from(vec![0.8, 0.01, 0.0, 0.01, -0.6]);
+        buffer.trim_trailing_silence(0.015, 1);
+        assert_eq!(buffer.into_vec(), vec![0.8, 0.01, 0.0, 0.01, -0.6]);
+    }
+
+    #[test]
+    fn trim_trailing_silence_leaves_an_all_loud_buffer_untouched() {
+        let mut buffer = AudioSamples::from(vec![0.8, -0.6, 0.9]);
+        buffer.trim_trailing_silence(0.015, 1);
+        assert_eq!(buffer.into_vec(), vec![0.8, -0.6, 0.9]);
+    }
+
+    #[test]
+    fn trim_trailing_silence_clears_a_buffer_entirely_below_the_threshold() {
+        let mut buffer = AudioSamples::from(vec![0.01, -0.005, 0.0]);
+        buffer.trim_trailing_silence(0.015, 1);
+        assert_eq!(buffer.into_vec(), Vec::<f32>::new());
+    }
+
+    #[test]
+    fn trim_trailing_silence_treats_a_trailing_infinity_as_silence() {
+        let mut buffer = AudioSamples::from(vec![0.8, -0.6, f32::INFINITY, f32::NEG_INFINITY]);
+        buffer.trim_trailing_silence(0.015, 1);
+        assert_eq!(buffer.into_vec(), vec![0.8, -0.6]);
+    }
+
+    #[test]
+    fn trim_trailing_silence_treats_a_trailing_nan_as_silence() {
+        let mut buffer = AudioSamples::from(vec![0.8, -0.6, f32::NAN]);
+        buffer.trim_trailing_silence(0.015, 1);
+        assert_eq!(buffer.into_vec(), vec![0.8, -0.6]);
+    }
+
+    #[test]
+    fn trim_trailing_silence_keeps_a_stereo_frame_with_one_active_channel() {
+        // Frame [0.8, 0.0]: the left channel is above the threshold, so the
+        // whole frame must survive even though the right channel alone would not.
+        let mut buffer = AudioSamples::from(vec![0.8, 0.0]);
+        buffer.trim_trailing_silence(0.015, 2);
+        assert_eq!(buffer.into_vec(), vec![0.8, 0.0]);
+    }
+
+    #[test]
+    fn trim_trailing_silence_drops_a_stereo_frame_silent_in_every_channel() {
+        let mut buffer = AudioSamples::from(vec![0.8, 0.6, 0.0, 0.0]);
+        buffer.trim_trailing_silence(0.015, 2);
+        assert_eq!(buffer.into_vec(), vec![0.8, 0.6]);
     }
 
     #[test]
