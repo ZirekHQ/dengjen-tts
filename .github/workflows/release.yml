@@ -154,3 +154,62 @@ jobs:
     with:
       tag: grpc-release-v${{ needs.tag-and-release.outputs.version }}
       dry_run: ${{ inputs.dry_run == true }}
+
+  # crates/java/go/grpc each publish their own artifact-scoped GitHub Release
+  # (java-v*, grpc-release-v*), none of which represent the repo as a whole --
+  # without this job the `v${VERSION}` tag from tag-and-release never gets a
+  # release object, so GitHub's `/releases/latest` falls back to whichever
+  # component release happened to publish last.
+  github-release:
+    name: Whole-repo GitHub Release
+    needs: [tag-and-release, approve, crates, java, go, grpc]
+    if: >-
+      always() && inputs.dry_run != true &&
+      needs.tag-and-release.result == 'success' &&
+      (needs.approve.result == 'success' || needs.approve.result == 'skipped') &&
+      needs.crates.result == 'success' && needs.java.result == 'success' &&
+      needs.go.result == 'success' && needs.grpc.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          VERSION: ${{ needs.tag-and-release.outputs.version }}
+        # Depends on every component job so this always publishes last and is the one
+        # GitHub shows as "Latest". crates/java/go/grpc each skip a version they've
+        # already published, so a re-run of an otherwise-green workflow reaches this
+        # step too -- it has to skip the same way instead of hitting gh's
+        # already_exists error on an unconditional create.
+        run: |
+          set -euo pipefail
+          tag="v${VERSION}"
+
+          resolved="$(gh api "repos/${REPO}/git/refs/tags/${tag}" --jq .object.sha 2>/dev/null || true)"
+          if [ "$resolved" != "$GITHUB_SHA" ]; then
+            echo "::error::${tag} resolves to ${resolved:-<missing>} on origin, not this run's commit (${GITHUB_SHA})" >&2
+            exit 1
+          fi
+
+          if gh release view "$tag" --repo "$REPO" >/dev/null 2>&1; then
+            echo "::notice::${tag} already has a GitHub Release -- skipping"
+            exit 0
+          fi
+
+          # Component releases (java-v*, grpc-release-v*) publish before this job and would
+          # otherwise win --generate-notes's automatic "previous release" pick, scoping the
+          # changelog to the wrong range.
+          previous_tag="$(gh release list --repo "$REPO" --json tagName --jq '.[].tagName' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | grep -vFx "$tag" | sort -rV | head -n1)"
+          notes_args=(--generate-notes)
+          if [ -n "$previous_tag" ]; then
+            notes_args=(--generate-notes --notes-start-tag "$previous_tag")
+          fi
+
+          gh release create "$tag" \
+            --repo "$REPO" \
+            --title "$tag" \
+            --verify-tag \
+            "${notes_args[@]}"
