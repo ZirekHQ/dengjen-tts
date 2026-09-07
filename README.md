@@ -113,3 +113,13 @@ Licensed under the GNU General Public License v3.0 or later (GPL-3.0-or-later) �
 [LICENSE](LICENSE). dengjen began as a fork of [Sonata](https://github.com/mush42/sonata) by
 Musharraf Omer, originally MIT-licensed; see [NOTICE](NOTICE) for retained attribution.
 
+---
+
+## 💝 Support This Project
+
+If this repository saves you time and effort, please consider supporting it!
+
+- ⭐ [Star on GitHub](https://github.com/ZirekHQ/dengjen-tts)
+- 🐦 [Share on Twitter](https://twitter.com/intent/tweet?text=dengjen%20-%20a%20cross-platform%20Rust%20engine%20for%20neural%20TTS%20models&url=https%3A%2F%2Fgithub.com%2FZirekHQ%2Fdengjen-tts)
+- 💖 [More ways to support](https://github.com/ZirekHQ) — Open Collective coming soon
+
