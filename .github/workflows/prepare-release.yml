@@ -17,7 +17,17 @@ jobs:
       - name: git-submodule-fix
         run: git config --global protocol.file.allow always
       - name: install build dependencies
-        run: sudo apt-get update && sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y clang libclang-dev llvm-dev cmake protobuf-compiler
+        timeout-minutes: 5
+        run: |
+          for attempt in 1 2 3; do
+            if sudo apt-get update && sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y clang libclang-dev llvm-dev cmake protobuf-compiler; then
+              exit 0
+            fi
+            echo "::warning::apt-get install attempt ${attempt} failed, retrying" >&2
+            sleep 10
+          done
+          echo "::error::apt-get install failed after 3 attempts" >&2
+          exit 1
       - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           ref: main
