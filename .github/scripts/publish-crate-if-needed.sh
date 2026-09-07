@@ -26,7 +26,10 @@ case "$status" in
   200) echo "${crate} ${version} is already published -- skipping" ;;
   404)
     if [ "${DRY_RUN:-}" = "true" ]; then
-      cargo publish -p "$crate" --locked --no-verify --dry-run
+      # No --no-verify here (unlike the real publish below) -- a dry run's
+      # whole point is validating the pipeline, and --no-verify would let it
+      # pass without ever building the packaged crate.
+      cargo publish -p "$crate" --locked --dry-run
     else
       cargo publish -p "$crate" --locked --no-verify
     fi

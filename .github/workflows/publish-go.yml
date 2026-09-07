@@ -83,7 +83,7 @@ jobs:
 
   build-linux:
     needs: check
-    if: needs.check.outputs.skip != 'true'
+    if: needs.check.outputs.skip != 'true' || inputs.dry_run == true
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -154,7 +154,7 @@ jobs:
           path: crates/frontends/capi/libdengjen.h
   build-windows:
     needs: check
-    if: needs.check.outputs.skip != 'true'
+    if: needs.check.outputs.skip != 'true' || inputs.dry_run == true
     runs-on: windows-2022
     permissions:
       contents: read
@@ -207,7 +207,7 @@ jobs:
           path: target/x86_64-pc-windows-msvc/release/*.dll
   build-macos:
     needs: check
-    if: needs.check.outputs.skip != 'true'
+    if: needs.check.outputs.skip != 'true' || inputs.dry_run == true
     runs-on: macos-latest
     permissions:
       contents: read
@@ -259,7 +259,7 @@ jobs:
 
   assemble-and-push:
     needs: [check, build-linux, build-windows, build-macos]
-    if: needs.check.outputs.skip != 'true'
+    if: needs.check.outputs.skip != 'true' || inputs.dry_run == true
     runs-on: ubuntu-latest
     permissions:
       contents: read

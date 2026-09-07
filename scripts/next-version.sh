@@ -44,6 +44,10 @@ if [ -n "${PREVIOUS_TAG:-}" ]; then
     echo "::error::PREVIOUS_TAG '${last_tag}' does not exist in this repo" >&2
     exit 2
   fi
+  if ! git merge-base --is-ancestor "$last_tag" HEAD; then
+    echo "::error::PREVIOUS_TAG '${last_tag}' is not an ancestor of HEAD -- the ${last_tag}..HEAD range wouldn't reflect commits since that release" >&2
+    exit 2
+  fi
 else
   last_tag="$(git tag --list 'v*' --merged HEAD --sort=-v:refname | grep -E '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' | head -1 || true)"
   if [ -z "$last_tag" ]; then
