@@ -12,7 +12,12 @@ feature-depth = 1
 
 [advisories]
 version = 2
-ignore = []
+ignore = [
+    # paste is unmaintained (transitive via tokenizers -> pinyin-phonemizer; no
+    # direct usage here). Upstream declined to migrate to a maintained fork:
+    # https://github.com/huggingface/tokenizers/issues/1833
+    "RUSTSEC-2024-0436",
+]
 
 [licenses]
 version = 2
