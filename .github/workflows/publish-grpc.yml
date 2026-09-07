@@ -27,12 +27,21 @@ on:
         description: "grpc-release-vX.Y.Z tag name to release (e.g. grpc-release-v1.2.3)"
         required: true
         type: string
+      dry_run:
+        description: "Build and package the release asset, but skip creating the GitHub Release (log what would have been created instead)."
+        required: false
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       tag:
         description: "grpc-release-vX.Y.Z tag name to release (e.g. grpc-release-v1.2.3)"
         required: true
         type: string
+      dry_run:
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -198,8 +207,13 @@ jobs:
           # explicitly.
           RELEASE_SHA: ${{ github.sha }}
           ZIP_NAME: ${{ steps.package.outputs.zip_name }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
-          gh release create $env:RELEASE_TAG $env:ZIP_NAME `
-            --target $env:RELEASE_SHA `
-            --title "dengjen-tts-grpc $env:RELEASE_VERSION" `
-            --notes ""
+          if ($env:DRY_RUN -eq "true") {
+            Write-Host "DRY RUN -- would create GitHub release $env:RELEASE_TAG with asset $env:ZIP_NAME targeting $env:RELEASE_SHA, skipping"
+          } else {
+            gh release create $env:RELEASE_TAG $env:ZIP_NAME `
+              --target $env:RELEASE_SHA `
+              --title "dengjen-tts-grpc $env:RELEASE_VERSION" `
+              --notes ""
+          }

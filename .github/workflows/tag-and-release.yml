@@ -32,6 +32,13 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run the whole pipeline (tag-and-release plus all four release targets) without publishing anything real: skips this job's own tag push and PyPI dispatch, skips the release approval gate, and passes dry_run through to crates.io/Maven Central/the Go mirror/the gRPC release."
+        required: false
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -40,8 +47,11 @@ jobs:
     runs-on: ubuntu-latest
     # head_commit is the single new commit a squash/rebase merge produces;
     # a push landing more than one new commit at once (not this repo's
-    # normal PR flow) would only inspect the last of them.
-    if: "startsWith(github.event.head_commit.message, 'chore: bump workspace version -> ')"
+    # normal PR flow) would only inspect the last of them. A manual dispatch
+    # carries no head_commit at all (that field only exists on push events),
+    # so it's let through unconditionally instead -- it's already gated by
+    # whoever has permission to dispatch this workflow.
+    if: "github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'chore: bump workspace version -> ')"
     permissions:
       contents: write
       # workflow_dispatch is the one event type GITHUB_TOKEN is explicitly
@@ -67,6 +77,7 @@ jobs:
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Push release tag
+        if: inputs.dry_run != true
         env:
           VERSION: ${{ steps.version.outputs.version }}
         # Idempotent: a retry after this job fails partway through (e.g. a
@@ -92,6 +103,7 @@ jobs:
           fi
 
       - name: Trigger PyPI release (CI.yml)
+        if: inputs.dry_run != true
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
@@ -109,9 +121,13 @@ jobs:
   # release-target jobs below `needs: approve`, so a single reviewer
   # decision unblocks (or leaves blocked) all four together -- there's no
   # per-target approval to grant or withhold separately.
+  # Skipped entirely on a dry run -- nothing a dry run does is destructive,
+  # so it doesn't need a human to gate it. The four release-target jobs
+  # below tolerate this job being skipped (see their own `if:`).
   approve:
     name: Approve release
     needs: tag-and-release
+    if: inputs.dry_run != true
     runs-on: ubuntu-latest
     environment: release
     permissions: {}
@@ -124,24 +140,32 @@ jobs:
   # run (rather than `gh workflow run`-dispatching a separate run against
   # the vX.Y.Z tag), so the checkout inside each defaults to this run's own
   # github.sha -- which is already the version-bump commit this job just
-  # tagged, no explicit --ref needed.
+  # tagged, no explicit --ref needed. `if:` uses `always()` (rather than
+  # relying on the default implicit success() over `needs`) because
+  # `approve` is legitimately *skipped*, not failed, on a dry run -- the
+  # default condition would treat that skip as blocking these from running.
   crates:
     name: crates.io
     needs: [tag-and-release, approve]
+    if: always() && needs.tag-and-release.result == 'success' && (needs.approve.result == 'success' || needs.approve.result == 'skipped')
     permissions:
       contents: read
     uses: $/.github/workflows/publish.yml
+    with:
+      dry_run: ${{ inputs.dry_run == true }}
     secrets:
       CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
   java:
     name: Maven Central (Java bindings)
     needs: [tag-and-release, approve]
+    if: always() && needs.tag-and-release.result == 'success' && (needs.approve.result == 'success' || needs.approve.result == 'skipped')
     permissions:
       contents: write
     uses: $/.github/workflows/java-publish.yml
     with:
       tag: java-v${{ needs.tag-and-release.outputs.version }}
+      dry_run: ${{ inputs.dry_run == true }}
     secrets:
       JRELEASER_MAVENCENTRAL_USERNAME: ${{ secrets.JRELEASER_MAVENCENTRAL_USERNAME }}
       JRELEASER_MAVENCENTRAL_PASSWORD: ${{ secrets.JRELEASER_MAVENCENTRAL_PASSWORD }}
@@ -152,19 +176,23 @@ jobs:
   go:
     name: dengjen-tts-go mirror
     needs: [tag-and-release, approve]
+    if: always() && needs.tag-and-release.result == 'success' && (needs.approve.result == 'success' || needs.approve.result == 'skipped')
     permissions:
       contents: read
     uses: $/.github/workflows/publish-go.yml
     with:
       tag: go-release-v${{ needs.tag-and-release.outputs.version }}
+      dry_run: ${{ inputs.dry_run == true }}
     secrets:
       DENGJEN_TTS_GO_DEPLOY_TOKEN: ${{ secrets.DENGJEN_TTS_GO_DEPLOY_TOKEN }}
 
   grpc:
     name: gRPC server GitHub Release
     needs: [tag-and-release, approve]
+    if: always() && needs.tag-and-release.result == 'success' && (needs.approve.result == 'success' || needs.approve.result == 'skipped')
     permissions:
       contents: write
     uses: $/.github/workflows/publish-grpc.yml
     with:
       tag: grpc-release-v${{ needs.tag-and-release.outputs.version }}
+      dry_run: ${{ inputs.dry_run == true }}

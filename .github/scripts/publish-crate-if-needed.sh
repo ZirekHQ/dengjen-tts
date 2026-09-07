@@ -24,7 +24,16 @@ status="$(curl -s -o /dev/null -w '%{http_code}' \
   "https://crates.io/api/v1/crates/${crate}/${version}")"
 case "$status" in
   200) echo "${crate} ${version} is already published -- skipping" ;;
-  404) cargo publish -p "$crate" --locked --no-verify ;;
+  404)
+    if [ "${DRY_RUN:-}" = "true" ]; then
+      # No --no-verify here (unlike the real publish below) -- a dry run's
+      # whole point is validating the pipeline, and --no-verify would let it
+      # pass without ever building the packaged crate.
+      cargo publish -p "$crate" --locked --dry-run
+    else
+      cargo publish -p "$crate" --locked --no-verify
+    fi
+    ;;
   *)
     echo "::error::Unexpected status ${status} checking crates.io for ${crate} ${version}" >&2
     exit 1
