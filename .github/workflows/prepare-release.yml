@@ -1,24 +1,9 @@
 name: Prepare release
 
-# Computes the next semver version from Conventional Commit subjects merged
-# to main since the last vX.Y.Z tag (scripts/next-version.sh) and opens a PR
-# bumping the workspace version (scripts/bump-version.sh). Manual trigger
-# only -- this proposes a release, it doesn't cut one. Merging the PR is the
-# one remaining human gate: tag-and-release.yml then tags that commit
-# vX.Y.Z and triggers every downstream release workflow (crates.io, Maven
-# Central, PyPI, the ZirekHQ/dengjen-tts-go mirror, the gRPC server's
-# GitHub Release) automatically, no further manual tag pushes needed.
+# Proposes a release; merging the opened PR is what actually cuts one -- release.yml tags that
+# merge commit and triggers every downstream release workflow automatically.
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "Override the release version (X.Y.Z) instead of computing it from Conventional Commits -- for testing/dry runs. Leave blank for a normal auto-computed release."
-        required: false
-        type: string
-      previous_tag:
-        description: "Override the vX.Y.Z tag scripts/next-version.sh diffs commits from (ignored if 'version' above is set). Leave blank to auto-detect the latest tag."
-        required: false
-        type: string
+  workflow_dispatch: {}
 
 permissions: {}
 
@@ -45,39 +30,10 @@ jobs:
 
       - name: Compute next version
         id: next
-        env:
-          VERSION_OVERRIDE: ${{ inputs.version }}
-          PREVIOUS_TAG: ${{ inputs.previous_tag }}
         run: |
           set -uo pipefail
-          # A manually-supplied version bypasses next-version.sh entirely --
-          # this is the escape hatch for testing/dry runs, so it skips both
-          # the Conventional Commits scan and the "nothing release-worthy"
-          # exit-1 case below.
-          if [ -n "${VERSION_OVERRIDE:-}" ]; then
-            if ! echo "$VERSION_OVERRIDE" | grep -qE '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'; then
-              echo "::error::version override '${VERSION_OVERRIDE}' doesn't look like a semver version (X.Y.Z)" >&2
-              exit 1
-            fi
-            echo "version=${VERSION_OVERRIDE}" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          # next-version.sh exits 1 for the normal "nothing release-worthy"
-          # case, which this step treats as skip -- but exit 2 (or anything
-          # else unexpected) means the computation itself is broken (e.g. no
-          # vX.Y.Z tag exists at all), and must fail loudly instead, or a
-          # broken tag state would silently suppress every future release.
-          # PREVIOUS_TAG (from the previous_tag input) is read by
-          # next-version.sh itself to override the baseline it diffs from --
-          # empty here just means "auto-detect", same as before this input
-          # existed.
-          #
-          # The command substitution below is deliberately the condition of
-          # an `if`, not a bare assignment -- GitHub Actions runs `run:`
-          # steps as `bash -e {0}` regardless of this script's own `set`
-          # flags, and a bare `version="$(...)"` is a simple command that
-          # `-e` would abort on before `rc=$?` ever ran, making the exit-1
-          # skip case below unreachable.
+          # `run:` steps execute as `bash -e {0}` regardless of `set` above -- a bare assignment
+          # would abort here on next-version.sh's exit 1, before rc is ever inspected.
           if version="$(bash scripts/next-version.sh)"; then
             rc=0
           else
@@ -114,5 +70,5 @@ jobs:
           git commit -m "chore: bump workspace version -> ${VERSION}"
           git push -u origin "$branch"
           gh pr create --title "chore: bump workspace version -> ${VERSION}" \
-            --body "Computed by \`prepare-release.yml\` from Conventional Commit subjects since the last tag (see \`scripts/next-version.sh\`). **Merging this releases v${VERSION}**: \`tag-and-release.yml\` tags this merge commit \`v${VERSION}\` and runs \`publish.yml\` (crates.io), \`java-publish.yml\` (Maven Central), \`publish-go.yml\` (the ZirekHQ/dengjen-tts-go mirror), and \`publish-grpc.yml\` (the gRPC server's GitHub Release) as jobs of that same run, plus dispatches \`CI.yml\`'s release job (PyPI) separately. Review the version and the diff before merging -- the only manual step left after that is one approval click for the batched \`environment: release\` gate the first four share (PyPI has none)." \
+            --body "Computed by \`prepare-release.yml\` from Conventional Commit subjects since the last tag (see \`scripts/next-version.sh\`). **Merging this releases v${VERSION}**: \`release.yml\` tags this merge commit \`v${VERSION}\` and runs \`publish.yml\` (crates.io), \`java-publish.yml\` (Maven Central), \`publish-go.yml\` (the ZirekHQ/dengjen-tts-go mirror), and \`publish-grpc.yml\` (the gRPC server's GitHub Release) as jobs of that same run, plus dispatches \`CI.yml\`'s release job (PyPI) separately. Review the version and the diff before merging -- the only manual step left after that is one approval click for the batched \`environment: release\` gate the first four share (PyPI has none)." \
             --base main --head "$branch"

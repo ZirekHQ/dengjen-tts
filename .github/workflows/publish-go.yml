@@ -1,49 +1,26 @@
-# Manual prerequisites — this workflow cannot create either for itself, and
-# both must be in place before the first `go-release-v*` tag is pushed:
-#
-#   1. The ZirekHQ/dengjen-tts-go repository must already exist and have a
-#      `main` branch. Every release force-pushes an orphan commit onto it, so
-#      it must be checkout-able (i.e. not an empty, never-initialised repo).
-#   2. secrets.DENGJEN_TTS_GO_DEPLOY_TOKEN must hold a fine-grained PAT
-#      (passed as actions/checkout's `token:`, which requires HTTPS-style PAT
-#      auth — an SSH deploy key will not work here), scoped to
-#      ZirekHQ/dengjen-tts-go only, with Contents: Read and write — that one
-#      permission covers checkout, the orphan-commit push to `main`, pushing
-#      the release tag, and deleting it on rollback when verification fails.
+# Manual prereqs this workflow can't create itself: ZirekHQ/dengjen-tts-go must already exist with a
+# `main` branch (every release force-pushes an orphan commit onto it), and DENGJEN_TTS_GO_DEPLOY_TOKEN
+# must be an HTTPS-style fine-grained PAT scoped to it with Contents: Read and write.
 name: Publish Go bindings release
 
 on:
-  push:
-    tags:
-      - "go-release-v*"
-  # Called directly as a job (`uses:`) from tag-and-release.yml's single
-  # release pipeline right after it tags the version-bump merge commit
-  # vX.Y.Z, passing tag=go-release-vX.Y.Z -- gated by that pipeline's own
-  # dedicated `approve` job (environment: release), not by an environment
-  # on `assemble-and-push` below, so one approval covers this and the other
-  # three release targets atomically. No real "go-release-v*" tag needs to
-  # pre-exist on this repo for that -- the value below only feeds "extract
-  # target version" below, which strips its "go-release-" prefix to get the
-  # plain vX.Y.Z tag this job pushes to the separate ZirekHQ/dengjen-tts-go
-  # repo. Also usable for a manual retrigger -- that path carries no
-  # approval gate of its own (removed in favor of the shared one above);
-  # the `check` job below at least makes a retry against an already-
-  # released version safe by skipping the build entirely.
+  # No `environment:` gate on the jobs below -- release.yml's shared `approve` job covers it when
+  # called from there, but a manual dispatch of this file bypasses that entirely.
   workflow_dispatch:
     inputs:
       tag:
-        description: "go-release-vX.Y.Z tag name to release (e.g. go-release-v1.2.3)"
+        description: "go-release-vX.Y.Z to release"
         required: true
         type: string
       dry_run:
-        description: "Build and assemble the release snapshot locally, but skip pushing the commit/tag to ZirekHQ/dengjen-tts-go and skip the verify job (there'd be nothing published yet to fetch)."
+        description: "Dry Run: publish nothing"
         required: false
         type: boolean
         default: false
   workflow_call:
     inputs:
       tag:
-        description: "go-release-vX.Y.Z tag name to release (e.g. go-release-v1.2.3)"
+        description: "go-release-vX.Y.Z to release"
         required: true
         type: string
       dry_run:
@@ -68,7 +45,7 @@ jobs:
       - name: Check whether this version's tag already exists on dengjen-tts-go
         id: check
         env:
-          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag }}
           GO_REPO_TOKEN: ${{ secrets.DENGJEN_TTS_GO_DEPLOY_TOKEN }}
         run: |
           set -euo pipefail
@@ -283,10 +260,7 @@ jobs:
       - name: extract target version
         id: version
         env:
-          # inputs.tag on a workflow_dispatch run (see the trigger comment
-          # above); github.ref_name on a real tag push, where it already is
-          # the go-release-v* tag name itself.
-          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
           tag="${RELEASE_TAG}"
