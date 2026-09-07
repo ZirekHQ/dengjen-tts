@@ -20,12 +20,29 @@ on:
         description: "java-vX.Y.Z version string to publish (e.g. java-v1.2.3)"
         required: true
         type: string
+      previous_tag:
+        description: "Override the java-v* tag JReleaser's changelog diffs commits from, instead of auto-detecting the previous release. Leave blank for normal auto-detection."
+        required: false
+        type: string
+      dry_run:
+        description: "Run JReleaser in dry-run mode: validates and logs what it would do (sign, deploy to Maven Central, create the GitHub Release) without performing any of those remote writes."
+        required: false
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       tag:
         description: "java-vX.Y.Z version string to publish (e.g. java-v1.2.3)"
         required: true
         type: string
+      previous_tag:
+        description: "Override the java-v* tag JReleaser's changelog diffs commits from, instead of auto-detecting the previous release. Leave blank for normal auto-detection."
+        required: false
+        type: string
+      dry_run:
+        required: false
+        type: boolean
+        default: false
     secrets:
       JRELEASER_MAVENCENTRAL_USERNAME:
         required: true
@@ -170,6 +187,8 @@ jobs:
           # on a workflow_dispatch run (see the trigger comment above), since github.ref_name
           # there is just whatever ref was dispatched against (main), not a version at all.
           VERSIONING_GIT_TAG: ${{ inputs.tag || github.ref_name }}
+          JRELEASER_PREVIOUS_TAG_OVERRIDE: ${{ inputs.previous_tag }}
+          JRELEASER_DRY_RUN_OVERRIDE: ${{ inputs.dry_run }}
           JRELEASER_MAVENCENTRAL_USERNAME: ${{ secrets.JRELEASER_MAVENCENTRAL_USERNAME }}
           JRELEASER_MAVENCENTRAL_PASSWORD: ${{ secrets.JRELEASER_MAVENCENTRAL_PASSWORD }}
           JRELEASER_GPG_PASSPHRASE: ${{ secrets.JRELEASER_GPG_PASSPHRASE }}

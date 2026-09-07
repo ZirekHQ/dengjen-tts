@@ -35,12 +35,21 @@ on:
         description: "go-release-vX.Y.Z tag name to release (e.g. go-release-v1.2.3)"
         required: true
         type: string
+      dry_run:
+        description: "Build and assemble the release snapshot locally, but skip pushing the commit/tag to ZirekHQ/dengjen-tts-go and skip the verify job (there'd be nothing published yet to fetch)."
+        required: false
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       tag:
         description: "go-release-vX.Y.Z tag name to release (e.g. go-release-v1.2.3)"
         required: true
         type: string
+      dry_run:
+        required: false
+        type: boolean
+        default: false
     secrets:
       DENGJEN_TTS_GO_DEPLOY_TOKEN:
         required: true
@@ -460,6 +469,7 @@ jobs:
         working-directory: dengjen-tts-go
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -euo pipefail
           git config user.name "dengjen-tts-go release bot"
@@ -481,12 +491,19 @@ jobs:
           fi
 
           git tag "$VERSION"
-          git push origin "refs/tags/${VERSION}"
+          if [ "${DRY_RUN:-}" = "true" ]; then
+            echo "::notice::DRY RUN -- would push ${VERSION} (commit $(git rev-parse HEAD)) to ZirekHQ/dengjen-tts-go, skipping"
+          else
+            git push origin "refs/tags/${VERSION}"
+          fi
 
           echo "release_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   verify:
     needs: assemble-and-push
+    # Nothing was actually pushed to fetch on a dry run -- go get would just
+    # fail against a tag that was only logged, not created.
+    if: inputs.dry_run != true
     runs-on: ${{ matrix.platform.runner }}
     permissions:
       contents: read

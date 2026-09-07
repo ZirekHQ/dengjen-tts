@@ -34,10 +34,22 @@ set -euo pipefail
 
 
 
-last_tag="$(git tag --list 'v*' --merged HEAD --sort=-v:refname | grep -E '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' | head -1 || true)"
-if [ -z "$last_tag" ]; then
-  echo "::error::No vX.Y.Z tag found to compute the next version from" >&2
-  exit 2
+if [ -n "${PREVIOUS_TAG:-}" ]; then
+  last_tag="$PREVIOUS_TAG"
+  if ! echo "$last_tag" | grep -qE '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'; then
+    echo "::error::PREVIOUS_TAG '${last_tag}' doesn't look like a vX.Y.Z tag" >&2
+    exit 2
+  fi
+  if ! git rev-parse -q --verify "refs/tags/${last_tag}" >/dev/null; then
+    echo "::error::PREVIOUS_TAG '${last_tag}' does not exist in this repo" >&2
+    exit 2
+  fi
+else
+  last_tag="$(git tag --list 'v*' --merged HEAD --sort=-v:refname | grep -E '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' | head -1 || true)"
+  if [ -z "$last_tag" ]; then
+    echo "::error::No vX.Y.Z tag found to compute the next version from" >&2
+    exit 2
+  fi
 fi
 
 version="${last_tag#v}"

@@ -24,7 +24,13 @@ status="$(curl -s -o /dev/null -w '%{http_code}' \
   "https://crates.io/api/v1/crates/${crate}/${version}")"
 case "$status" in
   200) echo "${crate} ${version} is already published -- skipping" ;;
-  404) cargo publish -p "$crate" --locked --no-verify ;;
+  404)
+    if [ "${DRY_RUN:-}" = "true" ]; then
+      cargo publish -p "$crate" --locked --no-verify --dry-run
+    else
+      cargo publish -p "$crate" --locked --no-verify
+    fi
+    ;;
   *)
     echo "::error::Unexpected status ${status} checking crates.io for ${crate} ${version}" >&2
     exit 1

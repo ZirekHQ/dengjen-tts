@@ -269,24 +269,32 @@ publishing {
 }
 
 configure<org.jreleaser.gradle.plugin.JReleaserExtension> {
-    
-    
-    
+    // Validates and logs everything (signing, Maven Central deploy, GitHub
+    // Release) without performing the remote writes -- the Gradle plugin
+    // doesn't pick up JRELEASER_DRY_RUN from the environment on its own,
+    // unlike the CLI/Maven, so it's wired through explicitly here.
+    dryrun = providers.environmentVariable("JRELEASER_DRY_RUN_OVERRIDE").orNull == "true"
     gitRootSearch = true
     release {
         github {
-            
-            
+
+
             skipTag = true
-            
-            
-            
-            
+
+
+
+
             tagName = "java-v{{projectVersion}}"
-            
-            
-            
-            
+
+
+
+
+            // Overrides JReleaser's auto-detected changelog baseline (the
+            // previous java-v* release) -- for testing/dry runs against an
+            // arbitrary prior version. Unset means auto-detect, same as
+            // before this override existed.
+            providers.environmentVariable("JRELEASER_PREVIOUS_TAG_OVERRIDE").orNull
+                ?.let { previousTagName = it }
             immutableRelease = true
             changelog {
                 formatted = org.jreleaser.model.Active.ALWAYS
