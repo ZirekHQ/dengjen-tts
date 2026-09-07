@@ -180,11 +180,7 @@ jobs:
         # Depends on every component job so this always publishes last and
         # is the one GitHub shows as "Latest". The `v${VERSION}` tag already
         # exists (pushed by tag-and-release), so this just attaches a release
-        # to it. --generate-notes is only a placeholder body (GitHub's flat
-        # "What's Changed" list); the org's changelog convention groups by
-        # category with a root-cause/consequence paragraph per item, which
-        # needs a human/Claude pass over the actual diffs -- no CI script can
-        # produce that, so edit the release notes after the fact to match it.
+        # to it; --generate-notes's output is the convention, not a draft.
         run: |
           set -euo pipefail
           gh release create "v${VERSION}" \
