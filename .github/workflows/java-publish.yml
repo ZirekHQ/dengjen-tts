@@ -108,6 +108,9 @@ jobs:
         run: echo "CMAKE_GENERATOR=Ninja" >> "$GITHUB_ENV"
       - name: install libclang (linux)
         if: runner.os == 'Linux'
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          NEEDRESTART_MODE: a
         run: sudo apt-get update && sudo apt-get install -y llvm llvm-dev llvm-runtime libclang-dev
       - name: install libclang (windows)
         if: runner.os == 'Windows'

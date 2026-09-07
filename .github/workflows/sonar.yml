@@ -38,6 +38,9 @@ jobs:
       # (same toolchain as rust-lint.yml's bindings-java/bindings-go jobs) is what lets their
       # coverage steps below produce real numbers instead of leaving sonar.coverage at 0%.
       - name: install build dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          NEEDRESTART_MODE: a
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev llvm-dev cmake protobuf-compiler
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:

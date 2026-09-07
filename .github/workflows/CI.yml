@@ -26,6 +26,9 @@ jobs:
       - name: git-submodule-fix
         run: git config --global protocol.file.allow always
       - name: install libclang
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          NEEDRESTART_MODE: a
         run:  sudo apt-get update && sudo apt-get install  llvm llvm-dev llvm-runtime libclang-dev
       - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
@@ -51,6 +54,7 @@ jobs:
           # on every retry.
           maturin-version: v1.14.1
           before-script-linux: |
+            export DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a
             if command -v yum &> /dev/null; then
               yum install -y clang-devel llvm-devel
             elif command -v apt-get &> /dev/null; then
@@ -221,6 +225,9 @@ jobs:
       - name: git-submodule-fix
         run: git config --global protocol.file.allow always
       - name: install libclang, espeak-ng, and protoc
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          NEEDRESTART_MODE: a
         run: sudo apt-get update && sudo apt-get install -y llvm llvm-dev llvm-runtime libclang-dev espeak-ng protobuf-compiler
       - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
