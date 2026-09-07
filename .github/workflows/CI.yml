@@ -26,10 +26,10 @@ jobs:
       - name: git-submodule-fix
         run: git config --global protocol.file.allow always
       - name: install libclang
-        timeout-minutes: 5
+        timeout-minutes: 15
         run: |
           for attempt in 1 2 3; do
-            if sudo apt-get update && sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y llvm llvm-dev llvm-runtime libclang-dev; then
+            if timeout 60 sudo apt-get update && timeout 180 sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y llvm llvm-dev llvm-runtime libclang-dev; then
               exit 0
             fi
             echo "::warning::apt-get install attempt ${attempt} failed, retrying" >&2
@@ -232,10 +232,10 @@ jobs:
       - name: git-submodule-fix
         run: git config --global protocol.file.allow always
       - name: install libclang, espeak-ng, and protoc
-        timeout-minutes: 5
+        timeout-minutes: 15
         run: |
           for attempt in 1 2 3; do
-            if sudo apt-get update && sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y llvm llvm-dev llvm-runtime libclang-dev espeak-ng protobuf-compiler; then
+            if timeout 60 sudo apt-get update && timeout 180 sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y llvm llvm-dev llvm-runtime libclang-dev espeak-ng protobuf-compiler; then
               exit 0
             fi
             echo "::warning::apt-get install attempt ${attempt} failed, retrying" >&2

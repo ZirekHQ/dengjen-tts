@@ -17,10 +17,10 @@ jobs:
       - name: git-submodule-fix
         run: git config --global protocol.file.allow always
       - name: install build dependencies
-        timeout-minutes: 5
+        timeout-minutes: 15
         run: |
           for attempt in 1 2 3; do
-            if sudo apt-get update && sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y clang libclang-dev llvm-dev cmake protobuf-compiler; then
+            if timeout 60 sudo apt-get update && timeout 180 sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y clang libclang-dev llvm-dev cmake protobuf-compiler; then
               exit 0
             fi
             echo "::warning::apt-get install attempt ${attempt} failed, retrying" >&2
