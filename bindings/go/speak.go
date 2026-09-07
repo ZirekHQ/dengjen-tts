@@ -4,13 +4,9 @@ package dengjen
 #include <stdlib.h>
 #include "libdengjen.h"
 
-// cgo generates the extern declaration for the //export'd
-// goDengjenSpeechCallback (defined in callback.go) into _cgo_export.h, but
-// that header is itself a product of cgo processing every preamble in this
-// package -- including this one -- so #include-ing it here is a chicken-and-
-// egg problem (cgo fails with "_cgo_export.h: No such file or directory").
-// Declare the same prototype directly instead; it must match the signature
-// of goDengjenSpeechCallback exactly.
+// _cgo_export.h (declaring the //export'd goDengjenSpeechCallback) is itself
+// generated from this preamble, so #include-ing it here is a chicken-and-egg
+// problem. Redeclare the prototype instead, matching the signature exactly.
 extern uint8_t goDengjenSpeechCallback(struct SynthesisEvent event, void *userData);
 */
 import "C"

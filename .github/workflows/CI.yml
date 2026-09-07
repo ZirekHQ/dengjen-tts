@@ -64,17 +64,12 @@ jobs:
             sysroot=/usr/aarch64-unknown-linux-gnu/aarch64-unknown-linux-gnu/sysroot
             if [ -d "$sysroot" ]; then
               export QEMU_LD_PREFIX="$sysroot"
-              # dengjen-espeak-rs-sys's build.rs runs bindgen against espeak-ng's headers;
-              # without a target sysroot, its clang parse falls back to the host's
-              # (x86_64) system headers, which fail on aarch64-incompatible glibc
-              # multiarch headers (e.g. bits/libc-header-start.h not found).
+              # Without a target sysroot, dengjen-espeak-rs-sys's bindgen step falls back to host
+              # (x86_64) headers, which fail parsing aarch64 glibc multiarch headers.
               export BINDGEN_EXTRA_CLANG_ARGS_aarch64_unknown_linux_gnu="--sysroot=$sysroot"
             fi
-      # The manylinux/QEMU container curls its maturin binary on every run and
-      # occasionally gets a truncated response; maturin-action doesn't expose that
-      # fetch as its own step, so retry the whole build rather than just the install.
-      # A back-off sleep separates attempts since retrying immediately tends to
-      # hit the same still-degraded network path.
+      # maturin-action's fetch of its maturin binary occasionally truncates and isn't its own
+      # step to retry individually, so the whole build retries with a back-off sleep between attempts.
       - name: Wait before retry 1
         if: steps.build-wheels-1.outcome == 'failure'
         run: sleep 20
@@ -260,11 +255,9 @@ jobs:
     if: "startsWith(github.ref, 'refs/tags/')"
     needs: [linux, windows, macos, sdist]
     steps:
-      # No `working-directory` on the maturin-action step below: `path: dist` here
-      # downloads every artifact under $GITHUB_WORKSPACE/dist/, and the upload step's
-      # glob is workspace-root-relative to match. A working-directory of
-      # ./crates/frontends/python previously made that glob look for
-      # crates/frontends/python/wheels-*/*, which never matched anything.
+      # No `working-directory` here: `path: dist` downloads artifacts to $GITHUB_WORKSPACE/dist/, and
+      # the upload glob matches workspace-root-relative -- a working-directory previously made that
+      # glob look under crates/frontends/python, which matched nothing.
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: dist

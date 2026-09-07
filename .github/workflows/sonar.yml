@@ -34,10 +34,9 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
-      # The Go and Java bindings are compiled against libdengjen (crates/frontends/capi), so
-      # generating real coverage for them -- rather than leaving sonar.coverage at 0% -- means
-      # building it here first, same toolchain as .github/workflows/rust-lint.yml's
-      # bindings-java/bindings-go jobs.
+      # Go/Java bindings compile against libdengjen (crates/frontends/capi); building it here
+      # (same toolchain as rust-lint.yml's bindings-java/bindings-go jobs) is what lets their
+      # coverage steps below produce real numbers instead of leaving sonar.coverage at 0%.
       - name: install build dependencies
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev llvm-dev cmake protobuf-compiler
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
