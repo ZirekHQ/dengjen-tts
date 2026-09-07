@@ -154,3 +154,37 @@ jobs:
     with:
       tag: grpc-release-v${{ needs.tag-and-release.outputs.version }}
       dry_run: ${{ inputs.dry_run == true }}
+
+  # crates/java/go/grpc each publish their own artifact-scoped GitHub Release
+  # (java-v*, grpc-release-v*), none of which represent the repo as a whole --
+  # without this job the `v${VERSION}` tag from tag-and-release never gets a
+  # release object, so GitHub's `/releases/latest` falls back to whichever
+  # component release happened to publish last.
+  github-release:
+    name: Whole-repo GitHub Release
+    needs: [tag-and-release, approve, crates, java, go, grpc]
+    if: >-
+      always() && inputs.dry_run != true &&
+      needs.tag-and-release.result == 'success' &&
+      (needs.approve.result == 'success' || needs.approve.result == 'skipped') &&
+      needs.crates.result == 'success' && needs.java.result == 'success' &&
+      needs.go.result == 'success' && needs.grpc.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.tag-and-release.outputs.version }}
+        # Depends on every component job so this always publishes last and
+        # is the one GitHub shows as "Latest". The `v${VERSION}` tag already
+        # exists (pushed by tag-and-release), so this just attaches a release
+        # to it; --generate-notes builds the changelog from merged PRs since
+        # the previous vX.Y.Z tag.
+        run: |
+          set -euo pipefail
+          gh release create "v${VERSION}" \
+            --repo "${{ github.repository }}" \
+            --title "v${VERSION}" \
+            --generate-notes
