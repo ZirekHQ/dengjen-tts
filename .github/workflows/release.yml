@@ -71,9 +71,12 @@ jobs:
               exit 1
             fi
             echo "v${VERSION} already exists on origin and points at this commit -- reusing it"
-          else
+          elif [ "$GITHUB_REF" = "refs/heads/main" ]; then
             git tag "v${VERSION}"
             git push origin "v${VERSION}"
+          else
+            echo "::error::Refusing to create v${VERSION} from ${GITHUB_REF} -- release tags are only created from main" >&2
+            exit 1
           fi
 
       - name: Trigger PyPI release (CI.yml)
