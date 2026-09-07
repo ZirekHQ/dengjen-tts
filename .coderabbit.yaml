@@ -8,14 +8,12 @@ reviews:
     - "!**/*.lock"
     - "!**/*.lockfile"
 
-  # General repository-wide instructions
   instructions: |
     - Focus strictly on correctness, concurrency safety, memory safety, and performance.
     - Avoid nitpicking style, naming conventions, or formatting unless it impacts API clarity or ABI safety.
     - Flag any silent error discards, unchecked unwrap() calls in public APIs or request paths, and missing bounds checks.
     - Keep comments concise: explain the root cause and provide a targeted code fix.
 
-  # Path-specific instructions
   path_instructions:
     # 1. Rust Audio Ops & DSP
     - path: "crates/audio/**"

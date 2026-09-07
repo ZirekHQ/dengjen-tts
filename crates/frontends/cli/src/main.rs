@@ -317,10 +317,9 @@ mod synthesis_processing_tests {
             _chunk_padding: usize,
             _cancel_token: CancellationToken,
         ) -> DengjenResult<AudioStreamIterator<'_>> {
-            // `DengjenModel::stream_synthesis` defaults to
-            // `Err(UnsupportedOperation(...))` — `RealtimeSpeechStream` calls it
-            // unconditionally, so without this override the Realtime-mode test
-            // below would fail before ever reaching `consume_stream`.
+            // `DengjenModel::stream_synthesis` defaults to `Err(UnsupportedOperation)`;
+            // `RealtimeSpeechStream` calls it unconditionally, so without this override
+            // the Realtime-mode test below would fail before reaching `consume_stream`.
             if self.fail_speak {
                 return Err(DengjenError::OperationError("synthesis failed".to_string()));
             }
@@ -375,11 +374,9 @@ mod synthesis_processing_tests {
 
         process_synthesis_request(&args, &synth, &default_config(), req, &mut buffer).unwrap();
 
-        // Not an exact byte count: `process_synthesis_request` always wraps
-        // output through `AudioOutputConfig::apply` (real Sonic FFI, even with
-        // every field `None`), which this test isn't exercising — that's
-        // `dengjen-audio-ops`'s own tested responsibility (Phase 3). Non-empty output
-
+        // Not an exact byte count: output always passes through
+        // `AudioOutputConfig::apply` (real Sonic FFI even with all fields `None`),
+        // which is `dengjen-audio-ops`'s own tested responsibility.
         assert!(!buffer.is_empty());
     }
 

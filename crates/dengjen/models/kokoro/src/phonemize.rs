@@ -111,8 +111,6 @@ mod tests {
     #[test]
     fn text_to_kokoro_phonemes_returns_one_entry_per_sentence() {
         let _guard = lock_espeak();
-        // Real espeak-ng output for this input:
-        // ["həlˈO ðˈɛɹ.", "ʤˈɛnəɹɹəl kɛnˈObI."]
         let Some(result) = phonemize_or_skip("Hello there. General Kenobi.", "en-US") else {
             return;
         };

@@ -62,11 +62,9 @@ pub(crate) fn normalize(c: char) -> char {
     if valid.contains(&c) {
         return c;
     }
-    // NOTE: endings_to_regular() is intentionally dead code, mirroring upstream
-    // piper1-gpl's own implementation. Final letter forms (U+05DA, U+05DD, U+05DF,
-    // U+05E3, U+05E5) are all within the hebrew_letters() range and pass the
-    // valid_letters check above, so this mapping never fires. The model was trained
-    // with that exact preprocessing, so final forms must pass through unchanged.
+    // Intentionally dead: final letter forms are already in valid_letters() so this
+    // branch never fires, mirroring upstream piper1-gpl. The model was trained with
+    // final forms passing through unchanged — don't "fix" this to actually remap them.
     let endings = endings_to_regular();
     if let Some(&base) = endings.get(&c) {
         return base;
@@ -115,7 +113,6 @@ mod tests {
     #[test]
     fn char_to_id_map_prepends_mask_token_at_zero() {
         let map = char_to_id_map();
-        // space is in valid_letters, so it has a mapped ID >= 1 (never 0, which is reserved for mask token)
         assert!(map.get(&' ').is_some_and(|&id| id >= 1));
         // the mask token itself is the empty string in upstream, which has no
         // single-char Rust representation — id 0 is reserved and unmapped here.

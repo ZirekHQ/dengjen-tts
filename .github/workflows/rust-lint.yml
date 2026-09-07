@@ -36,14 +36,9 @@ jobs:
           components: clippy
       - run: cargo install clippy-sarif sarif-fmt --locked
       - name: cargo clippy
-        # benches/tests are excluded since crates/audio/ops's bench has a
-        # pre-existing broken import. Scoped to what actually ships.
-        #
-        # SonarCloud has no Rust analyzer (see sonar-project.properties), so the
-        # ruleset's code_scanning rule has nothing to source Rust findings from
-        # unless something uploads SARIF for these crates. Piping clippy's own
-        # JSON output through clippy-sarif does that instead of standing up
-        # CodeQL, whose Rust support is still much thinner than clippy's.
+        # benches/tests excluded: crates/audio/ops's bench has a pre-existing broken import.
+        # SonarCloud has no Rust analyzer, so nothing else uploads SARIF for these crates --
+        # this pipes clippy's JSON through clippy-sarif instead of standing up CodeQL.
         run: |
           set -o pipefail
           cargo clippy --workspace --lib --bins --message-format=json -- -D warnings \
@@ -98,10 +93,9 @@ jobs:
           # covered by the separate `rustsec/audit-check` job above (kept as belt-and-braces).
           command: check licenses bans sources
 
-  # crates/audio/sonic-sys/build.rs compiles vendor/sonic.c and .h, not deps/sonic's copies, so
-  # nothing in the build touches the deps/sonic submodule anymore. Renovate still keeps that
-  # submodule pinned to a tracked branch and will keep opening bump PRs for it; without this
-  # check, merging one would pass CI green while silently leaving vendor/ stale.
+  # crates/audio/sonic-sys/build.rs compiles vendor/sonic.c/.h, not deps/sonic's copies -- nothing
+  # in the build touches that submodule anymore. Renovate still opens bump PRs for it though;
+  # without this check, merging one would pass CI green while silently leaving vendor/ stale.
   vendor-drift-check:
     runs-on: ubuntu-latest
     steps:
@@ -116,10 +110,9 @@ jobs:
           diff -q deps/sonic/sonic.c crates/audio/sonic-sys/vendor/sonic.c
           diff -q deps/sonic/sonic.h crates/audio/sonic-sys/vendor/sonic.h
 
-  # Miri can't run this workspace's unsafe code: every unsafe block here calls into real linked
-  # C libraries (onnxruntime, libsonic, espeak-ng), and Miri doesn't support arbitrary FFI.
-  # AddressSanitizer does support real FFI, so it's used instead — validated locally to be clean
-  # against libdengjen (the public C ABI) and dengjen-tts (the dengjen-sonic-sys FFI boundary).
+  # Miri can't run this workspace's unsafe code -- every unsafe block calls into real linked C
+  # libraries (onnxruntime, libsonic, espeak-ng), and Miri doesn't support arbitrary FFI.
+  # AddressSanitizer does, and is validated locally clean against libdengjen and dengjen-tts.
   asan:
     runs-on: ubuntu-latest
     steps:
@@ -146,10 +139,9 @@ jobs:
       - name: cargo test under AddressSanitizer (libdengjen, dengjen-tts)
         env:
           RUSTFLAGS: -Z sanitizer=address
-        # test_lazy_stream/test_parallel_stream/test_realtime_stream need real model fixture
-        # files not present in CI (same reason CI.yml's main test job excludes dengjen-tts
-        # entirely); everything else, including the synthetic-model tests in the same binary,
-        # still runs.
+        # test_lazy_stream/test_parallel_stream/test_realtime_stream need real model fixtures not
+        # present in CI (same reason CI.yml's test job excludes dengjen-tts entirely) -- everything
+        # else in the same binary, including synthetic-model tests, still runs.
         run: cargo +nightly test -p libdengjen -p dengjen-tts -Zbuild-std --target x86_64-unknown-linux-gnu -- --skip test_lazy_stream --skip test_parallel_stream --skip test_realtime_stream
       - name: cargo test under AddressSanitizer (dengjen-espeak-phonemizer, single-threaded)
         env:
@@ -159,12 +151,9 @@ jobs:
           LSAN_OPTIONS: suppressions=${{ github.workspace }}/.github/asan-suppressions/lsan.txt
         run: cargo +nightly test -p dengjen-espeak-phonemizer -Zbuild-std --target x86_64-unknown-linux-gnu -- --test-threads=1
 
-  # Build-only smoke check so the fuzz targets don't silently bit-rot. Actual fuzzing
-  # (finding new crashes) is a longer-running job better suited to a schedule than every PR —
-  # run one manually with `cargo fuzz run <target>` from the crate that owns it:
-  #   map_phonemes_to_ids   crates/dengjen/models/piper
-  #   normalize_numbers     crates/text/pinyin-phonemizer
-  #   num_classes           crates/text/hebrew-phonemizer
+  # Build-only smoke check so fuzz targets don't bit-rot -- actual fuzzing (finding crashes) is
+  # too slow for every PR, so it isn't scheduled here. Run one manually with
+  # `cargo fuzz run <target>` from the crate that owns it (see each crate's fuzz/ directory).
   fuzz-build:
     runs-on: ubuntu-latest
     steps:
@@ -191,12 +180,9 @@ jobs:
         working-directory: crates/text/hebrew-phonemizer
         run: cargo +nightly fuzz build
 
-  # Mirrors CI.yml's `test` job's per-crate invocations exactly, but under
-  # cargo-llvm-cov instrumentation, so the merged Cobertura report reflects the
-  # same set of crates/features that job actually exercises. SonarCloud never
-  # scanned any of this (see sonar-project.properties) so it had no coverage
-  # data to feed the ruleset's code_coverage rule; this reports straight to
-  # GitHub's own code coverage feature instead.
+  # Mirrors CI.yml's `test` job's per-crate invocations under cargo-llvm-cov instrumentation.
+  # SonarCloud doesn't scan crates/** (see sonar-project.properties), so this reports coverage
+  # to GitHub's own feature instead.
   coverage:
     runs-on: ubuntu-latest
     permissions:
@@ -208,9 +194,8 @@ jobs:
       - name: install libclang, espeak-ng, and protoc
         run: sudo apt-get update && sudo apt-get install -y llvm llvm-dev llvm-runtime libclang-dev espeak-ng protobuf-compiler
       # actions/checkout defaults to the synthetic merge commit for pull_request events, but
-      # GitHub's code coverage feature (see the upload step below) annotates the PR's file-diff
-      # view against the head commit -- checking out the merge commit here means the upload
-      # never lines up with anything the PR view actually shows.
+      # GitHub's code coverage upload (below) annotates the PR's file-diff against the head
+      # commit -- checking out the merge commit would leave the upload lining up with nothing.
       - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -251,22 +236,9 @@ jobs:
           file: cobertura.xml
           language: Rust
 
-  # Runs the DENGJEN_KOKORO_TEST_VOICE_CONFIG-gated real-voice e2e tests
-  # (dengjen-tts-kokoro's e2e_real_voice.rs, dengjen-tts-cli's kokoro_e2e.rs) against an actual
-  # trained voice instead of the synthetic fixture every other job uses. Never runs on a
-  # push/PR (real model weights are too large/slow to fetch on every run); only on the weekly
-  # schedule above or a manual workflow_dispatch.
-  #
-  # No specific model source is configured here: verifying a third-party Kokoro export's
-  # license and its exact file layout against KokoroVoiceConfig's schema is a one-time judgment
-  # call for whoever maintains this repo, not something to hardcode sight-unseen. Set the
-  # `KOKORO_TEST_VOICE_ARCHIVE_URL` repository variable (Settings > Secrets and variables >
-  # Actions > Variables) to a .tar.gz whose root directory holds:
-  #   - config.json               ({"model_path": ..., "voices_dir": ..., "vocab_path": ...},
-  #                                 each path resolved relative to this same directory)
-  #   - whatever those three fields name
-  # The job's own `if:` skips it entirely (no runner allocated, nothing checked out) until
-  # that variable is set.
+  # Gated by the KOKORO_TEST_VOICE_ARCHIVE_URL repo variable (a .tar.gz with config.json +
+  # the paths it names) -- unset until a maintainer vets a real Kokoro export's license and
+  # layout, so this job's `if:` skips entirely rather than running against nothing.
   kokoro-real-voice-e2e:
     if: |
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&

@@ -306,8 +306,6 @@ pub(crate) fn word_to_segments(word: &str) -> Vec<Segment> {
         let next = glyphs.get(i + 1);
         let is_final = i == glyphs.len() - 1;
 
-        // Real upstream piper1-gpl's `_word_to_segments` has no special case
-
         let base_char = g.base.chars().next().unwrap_or('\0');
 
         if is_shuruk(g) {

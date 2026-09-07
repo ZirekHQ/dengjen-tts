@@ -178,10 +178,9 @@ fn cli_synthesizes_batch_from_a_synthetic_piper_voice() {
 
 #[test]
 fn cli_streams_realtime_synthesis_from_a_synthetic_piper_voice() {
-    // ENCODER_NUM_FRAMES=200, chunk_padding=3:
-    //   --chunk-size 20:  one_shot = 200 <= (20*2 + 3*2)  = 200 <= 46  = false (chunked)
-    //   --chunk-size 100: one_shot = 200 <= (100*2 + 3*2) = 200 <= 206 = true  (single decode)
-    // The synthetic decoder's output is a position-dependent ramp (0, 1, 2, ...)
+    // ENCODER_NUM_FRAMES=200, chunk_padding=3 (from generate_synthetic_piper.py):
+    //   --chunk-size 20:  one_shot = 200 <= (20*2 + 3*2)  = 46  -> false (chunked)
+    //   --chunk-size 100: one_shot = 200 <= (100*2 + 3*2) = 206 -> true  (single decode)
 
     let dir = std::env::temp_dir().join("dengjen_cli_piper_synthetic_streaming_test");
     std::fs::remove_dir_all(&dir).ok();

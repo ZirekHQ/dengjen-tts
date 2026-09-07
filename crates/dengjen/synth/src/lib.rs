@@ -1213,9 +1213,6 @@ mod audio_output_config_tests {
         };
         let raw_samples = sine_samples(100);
 
-        // Both computed via a single apply_to_raw_samples pass each -- the ground truth this
-        // config's own real behavior must match once the real audio and the silence are
-        // combined.
         let expected_silence_len = config.generate_silence(500, 16000, 1).unwrap().len();
         let expected_audio_len = config
             .apply_to_raw_samples(AudioSamples::from(raw_samples.clone()), 16000, 1)

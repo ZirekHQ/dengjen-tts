@@ -1,19 +1,7 @@
 #!/usr/bin/env bash
-# Publishes crate $1 at version $2 unless crates.io already has it -- lets
-# publish.yml be re-run from scratch to retry a partial failure (e.g. one
-# crate publishes, the next 403s on a missing token scope) without `cargo
-# publish` hard-failing on a version crates.io already has.
-#
-# crates.io's API 403s any request without a descriptive User-Agent (the
-# bare "curl/x.y.z" default doesn't qualify) -- set one explicitly or every
-# lookup here fails before it gets to check anything.
-#
-# curl -sf can't tell "confirmed not published" (404) apart from a transient
-# lookup failure (5xx, network blip) -- both are just "nonzero exit" to -f,
-# and treating them the same would attempt a real publish on the transient-
-# failure path, which cargo then rejects hard if the version *is* actually
-# already there. Capture the status code and only branch on a value we've
-# actually seen.
+# curl captures the HTTP status explicitly rather than using -sf's exit code, since a 404
+# (not yet published) and a 5xx/network blip are otherwise indistinguishable and would
+# wrongly retry-as-publish either way. Needs an explicit User-Agent or crates.io 403s.
 set -euo pipefail
 
 crate="${1:?usage: publish-crate-if-needed.sh <crate-name> <version>}"
