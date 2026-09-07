@@ -52,9 +52,14 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -uo pipefail
-          resp="$(gh api "repos/${{ github.repository }}/releases/tags/${RELEASE_TAG}" 2>&1)"
-          rc=$?
-          if [ "$rc" -eq 0 ]; then
+          # `if resp=$(...)` (not a bare assignment) so a non-zero exit --
+          # the normal case on a fresh tag's 404 -- is consumed by the `if`
+          # instead of tripping this step's implicit `bash -e` and dying
+          # before rc is ever inspected. Capture stdout only: gh api's own
+          # "gh: ... (HTTP nnn)" diagnostic goes to stderr, and merging it
+          # into resp would corrupt the JSON the jq pipeline below parses,
+          # making that pipeline (itself a bare assignment) trip -e too.
+          if resp="$(gh api "repos/${{ github.repository }}/releases/tags/${RELEASE_TAG}")"; then
             echo "::notice::${RELEASE_TAG} already has a GitHub Release -- skipping"
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
