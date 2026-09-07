@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Ref or tag to notify about (defaults to the current ref)
+        description: Ref or tag to notify about
         required: false
         type: string
 
