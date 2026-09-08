@@ -110,8 +110,9 @@ Then `cd` to the package, and run `cargo test` from there.
 # License
 
 Licensed under the GNU General Public License v3.0 or later (GPL-3.0-or-later) — see
-[LICENSE](LICENSE). dengjen began as a fork of [Sonata](https://github.com/mush42/sonata) by
-Musharraf Omer, originally MIT-licensed; see [NOTICE](NOTICE) for retained attribution.
+[LICENSE](LICENSE). dengjen originated as a fork of [Sonata](https://github.com/mush42/sonata) by
+Musharraf Omer, originally MIT-licensed; see [NOTICE](NOTICE) for project history and third-party
+attributions.
 
 ---
 
