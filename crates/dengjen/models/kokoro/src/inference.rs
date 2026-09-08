@@ -10,9 +10,21 @@ use ndarray::{Array1, Array2};
 use ort::session::Session;
 use ort::value::Tensor;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Mutex, RwLock};
 
 const KOKORO_CHUNK_SIZE_SCALE: usize = 256;
+
+fn resolve_voice_name<'a>(
+    speaker_map: &'a HashMap<i64, String>,
+    default_voice: &'a str,
+    synth_config: &SynthesisConfig,
+) -> &'a str {
+    synth_config
+        .speaker
+        .and_then(|id| speaker_map.get(&id))
+        .map(String::as_str)
+        .unwrap_or(default_voice)
+}
 
 pub struct KokoroModel {
     session: Mutex<Session>,
@@ -20,6 +32,8 @@ pub struct KokoroModel {
     voice_styles: VoiceStyles,
     sample_rate: u32,
     default_voice: String,
+    speaker_map: HashMap<i64, String>,
+    synth_config: RwLock<SynthesisConfig>,
 }
 
 #[allow(clippy::vec_init_then_push)]
@@ -55,12 +69,20 @@ impl KokoroModel {
             config.voices.first().cloned().ok_or_else(|| {
                 DengjenError::FailedToLoadResource("No voices in config".to_string())
             })?;
+        let speaker_map = config
+            .voices
+            .iter()
+            .enumerate()
+            .map(|(index, name)| (index as i64, name.clone()))
+            .collect();
         Ok(Self {
             session: Mutex::new(session),
             vocab,
             voice_styles,
             sample_rate: config.sample_rate,
             default_voice,
+            speaker_map,
+            synth_config: RwLock::new(SynthesisConfig::default()),
         })
     }
 
@@ -71,9 +93,11 @@ impl KokoroModel {
 
         let input_ids = Array2::from_shape_vec((1, token_ids.len()), token_ids.clone())
             .map_err(|e| DengjenError::with_message(e.to_string()))?;
-        let style = self
-            .voice_styles
-            .style_for(&self.default_voice, token_ids.len())?;
+        let voice_name = {
+            let synth_config = self.synth_config.read().unwrap();
+            resolve_voice_name(&self.speaker_map, &self.default_voice, &synth_config).to_string()
+        };
+        let style = self.voice_styles.style_for(&voice_name, token_ids.len())?;
         let speed = Array1::from_vec(vec![1.0f32]);
 
         let mut session = self.session.lock().unwrap();
@@ -123,22 +147,34 @@ impl DengjenModel for KokoroModel {
     }
 
     fn get_default_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
-        Ok(None)
+        Ok(Some(SynthesisConfig {
+            speaker: Some(0),
+            parameters: HashMap::new(),
+        }))
     }
 
     fn get_fallback_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
-        Ok(None)
+        Ok(Some(self.synth_config.read().unwrap().clone()))
     }
 
     fn set_fallback_synthesis_config(
         &self,
-        _synthesis_config: &SynthesisConfig,
+        synthesis_config: &SynthesisConfig,
     ) -> DengjenResult<()> {
+        if let Some(speaker) = synthesis_config.speaker {
+            if !self.speaker_map.contains_key(&speaker) {
+                return Err(DengjenError::InvalidConfiguration(format!(
+                    "No speaker was found with the given id `{}`",
+                    speaker
+                )));
+            }
+        }
+        *self.synth_config.write().unwrap() = synthesis_config.clone();
         Ok(())
     }
 
     fn get_speakers(&self) -> DengjenResult<Option<&HashMap<i64, String>>> {
-        Ok(None)
+        Ok(Some(&self.speaker_map))
     }
 
     fn supports_streaming_output(&self) -> bool {
@@ -214,6 +250,43 @@ mod tests {
     #[cfg(not(any(feature = "cuda", feature = "directml", feature = "coreml")))]
     fn execution_providers_is_empty_when_no_gpu_feature_is_enabled() {
         assert!(execution_providers().is_empty());
+    }
+
+    fn speaker_map() -> HashMap<i64, String> {
+        HashMap::from([(0, "voice_a".to_string()), (1, "voice_b".to_string())])
+    }
+
+    #[test]
+    fn resolve_voice_name_returns_default_voice_when_synth_config_has_no_speaker() {
+        let config = SynthesisConfig::default();
+        assert_eq!(
+            resolve_voice_name(&speaker_map(), "voice_a", &config),
+            "voice_a"
+        );
+    }
+
+    #[test]
+    fn resolve_voice_name_returns_the_named_voice_for_a_known_speaker_id() {
+        let config = SynthesisConfig {
+            speaker: Some(1),
+            ..Default::default()
+        };
+        assert_eq!(
+            resolve_voice_name(&speaker_map(), "voice_a", &config),
+            "voice_b"
+        );
+    }
+
+    #[test]
+    fn resolve_voice_name_falls_back_to_default_voice_for_an_unknown_speaker_id() {
+        let config = SynthesisConfig {
+            speaker: Some(99),
+            ..Default::default()
+        };
+        assert_eq!(
+            resolve_voice_name(&speaker_map(), "voice_a", &config),
+            "voice_a"
+        );
     }
 
     #[test]
