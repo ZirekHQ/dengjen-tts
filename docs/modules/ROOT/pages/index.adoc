@@ -46,6 +46,6 @@ this engine's neural-ONNX pipeline and isn't planned.
 
 == License
 
-Licensed under the GNU General Public License v3.0 or later (GPL-3.0-or-later). dengjen began as
-a fork of https://github.com/mush42/sonata[Sonata] by Musharraf Omer, originally MIT-licensed;
-retained attribution is in the repo's `NOTICE` file.
+Licensed under the GNU General Public License v3.0 or later (GPL-3.0-or-later). dengjen originated
+as a fork of https://github.com/mush42/sonata[Sonata] by Musharraf Omer, originally MIT-licensed;
+see the repo's `NOTICE` file for project history and third-party attributions.
