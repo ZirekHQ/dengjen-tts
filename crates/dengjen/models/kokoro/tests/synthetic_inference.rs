@@ -7,10 +7,6 @@ use std::path::PathBuf;
 const STYLE_DIM: usize = 256;
 const MAX_TOKEN_LEN: usize = 510;
 
-fn write_synthetic_voice_file(dir: &std::path::Path, voice_name: &str) {
-    write_scaled_synthetic_voice_file(dir, voice_name, 1.0);
-}
-
 fn write_scaled_synthetic_voice_file(dir: &std::path::Path, voice_name: &str, scale: f32) {
     let path = dir.join(format!("{voice_name}.bin"));
     let mut bytes = Vec::with_capacity(MAX_TOKEN_LEN * STYLE_DIM * 4);
@@ -31,12 +27,20 @@ fn write_minimal_vocab(dir: &std::path::Path) -> PathBuf {
 }
 
 fn build_model_with_voices(test_name: &str, voices: &[&str]) -> (KokoroModel, PathBuf) {
+    let scaled_voices: Vec<(&str, f32)> = voices.iter().map(|&v| (v, 1.0)).collect();
+    build_model_with_scaled_voices(test_name, &scaled_voices)
+}
+
+fn build_model_with_scaled_voices(
+    test_name: &str,
+    voices: &[(&str, f32)],
+) -> (KokoroModel, PathBuf) {
     let dir = std::env::temp_dir().join(format!("dengjen_kokoro_synthetic_inference_{test_name}"));
     std::fs::create_dir_all(&dir).unwrap();
     let voices_dir = dir.join("voices");
     std::fs::create_dir_all(&voices_dir).unwrap();
-    for voice in voices {
-        write_synthetic_voice_file(&voices_dir, voice);
+    for (voice, scale) in voices {
+        write_scaled_synthetic_voice_file(&voices_dir, voice, *scale);
     }
     let vocab_path = write_minimal_vocab(&dir);
 
@@ -48,7 +52,7 @@ fn build_model_with_voices(test_name: &str, voices: &[&str]) -> (KokoroModel, Pa
         voices_dir,
         vocab_path,
         sample_rate: 24000,
-        voices: voices.iter().map(|v| v.to_string()).collect(),
+        voices: voices.iter().map(|(v, _)| v.to_string()).collect(),
     };
     let model = KokoroModel::from_config(config).expect("failed to load synthetic Kokoro model");
     (model, dir)
@@ -161,24 +165,8 @@ fn switching_the_selected_speaker_changes_the_synthesized_audio() {
     // The synthetic fixture's output is a direct function of the style tensor,
     // so distinguishably-scaled voice files let a real output difference prove
     // synthesis used the *selected* voice, not always the first configured one.
-    let dir = std::env::temp_dir().join("dengjen_kokoro_synthetic_inference_speaker_switch");
-    std::fs::create_dir_all(&dir).unwrap();
-    let voices_dir = dir.join("voices");
-    std::fs::create_dir_all(&voices_dir).unwrap();
-    write_scaled_synthetic_voice_file(&voices_dir, "voice_a", 1.0);
-    write_scaled_synthetic_voice_file(&voices_dir, "voice_b", 5.0);
-    let vocab_path = write_minimal_vocab(&dir);
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let model_path = manifest_dir.join("tests/fixtures/synthetic_kokoro.onnx");
-
-    let config = KokoroVoiceConfig {
-        model_path,
-        voices_dir,
-        vocab_path,
-        sample_rate: 24000,
-        voices: vec!["voice_a".to_string(), "voice_b".to_string()],
-    };
-    let model = KokoroModel::from_config(config).expect("failed to load synthetic Kokoro model");
+    let (model, dir) =
+        build_model_with_scaled_voices("speaker_switch", &[("voice_a", 1.0), ("voice_b", 5.0)]);
 
     let audio_a = model
         .speak_one_sentence("t\u{025b}st".to_string())
