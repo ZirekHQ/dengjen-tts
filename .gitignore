@@ -78,3 +78,4 @@ docs/_build/
 # Gradle (bindings/java)
 .gradle/
 .worktrees/
+htmlReport/
