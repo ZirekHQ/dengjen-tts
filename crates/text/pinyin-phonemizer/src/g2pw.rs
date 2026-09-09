@@ -31,19 +31,28 @@ pub(crate) fn truncate_window(
 /// Clamps a token sequence to `max_len - 2` tokens (room for `[CLS]`/`[SEP]`), keeping
 /// `token_position` inside the kept range, and returns the kept range plus `token_position`
 /// re-expressed 1-indexed within it (slot 0 is reserved for `[CLS]`).
+///
+/// # Errors
+/// Returns `DengjenError::InvalidConfiguration` when `max_len < 3`, since that leaves no room
+/// for a query token alongside `[CLS]`/`[SEP]`.
 pub(crate) fn truncate_tokens_around_position(
     token_count: usize,
     token_position: usize,
     max_len: usize,
-) -> (usize, usize, usize) {
+) -> DengjenResult<(usize, usize, usize)> {
     let truncate_len = max_len.saturating_sub(2);
+    if truncate_len == 0 {
+        return Err(DengjenError::InvalidConfiguration(format!(
+            "g2pW max_len must be at least 3 to hold [CLS], a query token, and [SEP]; got {max_len}"
+        )));
+    }
     if token_count <= truncate_len {
-        return (0, token_count, token_position + 1);
+        return Ok((0, token_count, token_position + 1));
     }
     let token_start = (token_position as isize - (truncate_len / 2) as isize).max(0) as usize;
     let token_start = token_start.min(token_count.saturating_sub(truncate_len));
     let token_end = (token_start + truncate_len).min(token_count);
-    (token_start, token_end, token_position - token_start + 1)
+    Ok((token_start, token_end, token_position - token_start + 1))
 }
 
 pub(crate) struct G2pwConfig {
@@ -129,7 +138,7 @@ impl G2pwEngine {
             })?;
 
         let (token_start, token_end, position_id) =
-            truncate_tokens_around_position(tokens.len(), token_position, self.config.max_len);
+            truncate_tokens_around_position(tokens.len(), token_position, self.config.max_len)?;
         let final_tokens = tokens[token_start..token_end].to_vec();
 
         let mut input_ids: Vec<i64> = vec![self.cls_id()];
@@ -244,14 +253,14 @@ mod tests {
 
     #[test]
     fn truncate_tokens_around_position_keeps_everything_when_under_the_limit() {
-        let (start, end, position_id) = super::truncate_tokens_around_position(5, 2, 10);
+        let (start, end, position_id) = super::truncate_tokens_around_position(5, 2, 10).unwrap();
         assert_eq!((start, end, position_id), (0, 5, 3));
     }
 
     #[test]
     fn truncate_tokens_around_position_centers_the_window_on_the_query_token() {
         // max_len=6 -> truncate_len=4; token_position=10 among 20 tokens.
-        let (start, end, position_id) = super::truncate_tokens_around_position(20, 10, 6);
+        let (start, end, position_id) = super::truncate_tokens_around_position(20, 10, 6).unwrap();
         assert_eq!((start, end), (8, 12));
         assert_eq!(position_id, 3); // token_position - token_start + 1
     }
@@ -259,7 +268,7 @@ mod tests {
     #[test]
     fn truncate_tokens_around_position_clamps_the_window_to_the_start() {
         // Query near the very first token: the naive center would go negative.
-        let (start, end, position_id) = super::truncate_tokens_around_position(20, 1, 6);
+        let (start, end, position_id) = super::truncate_tokens_around_position(20, 1, 6).unwrap();
         assert_eq!((start, end), (0, 4));
         assert_eq!(position_id, 2);
     }
@@ -267,9 +276,18 @@ mod tests {
     #[test]
     fn truncate_tokens_around_position_clamps_the_window_to_the_end() {
         // Query near the very last token: the naive window would run past token_count.
-        let (start, end, position_id) = super::truncate_tokens_around_position(20, 19, 6);
+        let (start, end, position_id) = super::truncate_tokens_around_position(20, 19, 6).unwrap();
         assert_eq!((start, end), (16, 20));
         assert_eq!(position_id, 4);
+    }
+
+    #[test]
+    fn truncate_tokens_around_position_rejects_a_max_len_too_small_to_hold_a_query_token() {
+        let err = super::truncate_tokens_around_position(20, 10, 2).unwrap_err();
+        assert!(matches!(
+            err,
+            dengjen_tts_core::DengjenError::InvalidConfiguration(_)
+        ));
     }
 
     #[test]
