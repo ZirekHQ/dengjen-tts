@@ -21,3 +21,6 @@ tokenizers = { version = "0.23", default-features = false, features = ["onig"] }
 version = "2.0.0-rc.13"
 default-features = false
 features = ["std", "ndarray", "tracing", "download-binaries", "tls-rustls", "copy-dylibs", "api-27"]
+
+[dev-dependencies]
+tempfile = "3"
