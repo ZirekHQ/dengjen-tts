@@ -118,6 +118,86 @@ pub(crate) fn resolve_char(
 #[cfg(test)]
 mod tests {
     #[test]
+    fn read_error_wraps_the_path_and_cause_with_context() {
+        let err = super::read_error(std::path::Path::new("/tmp/does-not-exist.txt"), "boom");
+        assert!(err.to_string().contains("does-not-exist.txt"));
+        assert!(err.to_string().contains("boom"));
+    }
+
+    #[test]
+    fn read_tab_separated_char_string_pairs_parses_lines_and_skips_blanks() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pairs.txt");
+        std::fs::write(&path, "行\tㄒㄧㄥˊ\n\n长\tㄔㄤˊ\n").unwrap();
+
+        let pairs = super::read_tab_separated_char_string_pairs(&path).unwrap();
+
+        assert_eq!(
+            pairs,
+            vec![('行', "ㄒㄧㄥˊ".to_string()), ('长', "ㄔㄤˊ".to_string()),]
+        );
+    }
+
+    #[test]
+    fn read_tab_separated_char_string_pairs_errors_on_a_missing_file() {
+        let path = std::path::Path::new("/tmp/dengjen-nonexistent-dictionary.txt");
+        let err = super::read_tab_separated_char_string_pairs(path).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("dengjen-nonexistent-dictionary.txt"));
+    }
+
+    #[test]
+    fn read_tab_separated_char_string_pairs_errors_on_a_line_with_no_leading_character() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pairs.txt");
+        std::fs::write(&path, "\tㄒㄧㄥˊ\n").unwrap();
+
+        let err = super::read_tab_separated_char_string_pairs(&path).unwrap_err();
+        assert!(err.to_string().contains("Malformed line"));
+    }
+
+    #[test]
+    fn load_dictionaries_reads_and_merges_all_three_source_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let monophonic_path = dir.path().join("monophonic.txt");
+        let polyphonic_path = dir.path().join("polyphonic.txt");
+        let char_bopomofo_path = dir.path().join("char_bopomofo.json");
+
+        std::fs::write(&monophonic_path, "你\tㄋㄧˇ\n").unwrap();
+        std::fs::write(&polyphonic_path, "行\tㄒㄧㄥˊ\n行\tㄏㄤˊ\n").unwrap();
+        std::fs::write(&char_bopomofo_path, r#"{"好": ["ㄏㄠˇ", "ㄏㄠˋ"]}"#).unwrap();
+
+        let dictionaries =
+            super::load_dictionaries(&monophonic_path, &polyphonic_path, &char_bopomofo_path)
+                .unwrap();
+
+        assert_eq!(dictionaries.monophonic.get(&'你').unwrap(), "ㄋㄧˇ");
+        assert_eq!(dictionaries.char_bopomofo.get(&'好').unwrap(), "ㄏㄠˇ");
+        assert_eq!(
+            dictionaries.polyphonic_chars,
+            vec![('行', "ㄒㄧㄥˊ".to_string()), ('行', "ㄏㄤˊ".to_string()),]
+        );
+    }
+
+    #[test]
+    fn load_dictionaries_errors_when_the_bopomofo_json_is_malformed() {
+        let dir = tempfile::tempdir().unwrap();
+        let monophonic_path = dir.path().join("monophonic.txt");
+        let polyphonic_path = dir.path().join("polyphonic.txt");
+        let char_bopomofo_path = dir.path().join("char_bopomofo.json");
+
+        std::fs::write(&monophonic_path, "").unwrap();
+        std::fs::write(&polyphonic_path, "").unwrap();
+        std::fs::write(&char_bopomofo_path, "not json").unwrap();
+
+        let err = super::load_dictionaries(&monophonic_path, &polyphonic_path, &char_bopomofo_path)
+            .err()
+            .unwrap();
+        assert!(err.to_string().contains("char_bopomofo.json"));
+    }
+
+    #[test]
     fn get_phoneme_labels_sorts_labels_and_indexes_char_to_phonemes() {
         let polyphonic_chars = vec![
             ('行', "ㄒㄧㄥˊ".to_string()),

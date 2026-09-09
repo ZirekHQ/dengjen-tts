@@ -221,6 +221,21 @@ mod tests {
     }
 
     #[test]
+    fn inference_error_wraps_the_cause_with_context() {
+        let err = super::inference_error("boom");
+        assert!(err.to_string().contains("Nakdimon inference failed"));
+        assert!(err.to_string().contains("boom"));
+    }
+
+    #[test]
+    fn argmax_per_position_picks_the_highest_scoring_class_at_each_position() {
+        // seq_len=2, num_classes=3: position 0 favors class 2, position 1 favors class 0.
+        let data = [0.1f32, 0.2, 0.9, 0.7, 0.05, 0.1];
+        let ids = argmax_per_position(&data, 2, 3);
+        assert_eq!(ids, vec![2, 0]);
+    }
+
+    #[test]
     fn remove_niqqud_strips_points_and_leaves_base_letters_untouched() {
         let pointed = "\u{05E9}\u{05C1}\u{05B7}\u{05DC}\u{05B9}\u{05D5}\u{05DD}\u{05B8}";
         assert_eq!(remove_niqqud(pointed), "\u{05E9}\u{05DC}\u{05D5}\u{05DD}");

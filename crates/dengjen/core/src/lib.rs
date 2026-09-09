@@ -140,7 +140,10 @@ pub trait DengjenModel {
 mod tests {
     use super::*;
 
-    struct NullModel;
+    #[derive(Default)]
+    struct NullModel {
+        speakers: HashMap<i64, String>,
+    }
 
     impl DengjenModel for NullModel {
         fn audio_output_info(&self) -> DengjenResult<AudioInfo> {
@@ -171,6 +174,88 @@ mod tests {
         ) -> DengjenResult<()> {
             Ok(())
         }
+        fn get_speakers(&self) -> DengjenResult<Option<&HashMap<i64, String>>> {
+            Ok((!self.speakers.is_empty()).then_some(&self.speakers))
+        }
+    }
+
+    #[test]
+    fn null_model_required_methods_return_their_documented_defaults() {
+        let model = NullModel::default();
+        let info = model.audio_output_info().unwrap();
+        assert_eq!(info.sample_rate, 22050);
+        assert_eq!(info.num_channels, 1);
+        assert_eq!(info.sample_width, 2);
+        assert_eq!(model.phonemize_text("hi").unwrap().num_sentences(), 0);
+        assert!(model.speak_batch(vec![]).unwrap().is_empty());
+        assert!(model.speak_one_sentence("x".to_string()).is_err());
+        assert_eq!(model.get_default_synthesis_config().unwrap(), None);
+        assert_eq!(model.get_fallback_synthesis_config().unwrap(), None);
+        assert!(model
+            .set_fallback_synthesis_config(&SynthesisConfig::default())
+            .is_ok());
+    }
+
+    #[test]
+    fn with_message_wraps_a_plain_string_as_an_operation_error() {
+        let err = DengjenError::with_message("boom");
+        assert!(matches!(err, DengjenError::OperationError(msg) if msg == "boom"));
+    }
+
+    #[test]
+    fn dengjen_error_from_wave_writer_error_carries_the_message_through() {
+        let result = dengjen_audio_ops::write_wave_samples_to_file(
+            std::path::Path::new("/dengjen-core-test-nonexistent-dir/out.wav"),
+            [].iter(),
+            22050,
+            1,
+            2,
+        );
+        let wave_err = result.unwrap_err();
+        let expected_message = wave_err.to_string();
+        let err: DengjenError = wave_err.into();
+        assert!(matches!(err, DengjenError::OperationError(msg) if msg == expected_message));
+    }
+
+    #[test]
+    fn phonemes_sentences_and_to_vec_expose_the_underlying_strings() {
+        let phonemes = Phonemes::from(vec!["a".to_string(), "b".to_string()]);
+        assert_eq!(
+            phonemes.sentences(),
+            &vec!["a".to_string(), "b".to_string()]
+        );
+        assert_eq!(phonemes.num_sentences(), 2);
+        assert_eq!(phonemes.to_vec(), vec!["a".to_string(), "b".to_string()]);
+    }
+
+    #[test]
+    fn default_get_language_returns_none() {
+        assert_eq!(NullModel::default().get_language().unwrap(), None);
+    }
+
+    #[test]
+    fn default_properties_returns_an_empty_map() {
+        assert!(NullModel::default().properties().unwrap().is_empty());
+    }
+
+    #[test]
+    fn default_supports_streaming_output_is_false() {
+        assert!(!NullModel::default().supports_streaming_output());
+    }
+
+    #[test]
+    fn speaker_id_to_name_and_name_to_id_resolve_through_get_speakers_when_present() {
+        let mut speakers = HashMap::new();
+        speakers.insert(7i64, "alice".to_string());
+        let model = NullModel { speakers };
+
+        assert_eq!(
+            model.speaker_id_to_name(&7).unwrap(),
+            Some("alice".to_string())
+        );
+        assert_eq!(model.speaker_id_to_name(&8).unwrap(), None);
+        assert_eq!(model.speaker_name_to_id("alice").unwrap(), Some(7));
+        assert_eq!(model.speaker_name_to_id("bob").unwrap(), None);
     }
 
     #[test]
@@ -215,18 +300,22 @@ mod tests {
 
     #[test]
     fn default_stream_synthesis_returns_unsupported_operation_error() {
+        let model = NullModel::default();
         let result =
-            NullModel.stream_synthesis("phonemes".to_string(), 100, 3, CancellationToken::new());
+            model.stream_synthesis("phonemes".to_string(), 100, 3, CancellationToken::new());
         assert!(matches!(result, Err(DengjenError::UnsupportedOperation(_))));
     }
 
     #[test]
     fn default_speaker_id_to_name_returns_none_without_speakers() {
-        assert_eq!(NullModel.speaker_id_to_name(&0).unwrap(), None);
+        assert_eq!(NullModel::default().speaker_id_to_name(&0).unwrap(), None);
     }
 
     #[test]
     fn default_speaker_name_to_id_returns_none_without_speakers() {
-        assert_eq!(NullModel.speaker_name_to_id("foo").unwrap(), None);
+        assert_eq!(
+            NullModel::default().speaker_name_to_id("foo").unwrap(),
+            None
+        );
     }
 }

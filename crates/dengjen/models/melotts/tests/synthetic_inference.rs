@@ -70,3 +70,94 @@ fn set_fallback_synthesis_config_changes_inference_output_values() {
          is being ignored"
     );
 }
+
+#[test]
+fn from_config_path_reports_a_load_error_for_a_missing_onnx_file() {
+    let dir = std::env::temp_dir().join("dengjen_melotts_missing_model_path_test");
+    std::fs::create_dir_all(&dir).unwrap();
+    let config_path = dir.join("config.json");
+    std::fs::write(&config_path, synthetic_model_config_json()).unwrap();
+    // synthetic_model_config_json() names "model.onnx" but this test never copies the
+    // fixture into `dir`, so the ONNX session load itself is what's expected to fail.
+
+    let result = dengjen_tts_melotts::from_config_path(&config_path);
+    std::fs::remove_dir_all(&dir).ok();
+
+    let err = result
+        .err()
+        .expect("loading a missing ONNX file should fail");
+    assert!(
+        err.to_string()
+            .contains("Failed to load MeloTTS ONNX model"),
+        "unexpected error message: {err}"
+    );
+}
+
+#[test]
+fn audio_output_info_reflects_the_configured_sample_rate() {
+    let model = load_synthetic_model("dengjen_melotts_synthetic_audio_output_info_test");
+    let info = model.audio_output_info().unwrap();
+    assert_eq!(info.sample_rate, 24000);
+    assert_eq!(info.num_channels, 1);
+    assert_eq!(info.sample_width, 2);
+}
+
+#[test]
+fn get_default_synthesis_config_reflects_the_config_file_inference_settings() {
+    let model = load_synthetic_model("dengjen_melotts_synthetic_default_synth_config_test");
+    let default = model
+        .get_default_synthesis_config()
+        .unwrap()
+        .expect("MeloTTS models always report a default synthesis config");
+    assert_eq!(default.speaker, None);
+    assert_eq!(default.parameters.get("noise_scale"), Some(&0.667));
+    assert_eq!(default.parameters.get("length_scale"), Some(&1.0));
+    assert_eq!(default.parameters.get("noise_scale_w"), Some(&0.8));
+}
+
+#[test]
+fn fallback_synthesis_config_is_none_until_explicitly_set() {
+    let model = load_synthetic_model("dengjen_melotts_synthetic_fallback_config_roundtrip_test");
+    assert_eq!(model.get_fallback_synthesis_config().unwrap(), None);
+
+    let mut parameters = HashMap::new();
+    parameters.insert("noise_scale".to_string(), 1.5f32);
+    let config = dengjen_tts_core::SynthesisConfig {
+        speaker: Some(3),
+        parameters,
+    };
+    model.set_fallback_synthesis_config(&config).unwrap();
+
+    assert_eq!(model.get_fallback_synthesis_config().unwrap(), Some(config));
+}
+
+#[test]
+fn get_speakers_returns_the_empty_map_when_the_config_declares_no_speakers() {
+    let model = load_synthetic_model("dengjen_melotts_synthetic_get_speakers_test");
+    assert_eq!(model.get_speakers().unwrap(), Some(&HashMap::new()));
+}
+
+#[cfg(feature = "espeak")]
+#[test]
+fn phonemize_text_produces_phone_tone_pairs_joined_by_a_colon() {
+    let model = load_synthetic_model("dengjen_melotts_synthetic_phonemize_text_test");
+    let phonemes = model
+        .phonemize_text("hi")
+        .expect("phonemization against the espeak backend failed");
+    assert_eq!(phonemes.num_sentences(), 1);
+    for token in phonemes.sentences()[0].split('\n') {
+        assert!(
+            token.contains(':'),
+            "expected every token to carry a `phone:tone` pair, got {token:?}"
+        );
+    }
+}
+
+#[test]
+fn speak_batch_synthesizes_each_sentence_independently() {
+    let model = load_synthetic_model("dengjen_melotts_synthetic_speak_batch_test");
+    let audios = model
+        .speak_batch(vec!["t:_".to_string(), "t:_".to_string()])
+        .expect("batch synthesis against synthetic fixture failed");
+    assert_eq!(audios.len(), 2);
+}

@@ -28,6 +28,24 @@ pub(crate) fn truncate_window(
     (start, end)
 }
 
+/// Clamps a token sequence to `max_len - 2` tokens (room for `[CLS]`/`[SEP]`), keeping
+/// `token_position` inside the kept range, and returns the kept range plus `token_position`
+/// re-expressed 1-indexed within it (slot 0 is reserved for `[CLS]`).
+pub(crate) fn truncate_tokens_around_position(
+    token_count: usize,
+    token_position: usize,
+    max_len: usize,
+) -> (usize, usize, usize) {
+    let truncate_len = max_len.saturating_sub(2);
+    if token_count <= truncate_len {
+        return (0, token_count, token_position + 1);
+    }
+    let token_start = (token_position as isize - (truncate_len / 2) as isize).max(0) as usize;
+    let token_start = token_start.min(token_count.saturating_sub(truncate_len));
+    let token_end = (token_start + truncate_len).min(token_count);
+    (token_start, token_end, token_position - token_start + 1)
+}
+
 pub(crate) struct G2pwConfig {
     pub labels: Vec<String>,
     pub char2phonemes: HashMap<char, Vec<usize>>,
@@ -110,19 +128,9 @@ impl G2pwEngine {
                 ))
             })?;
 
-        let truncate_len = self.config.max_len.saturating_sub(2);
-        let (final_tokens, position_id) = if tokens.len() > truncate_len {
-            let token_start =
-                (token_position as isize - (truncate_len / 2) as isize).max(0) as usize;
-            let token_start = token_start.min(tokens.len().saturating_sub(truncate_len));
-            let token_end = (token_start + truncate_len).min(tokens.len());
-            (
-                tokens[token_start..token_end].to_vec(),
-                token_position - token_start + 1,
-            )
-        } else {
-            (tokens, token_position + 1)
-        };
+        let (token_start, token_end, position_id) =
+            truncate_tokens_around_position(tokens.len(), token_position, self.config.max_len);
+        let final_tokens = tokens[token_start..token_end].to_vec();
 
         let mut input_ids: Vec<i64> = vec![self.cls_id()];
         input_ids.extend(final_tokens.iter().map(|t| self.token_to_id(&t.text)));
@@ -232,6 +240,75 @@ mod tests {
     fn truncate_window_clamps_to_text_bounds_near_the_end() {
         let (start, end) = super::truncate_window(10, 9, 4);
         assert_eq!((start, end), (7, 10));
+    }
+
+    #[test]
+    fn truncate_tokens_around_position_keeps_everything_when_under_the_limit() {
+        let (start, end, position_id) = super::truncate_tokens_around_position(5, 2, 10);
+        assert_eq!((start, end, position_id), (0, 5, 3));
+    }
+
+    #[test]
+    fn truncate_tokens_around_position_centers_the_window_on_the_query_token() {
+        // max_len=6 -> truncate_len=4; token_position=10 among 20 tokens.
+        let (start, end, position_id) = super::truncate_tokens_around_position(20, 10, 6);
+        assert_eq!((start, end), (8, 12));
+        assert_eq!(position_id, 3); // token_position - token_start + 1
+    }
+
+    #[test]
+    fn truncate_tokens_around_position_clamps_the_window_to_the_start() {
+        // Query near the very first token: the naive center would go negative.
+        let (start, end, position_id) = super::truncate_tokens_around_position(20, 1, 6);
+        assert_eq!((start, end), (0, 4));
+        assert_eq!(position_id, 2);
+    }
+
+    #[test]
+    fn truncate_tokens_around_position_clamps_the_window_to_the_end() {
+        // Query near the very last token: the naive window would run past token_count.
+        let (start, end, position_id) = super::truncate_tokens_around_position(20, 19, 6);
+        assert_eq!((start, end), (16, 20));
+        assert_eq!(position_id, 4);
+    }
+
+    #[test]
+    fn g2pw_config_chars_index_finds_a_present_character() {
+        let config = super::G2pwConfig {
+            labels: vec![],
+            char2phonemes: std::collections::HashMap::new(),
+            window_size: 0,
+            max_len: 0,
+            chars: vec!['a', 'b', 'c'],
+        };
+        assert_eq!(config.chars_index('b').unwrap(), 1);
+    }
+
+    #[test]
+    fn g2pw_config_chars_index_errors_on_a_character_outside_the_sorted_list() {
+        let config = super::G2pwConfig {
+            labels: vec![],
+            char2phonemes: std::collections::HashMap::new(),
+            window_size: 0,
+            max_len: 0,
+            chars: vec!['a', 'b', 'c'],
+        };
+        let err = config.chars_index('z').unwrap_err();
+        assert!(err.to_string().contains('z'));
+    }
+
+    #[test]
+    fn session_init_error_wraps_the_cause_with_context() {
+        let err = super::session_init_error("boom");
+        assert!(err.to_string().contains("g2pW inference session"));
+        assert!(err.to_string().contains("boom"));
+    }
+
+    #[test]
+    fn inference_error_wraps_the_cause_with_context() {
+        let err = super::inference_error("boom");
+        assert!(err.to_string().contains("g2pW inference failed"));
+        assert!(err.to_string().contains("boom"));
     }
 
     #[test]

@@ -65,3 +65,19 @@ pub fn iterate_stream(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn fixture_model_path_joins_segments_onto_the_crate_manifest_dir() {
+        let path = super::fixture_model_path(&["models", "std", "model.onnx.json"]);
+        assert!(path.starts_with(env!("CARGO_MANIFEST_DIR")));
+        assert!(path.ends_with("models/std/model.onnx.json"));
+    }
+
+    #[test]
+    fn fixture_model_path_with_no_segments_is_just_the_manifest_dir() {
+        let path = super::fixture_model_path(&[]);
+        assert_eq!(path, std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+    }
+}

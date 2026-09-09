@@ -110,6 +110,29 @@ fn flatten_token(token: &PinyinToken) -> Vec<String> {
     }
 }
 
+/// Punctuation carried through unchanged when the dictionary has no bopomofo for it.
+fn is_passthrough_punctuation(c: char) -> bool {
+    matches!(
+        c,
+        '\u{3002}'
+            | '.'
+            | '\u{FF1F}'
+            | '?'
+            | '\u{FF01}'
+            | '!'
+            | '\u{2014}'
+            | '\u{2026}'
+            | '\u{3001}'
+            | '\u{FF0C}'
+            | ','
+            | '\u{FF1A}'
+            | ':'
+            | '\u{FF1B}'
+            | ';'
+            | ' '
+    )
+}
+
 fn phonemize_sentence_tokens(
     engine: &PinyinEngine,
     sentence: &str,
@@ -125,25 +148,7 @@ fn phonemize_sentence_tokens(
             i,
         )?;
         let Some(bopomofo) = bopomofo else {
-            if matches!(
-                c,
-                '\u{3002}'
-                    | '.'
-                    | '\u{FF1F}'
-                    | '?'
-                    | '\u{FF01}'
-                    | '!'
-                    | '\u{2014}'
-                    | '\u{2026}'
-                    | '\u{3001}'
-                    | '\u{FF0C}'
-                    | ','
-                    | '\u{FF1A}'
-                    | ':'
-                    | '\u{FF1B}'
-                    | ';'
-                    | ' '
-            ) {
+            if is_passthrough_punctuation(c) {
                 tokens.push(PinyinToken::Passthrough(c.to_string()));
             }
             continue;
@@ -218,6 +223,33 @@ mod tests {
     #[test]
     fn strip_quotation_marks_removes_curly_and_straight_double_quotes() {
         assert_eq!(super::strip_quotation_marks("“你好”\"再见\""), "你好再见");
+    }
+
+    #[test]
+    fn load_error_wraps_the_cause_with_context() {
+        let err = super::load_error("boom");
+        assert!(err.to_string().contains("pinyin phonemizer model files"));
+        assert!(err.to_string().contains("boom"));
+    }
+
+    #[test]
+    fn is_passthrough_punctuation_accepts_terminal_and_pause_punctuation() {
+        for c in ['\u{3002}', '.', '?', '!', ',', ' ', '\u{FF1A}'] {
+            assert!(
+                super::is_passthrough_punctuation(c),
+                "expected {c:?} to pass through"
+            );
+        }
+    }
+
+    #[test]
+    fn is_passthrough_punctuation_rejects_ordinary_characters() {
+        for c in ['a', '你', '3'] {
+            assert!(
+                !super::is_passthrough_punctuation(c),
+                "did not expect {c:?} to pass through"
+            );
+        }
     }
 
     #[test]

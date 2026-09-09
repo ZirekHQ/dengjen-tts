@@ -171,4 +171,80 @@ mod tests {
         let path = std::env::var("DENGJEN_PINYIN_TEST_TOKENIZER_PATH").ok()?;
         Some(tokenizers::Tokenizer::from_file(path).unwrap())
     }
+
+    /// A tiny, self-contained WordPiece tokenizer for exercising `tokenize_and_map` without a
+    /// downloaded model: real `tokenizers::Tokenizer` behavior, just a hand-sized vocab.
+    fn tiny_wordpiece_tokenizer() -> tokenizers::Tokenizer {
+        let json = r###"{
+            "version": "1.0",
+            "truncation": null,
+            "padding": null,
+            "added_tokens": [],
+            "normalizer": null,
+            "pre_tokenizer": null,
+            "post_processor": null,
+            "decoder": null,
+            "model": {
+                "type": "WordPiece",
+                "unk_token": "[UNK]",
+                "continuing_subword_prefix": "##",
+                "max_input_chars_per_word": 100,
+                "vocab": {
+                    "[UNK]": 0,
+                    "你": 1,
+                    "好": 2,
+                    "hell": 3,
+                    "##o": 4
+                }
+            }
+        }"###;
+        tokenizers::Tokenizer::from_bytes(json.as_bytes()).unwrap()
+    }
+
+    #[test]
+    fn tokenize_and_map_produces_one_token_per_vocabulary_word() {
+        let tokenizer = tiny_wordpiece_tokenizer();
+        let (tokens, text_to_token) = super::tokenize_and_map(&tokenizer, "你好");
+        assert_eq!(tokens.len(), 2);
+        assert_eq!(tokens[0].text, "你");
+        assert_eq!(tokens[1].text, "好");
+        assert_eq!(text_to_token, vec![Some(0), Some(1)]);
+    }
+
+    #[test]
+    fn tokenize_and_map_splits_a_word_into_a_root_and_a_continuation_subword() {
+        let tokenizer = tiny_wordpiece_tokenizer();
+        let (tokens, text_to_token) = super::tokenize_and_map(&tokenizer, "hello");
+        assert_eq!(
+            tokens.iter().map(|t| t.text.as_str()).collect::<Vec<_>>(),
+            vec!["hell", "##o"]
+        );
+        assert_eq!(tokens[0].start, 0);
+        assert_eq!(tokens[0].end, 4);
+        assert_eq!(tokens[1].start, 4);
+        assert_eq!(tokens[1].end, 5);
+        assert_eq!(
+            text_to_token,
+            vec![Some(0), Some(0), Some(0), Some(0), Some(1)]
+        );
+    }
+
+    #[test]
+    fn tokenize_and_map_collapses_an_out_of_vocabulary_word_to_a_single_unk_token() {
+        let tokenizer = tiny_wordpiece_tokenizer();
+        let (tokens, text_to_token) = super::tokenize_and_map(&tokenizer, "汉");
+        assert_eq!(tokens.len(), 1);
+        assert_eq!(tokens[0].text, "[UNK]");
+        assert_eq!(tokens[0].start, 0);
+        assert_eq!(tokens[0].end, 1);
+        assert_eq!(text_to_token, vec![Some(0)]);
+    }
+
+    #[test]
+    fn tokenize_and_map_leaves_whitespace_positions_unmapped_with_a_tiny_tokenizer() {
+        let tokenizer = tiny_wordpiece_tokenizer();
+        let (_tokens, text_to_token) = super::tokenize_and_map(&tokenizer, " 你");
+        assert_eq!(text_to_token[0], None);
+        assert_eq!(text_to_token[1], Some(0));
+    }
 }
