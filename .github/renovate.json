@@ -4,6 +4,7 @@
   "git-submodules": {
     "enabled": true
   },
+  "ignoreDeps": ["test:integrationTest"],
   "customManagers": [
     {
       "customType": "regex",
