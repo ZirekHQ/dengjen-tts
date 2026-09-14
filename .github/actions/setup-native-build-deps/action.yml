@@ -6,6 +6,10 @@ inputs:
     description: Space-separated apt package list to install (skipped if empty)
     required: false
     default: ""
+  working-directory:
+    description: Directory (relative to $GITHUB_WORKSPACE) the checked-out repo lives in, if checkout used a non-default `path:`
+    required: false
+    default: "."
 
 runs:
   using: composite
@@ -15,6 +19,7 @@ runs:
     # checkout happens here instead of via actions/checkout's `submodules:` input.
     - name: init submodules
       shell: bash
+      working-directory: ${{ inputs.working-directory }}
       run: |
         git config --global protocol.file.allow always
         git submodule update --init --recursive
