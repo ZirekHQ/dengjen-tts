@@ -62,9 +62,8 @@ pub(crate) fn normalize(c: char) -> char {
     if valid.contains(&c) {
         return c;
     }
-    // Intentionally dead: final letter forms are already in valid_letters() so this
-    // branch never fires, mirroring upstream piper1-gpl. The model was trained with
-    // final forms passing through unchanged — don't "fix" this to actually remap them.
+    // Dead: valid_letters() already covers final forms so this never fires (mirrors
+    // upstream piper1-gpl); the model was trained with final forms passing through unchanged.
     let endings = endings_to_regular();
     if let Some(&base) = endings.get(&c) {
         return base;

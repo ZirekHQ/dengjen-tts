@@ -126,8 +126,8 @@ mod tests {
     #[test]
     fn text_to_kokoro_phonemes_strips_language_switch_flags() {
         let _guard = lock_espeak();
-        // Same mixed-script input as dengjen-espeak-phonemizer's own test_lang_switch_flags,
-
+        // Same mixed-script input as dengjen-espeak-phonemizer's own
+        // remove_lang_switch_flags_strips_language_switch_markers.
         let Some(result) = phonemize_or_skip("Hello معناها مرحباً", "ar") else {
             return;
         };

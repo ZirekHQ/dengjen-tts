@@ -178,8 +178,6 @@ fn read_clauses(
     let mut pending = String::new();
     while !cursor.is_null() {
         // SAFETY: `cursor` starts at `line`'s NUL-terminated buffer, which is borrowed for the
-
-        // SAFETY: `cursor` starts at `line`'s NUL-terminated buffer, which is borrowed for the
         // whole of this function and so outlives every iteration; eSpeak-ng writes back either
         // a position inside that same buffer or null once it has consumed all of it, and null
         // is what ends this loop, so every iteration reads within `line`. `&mut terminator`

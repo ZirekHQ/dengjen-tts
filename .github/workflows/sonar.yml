@@ -35,10 +35,9 @@ jobs:
         with:
           apt-packages: clang libclang-dev llvm-dev cmake protobuf-compiler
 
-      # Go/Java bindings compile against libdengjen (crates/frontends/capi); building it here
-      # (same toolchain as rust-lint.yml's bindings-java/bindings-go jobs) is what lets their
-      # coverage steps below produce real numbers instead of leaving sonar.coverage at 0%.
-      # channel comes from rust-toolchain.toml
+      # Go/Java bindings compile against libdengjen; building it here is what lets their coverage
+      # steps below produce real numbers instead of leaving sonar.coverage at 0% (channel comes
+      # from rust-toolchain.toml).
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
 
       - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
