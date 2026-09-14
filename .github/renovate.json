@@ -8,7 +8,9 @@
   "customManagers": [
     {
       "customType": "regex",
-      "fileMatch": ["^\\.github/workflows/.+\\.ya?ml$"],
+      "managerFilePatterns": [
+        "/^\\.github/workflows/.+\\.ya?ml$/"
+      ],
       "matchStrings": ["maturin-version: (?<currentValue>v\\d+\\.\\d+\\.\\d+)"],
       "depNameTemplate": "maturin",
       "packageNameTemplate": "PyO3/maturin",
