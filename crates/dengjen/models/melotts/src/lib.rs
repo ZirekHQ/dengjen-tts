@@ -41,6 +41,7 @@ impl DengjenModel for MeloTTSModel {
         })
     }
 
+    #[tracing::instrument(skip(self, text), fields(text_len = text.len()), err)]
     fn phonemize_text(&self, text: &str) -> DengjenResult<Phonemes> {
         let sentences = phone_tone_pairs(&self.backend, text)?;
         Ok(Phonemes::from(
@@ -57,6 +58,7 @@ impl DengjenModel for MeloTTSModel {
         ))
     }
 
+    #[tracing::instrument(skip(self, phoneme_batches), fields(batch_len = phoneme_batches.len()), err)]
     fn speak_batch(&self, phoneme_batches: Vec<String>) -> DengjenResult<Vec<Audio>> {
         phoneme_batches
             .into_iter()
@@ -64,6 +66,7 @@ impl DengjenModel for MeloTTSModel {
             .collect()
     }
 
+    #[tracing::instrument(skip(self, phonemes), fields(phonemes_len = phonemes.len()), err)]
     fn speak_one_sentence(&self, phonemes: String) -> DengjenAudioResult {
         let pairs: Vec<(String, String)> = phonemes
             .split('\n')
@@ -128,6 +131,7 @@ impl DengjenModel for MeloTTSModel {
     }
 }
 
+#[tracing::instrument(skip_all, fields(config_path = %config_path.display()), err)]
 pub fn from_config_path(config_path: &Path) -> DengjenResult<Arc<dyn DengjenModel + Send + Sync>> {
     let config = config::load_config(config_path)?;
     let backend = create_backend(&config.phonemizer)?;
