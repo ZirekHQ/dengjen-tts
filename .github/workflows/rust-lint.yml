@@ -172,9 +172,8 @@ jobs:
           LSAN_OPTIONS: suppressions=${{ github.workspace }}/.github/asan-suppressions/lsan.txt
         run: cargo +nightly test -p dengjen-espeak-phonemizer -Zbuild-std --target x86_64-unknown-linux-gnu -- --test-threads=1
 
-  # Build-only smoke check so fuzz targets don't bit-rot -- actual fuzzing (finding crashes) is
-  # too slow for every PR, so it isn't scheduled here. Run one manually with
-  # `cargo fuzz run <target>` from the crate that owns it (see each crate's fuzz/ directory).
+  # Build-only smoke check so fuzz targets don't bit-rot -- see CONTRIBUTING.md#fuzzing for why
+  # actual fuzzing isn't run here and how to run a target manually.
   fuzz-build:
     runs-on: ubuntu-latest
     steps:
@@ -199,6 +198,9 @@ jobs:
         run: cargo +nightly fuzz build
       - name: cargo fuzz build (num_classes)
         working-directory: crates/text/hebrew-phonemizer
+        run: cargo +nightly fuzz build
+      - name: cargo fuzz build (text_to_phonemes)
+        working-directory: crates/text/espeak-phonemizer
         run: cargo +nightly fuzz build
 
   # Mirrors CI.yml's `test` job's per-crate invocations under cargo-llvm-cov instrumentation.
