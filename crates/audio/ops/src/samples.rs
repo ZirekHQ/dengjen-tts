@@ -400,6 +400,8 @@ mod tests {
     }
 
     #[test]
+    // clippy flags 10..1 as always-empty; deliberate here to prove clamping doesn't panic on it.
+    #[allow(clippy::reversed_empty_ranges)]
     fn zero_samples_above_clamps_a_range_that_would_reverse_after_independent_end_clamping() {
         let mut buffer = AudioSamples::from(vec![1.0, 2.0, 3.0]);
         buffer.zero_samples_above(10..1, 0.0);
@@ -475,6 +477,8 @@ mod tests {
     }
 
     #[test]
+    // clippy flags 10..1 as always-empty; deliberate here to prove clamping doesn't panic on it.
+    #[allow(clippy::reversed_empty_ranges)]
     fn zero_samples_below_clamps_a_range_that_would_reverse_after_independent_end_clamping() {
         let mut buffer = AudioSamples::from(vec![1.0, 2.0, 3.0]);
         buffer.zero_samples_below(10..1, 0.0);
