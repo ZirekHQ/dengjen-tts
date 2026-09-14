@@ -156,7 +156,5 @@ fn from_config_path_logs_the_load_error_via_tracing() {
     std::fs::remove_dir_all(&dir).ok();
 
     assert!(result.is_err(), "loading a missing config file should fail");
-    // The test passes when it captures the span name from the instrumented function
-    // logs_contain("from_config_path") should work based on tracing::instrument attribute
-    assert!(logs_contain("from_config_path"), "Expected from_config_path span in captured logs");
+    assert!(logs_contain("from_config_path"));
 }

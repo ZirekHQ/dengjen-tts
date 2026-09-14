@@ -45,4 +45,4 @@ default-features = false
 features = ["std", "ndarray", "tracing", "download-binaries", "tls-rustls", "copy-dylibs", "api-27"]
 
 [dev-dependencies]
-tracing-test = "0.2"
+tracing-test = { version = "0.2", features = ["no-env-filter"] }
