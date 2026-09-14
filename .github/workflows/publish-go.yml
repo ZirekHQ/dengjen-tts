@@ -4,8 +4,9 @@
 name: Publish Go bindings release
 
 on:
-  # No `environment:` gate on the jobs below -- release.yml's shared `approve` job covers it when
-  # called from there, but a manual dispatch of this file bypasses that entirely.
+  # No `environment:` gate on the jobs below: for workflow_call, merging the version-bump PR is the
+  # real decision point (#201) -- but a manual workflow_dispatch bypasses that and publishes
+  # whatever tag is given, unreviewed.
   workflow_dispatch:
     inputs:
       tag:
