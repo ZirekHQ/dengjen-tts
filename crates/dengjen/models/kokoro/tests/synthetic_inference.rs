@@ -3,6 +3,7 @@ use dengjen_tts_kokoro::{KokoroModel, KokoroVoiceConfig};
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
+use tracing_test::traced_test;
 
 const STYLE_DIM: usize = 256;
 const MAX_TOKEN_LEN: usize = 510;
@@ -189,4 +190,18 @@ fn switching_the_selected_speaker_changes_the_synthesized_audio() {
     );
 
     std::fs::remove_dir_all(&dir).ok();
+}
+
+#[traced_test]
+#[test]
+fn from_config_path_logs_the_load_error_via_tracing() {
+    let dir = std::env::temp_dir().join("dengjen_kokoro_missing_model_path_test");
+    std::fs::create_dir_all(&dir).unwrap();
+    let config_path = dir.join("does_not_exist.json");
+
+    let result = dengjen_tts_kokoro::from_config_path(&config_path);
+    std::fs::remove_dir_all(&dir).ok();
+
+    assert!(result.is_err(), "loading a missing config file should fail");
+    assert!(logs_contain("from_config_path"));
 }

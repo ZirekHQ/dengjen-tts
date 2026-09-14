@@ -16,6 +16,7 @@ pub use phonemize::text_to_kokoro_phonemes;
 pub use vocab::Vocab;
 pub use voice_style::VoiceStyles;
 
+#[tracing::instrument(skip_all, fields(config_path = %config_path.display()), err)]
 pub fn from_config_path(config_path: &Path) -> DengjenResult<Arc<dyn DengjenModel + Send + Sync>> {
     let config = load_config(config_path)?;
     let model = KokoroModel::from_config(config)?;
