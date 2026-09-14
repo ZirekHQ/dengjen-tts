@@ -120,6 +120,9 @@ jobs:
         run: git config --global protocol.file.allow always
       - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
+          # A workflow_dispatch run whose `tag` input doesn't match the dispatched ref would
+          # otherwise build from the wrong commit and publish it under the given tag's label.
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.sha }}
           submodules: recursive
           persist-credentials: false
       - name: Set CMAKE_GENERATOR for Windows
@@ -180,6 +183,7 @@ jobs:
     steps:
       - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.sha }}
           fetch-depth: 0 # needed for JReleaser's conventional-commits changelog; VERSIONING_GIT_TAG (below) drives the actual version resolution
           persist-credentials: false
       - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
