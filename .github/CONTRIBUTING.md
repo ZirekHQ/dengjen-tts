@@ -28,6 +28,15 @@ fuzzing is too slow for every PR. This is deliberate, not a gap: run one yoursel
 `cargo +nightly fuzz run <target>` from the crate that owns it whenever you touch the logic that
 target exercises.
 
+## Benchmarks
+
+`crates/audio/ops` and `crates/dengjen/synth` each have `divan` benches. CI's `benchmarks` job
+runs audio/ops's bench for real and posts the numbers to the job summary — it's self-contained, no
+fixtures needed. Synth's benches need real Piper voice fixtures that aren't committed to this
+repo, so CI only compile-checks them (via the `clippy` job's `--benches` flag); running them
+yourself needs fixtures at `crates/dengjen/synth/models/{std,rt}/` — see
+[#220](https://github.com/ZirekHQ/dengjen-tts/issues/220) for provisioning those in CI.
+
 ## Getting started
 
 See [README.md](../README.md) for build instructions and [CLAUDE.md](../CLAUDE.md) for the lint

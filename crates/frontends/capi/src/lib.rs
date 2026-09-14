@@ -1014,6 +1014,9 @@ mod tests {
     fn get_piper_default_synth_config_null_voice_returns_null_pointer_error_without_panicking() {
         let mut out_error = ExternError::default();
 
+        // SAFETY: a null `voice_ptr` is explicitly covered by `libdengjenGetPiperDefaultSynthConfig`'s
+        // own `# Safety` doc -- it's handled gracefully (writes a NULL_POINTER error) rather than
+        // dereferenced.
         let result =
             unsafe { libdengjenGetPiperDefaultSynthConfig(std::ptr::null_mut(), &mut out_error) };
         assert!(result.is_null());
@@ -1047,7 +1050,7 @@ mod tests {
     #[test]
     fn set_synthesis_parameter_null_voice_returns_null_pointer_error_without_panicking() {
         let mut out_error = ExternError::default();
-        let key = FfiStr::from_cstr(std::ffi::CStr::from_bytes_with_nul(b"noise_scale\0").unwrap());
+        let key = FfiStr::from_cstr(c"noise_scale");
 
         // SAFETY: see `get_audio_info_null_voice_returns_null_pointer_error_without_panicking`
         // -- same null-`voice_ptr`-handled-gracefully contract, on `libdengjenSetSynthesisParameter`.
@@ -1208,7 +1211,7 @@ mod tests {
     #[test]
     fn get_synthesis_parameter_null_voice_returns_null_pointer_error_without_panicking() {
         let mut out_error = ExternError::default();
-        let key = FfiStr::from_cstr(std::ffi::CStr::from_bytes_with_nul(b"custom_knob\0").unwrap());
+        let key = FfiStr::from_cstr(c"custom_knob");
         let mut value: f32 = 0.0;
 
         // SAFETY: see `get_audio_info_null_voice_returns_null_pointer_error_without_panicking`
@@ -1227,9 +1230,12 @@ mod tests {
     fn get_synthesis_parameter_returns_false_for_a_key_that_was_never_set() {
         let mut voice = fake_voice();
         let mut out_error = ExternError::default();
-        let key = FfiStr::from_cstr(std::ffi::CStr::from_bytes_with_nul(b"custom_knob\0").unwrap());
+        let key = FfiStr::from_cstr(c"custom_knob");
         let mut value: f32 = 0.0;
 
+        // SAFETY: `voice`/`value` are well-aligned pointers to a live `DengjenVoice`/`f32`, and
+        // `key` is a valid NUL-terminated C string for the call's duration -- satisfies
+        // `libdengjenGetSynthesisParameter`'s own `# Safety` doc.
         let found =
             unsafe { libdengjenGetSynthesisParameter(&mut voice, key, &mut value, &mut out_error) };
         assert!(!found);
@@ -1240,7 +1246,7 @@ mod tests {
     fn get_synthesis_parameter_round_trips_a_value_set_via_set_synthesis_parameter() {
         let mut voice = fake_voice();
         let mut out_error = ExternError::default();
-        let key = FfiStr::from_cstr(std::ffi::CStr::from_bytes_with_nul(b"custom_knob\0").unwrap());
+        let key = FfiStr::from_cstr(c"custom_knob");
 
         // SAFETY: `voice` is a valid handle owned by this test, and `key` is valid for the
         // duration of this call.
@@ -1250,8 +1256,7 @@ mod tests {
         assert!(out_error.get_code().is_success());
 
         let mut value: f32 = 0.0;
-        let key2 =
-            FfiStr::from_cstr(std::ffi::CStr::from_bytes_with_nul(b"custom_knob\0").unwrap());
+        let key2 = FfiStr::from_cstr(c"custom_knob");
 
         // SAFETY: see above -- same valid `voice` handle, `key2` valid for the duration of
         // this call.
@@ -1485,10 +1490,10 @@ mod abi_struct_tests {
         assert!(!event.error_ptr.is_null());
         assert_eq!(event.len, 0);
 
-        assert_eq!(
-            unsafe { (*event.error_ptr).get_code().code() },
-            error_codes::INVALID_UTF8_SEQUENCE
-        );
+        // SAFETY: `event.error_ptr` was just boxed by `with_error` and asserted non-null above;
+        // it isn't freed until `libdengjenFreeSynthesisEvent` below.
+        let code = unsafe { (*event.error_ptr).get_code().code() };
+        assert_eq!(code, error_codes::INVALID_UTF8_SEQUENCE);
 
         // SAFETY: `event` came from `with_error`, one of the constructors
         // `libdengjenFreeSynthesisEvent`'s `# Safety` doc covers; this reclaims both the
