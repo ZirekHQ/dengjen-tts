@@ -1,8 +1,8 @@
 name: Publish to crates.io
 
-# No `environment:` gate on the job below -- merging the version-bump PR is the real decision point
-# (see #201), so there's nothing left to approve by the time this runs. Deliberately not tag-triggered
-# itself: a stray v*-shaped tag push would otherwise fire a real, irreversible publish.
+# No `environment:` gate below: for workflow_call, merging the version-bump PR is the real decision
+# point (#201) -- but workflow_dispatch bypasses that, publishing whatever ref is given, unreviewed.
+# Deliberately not tag-triggered: a stray v*-tag push would otherwise fire a real, irreversible publish.
 on:
   workflow_dispatch:
     inputs:

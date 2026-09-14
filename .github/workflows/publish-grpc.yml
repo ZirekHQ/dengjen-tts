@@ -1,8 +1,9 @@
 name: Publish gRPC server release
 
 on:
-  # No `environment:` gate on the jobs below -- merging the version-bump PR is the real decision
-  # point (see #201), so there's nothing left to approve by the time this runs.
+  # No `environment:` gate on the jobs below: for workflow_call, merging the version-bump PR is the
+  # real decision point (#201) -- but a manual workflow_dispatch bypasses that and publishes
+  # whatever tag is given, unreviewed.
   workflow_dispatch:
     inputs:
       tag:
