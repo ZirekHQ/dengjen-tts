@@ -1,0 +1,36 @@
+name: Setup native build dependencies
+description: Initializes git submodules and installs native build deps (clang/llvm/protobuf/etc.) with apt-get retry.
+
+inputs:
+  apt-packages:
+    description: Space-separated apt package list to install (skipped if empty)
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    # Must run after actions/checkout: local composite actions resolve from the checked-out
+    # repo, but the submodule fetch needs protocol.file.allow set before init -- so submodule
+    # checkout happens here instead of via actions/checkout's `submodules:` input.
+    - name: init submodules
+      shell: bash
+      run: |
+        git config --global protocol.file.allow always
+        git submodule update --init --recursive
+
+    - name: install apt packages
+      if: inputs.apt-packages != ''
+      shell: bash
+      env:
+        APT_PACKAGES: ${{ inputs.apt-packages }}
+      run: |
+        for attempt in 1 2 3; do
+          if timeout 60 sudo apt-get update && timeout 180 sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y $APT_PACKAGES; then
+            exit 0
+          fi
+          echo "::warning::apt-get install attempt ${attempt} failed, retrying" >&2
+          sleep 10
+        done
+        echo "::error::apt-get install failed after 3 attempts" >&2
+        exit 1

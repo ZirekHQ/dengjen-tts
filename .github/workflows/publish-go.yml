@@ -4,8 +4,8 @@
 name: Publish Go bindings release
 
 on:
-  # No `environment:` gate on the jobs below -- release.yml's shared `approve` job covers it when
-  # called from there, but a manual dispatch of this file bypasses that entirely.
+  # No `environment:` gate on the jobs below -- merging the version-bump PR is the real decision
+  # point (see #201), so there's nothing left to approve by the time this runs.
   workflow_dispatch:
     inputs:
       tag:

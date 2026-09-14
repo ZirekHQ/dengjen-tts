@@ -1,8 +1,8 @@
 name: Publish to crates.io
 
-# No `environment:` gate on the job below -- release.yml's shared `approve` job covers it when
-# called from there, but a manual retrigger from this file bypasses that entirely. Deliberately not
-# tag-triggered itself: a stray v*-shaped tag push would otherwise fire a real, irreversible publish.
+# No `environment:` gate on the job below -- merging the version-bump PR is the real decision point
+# (see #201), so there's nothing left to approve by the time this runs. Deliberately not tag-triggered
+# itself: a stray v*-shaped tag push would otherwise fire a real, irreversible publish.
 on:
   workflow_dispatch:
     inputs:

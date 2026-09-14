@@ -1,8 +1,8 @@
 name: Publish Java bindings
 
 on:
-  # No `environment:` gate on the `release` job below -- release.yml's shared `approve` job covers
-  # it when called from there, but a manual dispatch of this file bypasses that entirely.
+  # No `environment:` gate on the `release` job below -- merging the version-bump PR is the real
+  # decision point (see #201), so there's nothing left to approve by the time this runs.
   workflow_dispatch:
     inputs:
       tag:
@@ -56,8 +56,7 @@ jobs:
       skip: ${{ steps.check.outputs.skip }}
     steps:
       # inputs.tag (workflow_dispatch) is free text from whoever has dispatch
-      # access -- unvalidated it'd publish whatever ref it names, real GPG/
-      # OSSRH secrets included. Requires the exact java-vX.Y.Z tag shape, not just matching digits.
+      # access -- unvalidated it'd publish whatever ref it names, real GPG/OSSRH secrets included.
       - name: Validate release tag input
         if: github.event_name == 'workflow_dispatch'
         env:
