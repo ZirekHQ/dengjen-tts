@@ -87,24 +87,9 @@ jobs:
         # Dispatched against the real v${VERSION} tag, not `main` -- main can move between the tag push and this step.
         run: gh workflow run CI.yml --ref "v${VERSION}"
 
-  approve:
-    name: Approve release
-    needs: tag-and-release
-    if: inputs.dry_run != true
-    runs-on: ubuntu-latest
-    environment: release
-    permissions: {}
-    steps:
-      - env:
-          VERSION: ${{ needs.tag-and-release.outputs.version }}
-        run: echo "Approved v${VERSION} for release"
-
-  # always() is paired with an explicit success-or-skipped check, not a bare "run regardless" --
-  # needed because `approve` is legitimately skipped, not failed, on a dry run.
   crates:
     name: crates.io
-    needs: [tag-and-release, approve]
-    if: always() && needs.tag-and-release.result == 'success' && (needs.approve.result == 'success' || needs.approve.result == 'skipped')
+    needs: tag-and-release
     permissions:
       contents: read
     uses: ./.github/workflows/publish.yml # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
@@ -115,8 +100,7 @@ jobs:
 
   java:
     name: Maven Central (Java bindings)
-    needs: [tag-and-release, approve]
-    if: always() && needs.tag-and-release.result == 'success' && (needs.approve.result == 'success' || needs.approve.result == 'skipped')
+    needs: tag-and-release
     permissions:
       contents: write
     uses: ./.github/workflows/java-publish.yml # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
@@ -133,8 +117,7 @@ jobs:
 
   go:
     name: dengjen-tts-go mirror
-    needs: [tag-and-release, approve]
-    if: always() && needs.tag-and-release.result == 'success' && (needs.approve.result == 'success' || needs.approve.result == 'skipped')
+    needs: tag-and-release
     permissions:
       contents: read
     uses: ./.github/workflows/publish-go.yml # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
@@ -146,8 +129,7 @@ jobs:
 
   grpc:
     name: gRPC server GitHub Release
-    needs: [tag-and-release, approve]
-    if: always() && needs.tag-and-release.result == 'success' && (needs.approve.result == 'success' || needs.approve.result == 'skipped')
+    needs: tag-and-release
     permissions:
       contents: write
     uses: ./.github/workflows/publish-grpc.yml # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
@@ -162,11 +144,10 @@ jobs:
   # component release happened to publish last.
   github-release:
     name: Whole-repo GitHub Release
-    needs: [tag-and-release, approve, crates, java, go, grpc]
+    needs: [tag-and-release, crates, java, go, grpc]
     if: >-
       always() && inputs.dry_run != true &&
       needs.tag-and-release.result == 'success' &&
-      (needs.approve.result == 'success' || needs.approve.result == 'skipped') &&
       needs.crates.result == 'success' && needs.java.result == 'success' &&
       needs.go.result == 'success' && needs.grpc.result == 'success'
     runs-on: ubuntu-latest
