@@ -20,6 +20,14 @@ and keeps `git log` skimmable. Example: `fix: handle empty phoneme_id_map entrie
 Not following either convention won't block your PR — a maintainer may just tweak the title or
 ask you to sign before merging.
 
+## Fuzzing
+
+Each phonemizer/model crate with a `fuzz/` directory has one or more `cargo-fuzz` targets. CI
+only builds them (`fuzz-build` job) so they don't bit-rot — it doesn't run them, since actual
+fuzzing is too slow for every PR. This is deliberate, not a gap: run one yourself with
+`cargo +nightly fuzz run <target>` from the crate that owns it whenever you touch the logic that
+target exercises.
+
 ## Getting started
 
 See [README.md](../README.md) for build instructions and [CLAUDE.md](../CLAUDE.md) for the lint
