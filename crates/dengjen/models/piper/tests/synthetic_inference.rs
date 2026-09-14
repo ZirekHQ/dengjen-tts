@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use tracing_test::traced_test;
 
 fn phoneme_id_map_json() -> &'static str {
     r#"{"^": [1], "$": [2], "_": [3], "t": [4], "ɛ": [5], "s": [6]}"#
@@ -142,4 +143,20 @@ fn properties_reports_an_unknown_quality_when_the_config_omits_it() {
     let model = load_synthetic_model("dengjen_piper_synthetic_properties_test");
     let properties = model.properties().unwrap();
     assert_eq!(properties.get("quality"), Some(&"unknown".to_string()));
+}
+
+#[traced_test]
+#[test]
+fn from_config_path_logs_the_load_error_via_tracing() {
+    let dir = std::env::temp_dir().join("dengjen_piper_missing_model_path_test");
+    std::fs::create_dir_all(&dir).unwrap();
+    let config_path = dir.join("does_not_exist.json");
+
+    let result = dengjen_tts_piper::from_config_path(&config_path);
+    std::fs::remove_dir_all(&dir).ok();
+
+    assert!(result.is_err(), "loading a missing config file should fail");
+    // The test passes when it captures the span name from the instrumented function
+    // logs_contain("from_config_path") should work based on tracing::instrument attribute
+    assert!(logs_contain("from_config_path"), "Expected from_config_path span in captured logs");
 }
