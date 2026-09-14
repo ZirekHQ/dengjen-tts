@@ -137,11 +137,9 @@ jobs:
       tag: grpc-release-v${{ needs.tag-and-release.outputs.version }}
       dry_run: ${{ inputs.dry_run == true }}
 
-  # crates/java/go/grpc each publish their own artifact-scoped GitHub Release
-  # (java-v*, grpc-release-v*), none of which represent the repo as a whole --
-  # without this job the `v${VERSION}` tag from tag-and-release never gets a
-  # release object, so GitHub's `/releases/latest` falls back to whichever
-  # component release happened to publish last.
+  # crates/java/go/grpc each publish their own artifact-scoped release, none of which represent
+  # the repo as a whole -- without this job the `v${VERSION}` tag never gets a release object, so
+  # GitHub's `/releases/latest` falls back to whichever component release published last.
   github-release:
     name: Whole-repo GitHub Release
     needs: [tag-and-release, crates, java, go, grpc]
@@ -159,11 +157,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           VERSION: ${{ needs.tag-and-release.outputs.version }}
-        # Depends on every component job so this always publishes last and is the one
-        # GitHub shows as "Latest". crates/java/go/grpc each skip a version they've
-        # already published, so a re-run of an otherwise-green workflow reaches this
-        # step too -- it has to skip the same way instead of hitting gh's
-        # already_exists error on an unconditional create.
+        # Depends on every component job so this always publishes last, shown as "Latest". Each
+        # component job skips a version it already published, so a re-run reaching this step
+        # must skip the same way instead of hitting gh's already_exists error.
         run: |
           set -euo pipefail
           tag="v${VERSION}"

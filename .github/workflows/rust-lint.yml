@@ -202,10 +202,9 @@ jobs:
         working-directory: crates/text/espeak-phonemizer
         run: cargo +nightly fuzz build
 
-  # audio/ops's bench is self-contained (synthetic samples, no model fixtures) so it runs for
-  # real here. synth's divan benches need real Piper voice fixtures that aren't committed
-  # to this repo -- see CONTRIBUTING.md#benchmarks -- so they only get the clippy job's
-  # compile-time check above, not an execution here.
+  # audio/ops's bench is self-contained (synthetic samples) so it runs for real here. synth's
+  # divan benches need real Piper voice fixtures not committed to this repo -- see
+  # CONTRIBUTING.md#benchmarks -- so they only get the clippy job's compile-time check above.
   benchmarks:
     runs-on: ubuntu-latest
     steps:

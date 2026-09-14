@@ -259,15 +259,13 @@ mod tests {
 
     #[test]
     fn truncate_tokens_around_position_centers_the_window_on_the_query_token() {
-        // max_len=6 -> truncate_len=4; token_position=10 among 20 tokens.
         let (start, end, position_id) = super::truncate_tokens_around_position(20, 10, 6).unwrap();
         assert_eq!((start, end), (8, 12));
-        assert_eq!(position_id, 3); // token_position - token_start + 1
+        assert_eq!(position_id, 3);
     }
 
     #[test]
     fn truncate_tokens_around_position_clamps_the_window_to_the_start() {
-        // Query near the very first token: the naive center would go negative.
         let (start, end, position_id) = super::truncate_tokens_around_position(20, 1, 6).unwrap();
         assert_eq!((start, end), (0, 4));
         assert_eq!(position_id, 2);
@@ -275,7 +273,6 @@ mod tests {
 
     #[test]
     fn truncate_tokens_around_position_clamps_the_window_to_the_end() {
-        // Query near the very last token: the naive window would run past token_count.
         let (start, end, position_id) = super::truncate_tokens_around_position(20, 19, 6).unwrap();
         assert_eq!((start, end), (16, 20));
         assert_eq!(position_id, 4);

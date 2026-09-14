@@ -185,7 +185,6 @@ final class SpeakTrampoline {
     try {
       DengjenLib.FREE_SYNTHESIS_EVENT.invokeExact(eventSegment);
     } catch (Throwable freeFailure) {
-      // See method doc: intentionally swallowed.
     }
   }
 }

@@ -567,8 +567,6 @@ mod tests {
 
     #[test]
     fn trim_trailing_silence_keeps_a_stereo_frame_with_one_active_channel() {
-        // Frame [0.8, 0.0]: the left channel is above the threshold, so the
-        // whole frame must survive even though the right channel alone would not.
         let mut buffer = AudioSamples::from(vec![0.8, 0.0]);
         buffer.trim_trailing_silence(0.015, 2);
         assert_eq!(buffer.into_vec(), vec![0.8, 0.0]);
