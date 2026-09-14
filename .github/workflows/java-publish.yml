@@ -116,32 +116,21 @@ jobs:
           - classifier: macos-aarch64
             runner: macos-latest
     steps:
-      - name: git-submodule-fix
-        run: git config --global protocol.file.allow always
       - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           # A workflow_dispatch run whose `tag` input doesn't match the dispatched ref would
           # otherwise build from the wrong commit and publish it under the given tag's label.
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.sha }}
-          submodules: recursive
           persist-credentials: false
+      - uses: ./.github/actions/setup-native-build-deps # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
+        timeout-minutes: 15
+        with:
+          # Windows/macOS have no apt-get; their compiler toolchain installs below stay inline.
+          apt-packages: ${{ runner.os == 'Linux' && 'llvm llvm-dev llvm-runtime libclang-dev' || '' }}
       - name: Set CMAKE_GENERATOR for Windows
         if: runner.os == 'Windows'
         shell: bash
         run: echo "CMAKE_GENERATOR=Ninja" >> "$GITHUB_ENV"
-      - name: install libclang (linux)
-        if: runner.os == 'Linux'
-        timeout-minutes: 15
-        run: |
-          for attempt in 1 2 3; do
-            if timeout 60 sudo apt-get update && timeout 180 sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y llvm llvm-dev llvm-runtime libclang-dev; then
-              exit 0
-            fi
-            echo "::warning::apt-get install attempt ${attempt} failed, retrying" >&2
-            sleep 10
-          done
-          echo "::error::apt-get install failed after 3 attempts" >&2
-          exit 1
       - name: install libclang (windows)
         if: runner.os == 'Windows'
         run: choco install llvm
@@ -154,9 +143,8 @@ jobs:
         run: |
           brew install llvm
           echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
+      # channel comes from rust-toolchain.toml
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
-        with:
-          toolchain: "1.97.1"
       - name: Build libdengjen
         run: cargo build --release --manifest-path Cargo.toml -p libdengjen --locked
       - name: Stage native library

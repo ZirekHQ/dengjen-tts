@@ -68,8 +68,6 @@ jobs:
     env:
       CMAKE_GENERATOR: Ninja
     steps:
-      - name: git-submodule-fix
-        run: git config --global protocol.file.allow always
       - name: install-clang
         run: choco install llvm -y --no-progress
       - name: install-protoc
@@ -77,14 +75,14 @@ jobs:
         run: choco install protoc -y --no-progress
       - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
-          submodules: recursive
           persist-credentials: false
+      - uses: ./.github/actions/setup-native-build-deps # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
       - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
         with:
           arch: x64
+      # channel comes from rust-toolchain.toml
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
-          toolchain: "1.97.1"
           targets: x86_64-pc-windows-msvc
       - name: cargo build (release)
         run: cargo build --release --locked -p dengjen-tts-grpc --target x86_64-pc-windows-msvc
