@@ -1,14 +1,17 @@
 name: CI
 
+# No `tags:` trigger here -- release.yml's `tag-and-release` job already dispatches this
+# workflow explicitly once the tag is pushed, so also matching the tag push would run the
+# full build matrix and the `release` job (PyPI) twice per release.
 on:
   push:
     branches:
       - main
-      - master
-    tags:
-      - '*'
   pull_request:
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   linux:

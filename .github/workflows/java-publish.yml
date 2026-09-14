@@ -55,6 +55,26 @@ jobs:
     outputs:
       skip: ${{ steps.check.outputs.skip }}
     steps:
+      # inputs.tag (workflow_dispatch) is free text from whoever has dispatch
+      # access -- unvalidated it'd publish whatever ref it names, real GPG/
+      # OSSRH secrets included. Requires the exact java-vX.Y.Z tag shape, not just matching digits.
+      - name: Validate release tag input
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if ! echo "${RELEASE_TAG}" | grep -qE '^java-v[0-9]+\.[0-9]+\.[0-9]+.*$'; then
+            echo "::error::'${RELEASE_TAG}' doesn't look like a java-vX.Y.Z tag"
+            exit 1
+          fi
+          if ! gh api "repos/${REPO}/git/refs/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "::error::'${RELEASE_TAG}' is not an existing tag on this repository -- refusing to build from an arbitrary ref"
+            exit 1
+          fi
+
       - name: Check whether this version is already on Maven Central
         id: check
         env:
@@ -166,6 +186,11 @@ jobs:
         with:
           java-version: 25
           distribution: temurin
+      - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        with:
+          # A publish-credentialed job must never consume a cache entry a
+          # less-trusted run could have written.
+          cache-disabled: true
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: bindings/java/native-artifacts
