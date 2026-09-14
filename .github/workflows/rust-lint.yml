@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - master
   pull_request:
   workflow_dispatch:
   schedule:
@@ -320,7 +319,38 @@ jobs:
       - name: cargo test (dengjen-tts-cli, kokoro real voice e2e)
         run: cargo test -p dengjen-tts-cli --test kokoro_e2e
 
+  # libdengjen (crates/frontends/capi) depends on nearly the whole crate graph, so this
+  # filters on all of crates/** rather than a narrow subset -- a hand-picked shorter list
+  # would risk silently skipping a rebuild a real dependency change needed.
+  changes:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      java: ${{ steps.filter.outputs.java }}
+    steps:
+      # dorny/paths-filter's token mode only skips checkout for pull_request events -- push
+      # events still diff via git and need a checked-out repository.
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          filters: |
+            java:
+              - 'crates/**'
+              - 'bindings/java/**'
+              - 'Cargo.lock'
+
   bindings-java:
+    needs: changes
+    # always() so this still runs when `changes` is legitimately skipped (workflow_dispatch,
+    # schedule -- no base ref to diff against, so always run unfiltered there).
+    if: always() && (needs.changes.result == 'skipped' || needs.changes.outputs.java == 'true')
     runs-on: ubuntu-latest
     steps:
       - name: git-submodule-fix
