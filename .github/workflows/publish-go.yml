@@ -97,7 +97,7 @@ jobs:
             rust-target: aarch64-unknown-linux-gnu
             artifact: libdengjen-linux-arm64
     steps:
-      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           # On workflow_dispatch, pins the build to the tag this run is labeled and published
           # under (validated by check's "Validate release tag input") instead of trusting the
@@ -115,7 +115,7 @@ jobs:
       # directory override, so the target has to be added there instead.
       - run: rustup target add ${{ matrix.platform.rust-target }}
       - if: matrix.platform.target != 'x86_64'
-        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
       - if: matrix.platform.target != 'x86_64'
         uses: ./.github/actions/setup-native-build-deps # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
         timeout-minutes: 15
@@ -171,7 +171,7 @@ jobs:
     steps:
       - name: install-clang
         run: choco install llvm -y --no-progress
-      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.sha }}
           persist-credentials: false
@@ -224,7 +224,7 @@ jobs:
         run: |
           brew install llvm
           echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
-      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.sha }}
           persist-credentials: false
@@ -288,7 +288,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       release_sha: ${{ steps.push-release.outputs.release_sha }}
     steps:
-      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.sha }}
           path: dengjen-tts
@@ -298,7 +298,7 @@ jobs:
       - uses: ./dengjen-tts/.github/actions/setup-native-build-deps # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
         with:
           working-directory: dengjen-tts
-      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: ZirekHQ/dengjen-tts-go
           path: dengjen-tts-go
@@ -543,7 +543,7 @@ jobs:
     steps:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.22'
+          go-version: '1.27'
           cache: false
       - name: fetch and build the just-published module (direct, bypassing the proxy cache)
         env:
@@ -592,7 +592,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: ZirekHQ/dengjen-tts-go
           token: ${{ secrets.DENGJEN_TTS_GO_DEPLOY_TOKEN }}
