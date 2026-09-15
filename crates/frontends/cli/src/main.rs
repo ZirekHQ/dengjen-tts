@@ -166,8 +166,10 @@ fn enable_logging() -> anyhow::Result<()> {
     // stream.
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
+        .with_ansi(std::io::IsTerminal::is_terminal(&std::io::stderr()))
         .with_env_filter(filter)
-        .init();
+        .try_init()
+        .map_err(anyhow::Error::from_boxed)?;
     Ok(())
 }
 
