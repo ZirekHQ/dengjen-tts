@@ -402,14 +402,17 @@ impl SpeechSynthesisTaskProvider {
 pub struct DengjenSpeechStreamLazy {
     provider: SpeechSynthesisTaskProvider,
     pending_sentences: std::vec::IntoIter<String>,
+    span: tracing::Span,
 }
 
 impl DengjenSpeechStreamLazy {
     fn new(provider: SpeechSynthesisTaskProvider) -> DengjenResult<Self> {
-        let pending_sentences = provider.get_phonemes()?.into_iter();
+        let span = tracing::info_span!("synthesis_request", mode = "lazy");
+        let pending_sentences = span.in_scope(|| provider.get_phonemes())?.into_iter();
         Ok(Self {
             provider,
             pending_sentences,
+            span,
         })
     }
 }
@@ -418,9 +421,17 @@ impl Iterator for DengjenSpeechStreamLazy {
     type Item = DengjenAudioResult;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.pending_sentences
-            .next()
-            .map(|sentence| self.provider.process_one_sentence(sentence))
+        let sentence = self.pending_sentences.next()?;
+        let provider = &self.provider;
+        Some(self.span.in_scope(|| {
+            let chunk_span = tracing::debug_span!("chunk");
+            let _enter = chunk_span.enter();
+            let result = provider.process_one_sentence(sentence);
+            if let Ok(audio) = &result {
+                tracing::debug!(sample_count = audio.len(), "chunk_ready");
+            }
+            result
+        }))
     }
 }
 

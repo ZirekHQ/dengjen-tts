@@ -621,6 +621,8 @@ dependencies = [
  "rayon",
  "serde_json",
  "tempfile",
+ "tracing",
+ "tracing-test",
 ]
 
 [[package]]
