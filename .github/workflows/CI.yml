@@ -9,6 +9,12 @@ on:
       - main
   pull_request:
   workflow_dispatch:
+    inputs:
+      use_oidc_pypi:
+        description: "Use PyPI OIDC trusted publishing instead of PYPI_API_TOKEN (manual-dispatch only, for validating Trusted Publisher config -- dispatch against an existing release tag so the release job's ref condition below still fires)"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -253,8 +259,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      # Only exercised when use_oidc_pypi is set, which only workflow_dispatch can do -- the
+      # tag-triggered automated path never sets it, so it never attempts an OIDC token mint.
+      id-token: write
     if: "startsWith(github.ref, 'refs/tags/')"
     needs: [linux, windows, macos, sdist]
+    env:
+      USE_OIDC_PYPI: ${{ github.event_name == 'workflow_dispatch' && inputs.use_oidc_pypi == true }}
     steps:
       # No `working-directory` here: `path: dist` downloads artifacts to $GITHUB_WORKSPACE/dist/, and
       # the upload glob matches workspace-root-relative -- a working-directory previously made that
@@ -263,6 +274,7 @@ jobs:
         with:
           path: dist
       - name: Publish to PyPI
+        if: env.USE_OIDC_PYPI != 'true'
         uses: PyO3/maturin-action@e10f6c464b90acceb5f640d31beda6d586ba7b4a # v1.49.3
         env:
           MATURIN_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
@@ -273,3 +285,22 @@ jobs:
           # rather than the action re-resolving "latest" over the network
           # on every retry.
           maturin-version: v1.14.1
+      # packages-dir below needs a flat directory, not a glob -- re-downloads separately rather
+      # than changing the first download step's subdirectory layout, which the maturin-action
+      # step's shell-expanded glob (dist/wheels-*/*) above depends on.
+      - name: Download wheels for OIDC test (flat layout)
+        if: env.USE_OIDC_PYPI == 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: wheels-*
+          path: dist-oidc
+          merge-multiple: true
+      # Not yet the default: PyPI's Trusted Publisher config doesn't exist yet -- this validates
+      # it via manual dispatch first. maturin-action has no OIDC support of its own, hence a
+      # separate action here rather than a flag on the step above.
+      - name: Publish to PyPI via OIDC (manual validation only)
+        if: env.USE_OIDC_PYPI == 'true'
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          packages-dir: dist-oidc
+          skip-existing: true
