@@ -449,12 +449,12 @@ impl DengjenSpeechStreamParallel {
         let sentences = span.in_scope(|| provider.get_phonemes())?;
         let worker_span = span.clone();
         let finished: Vec<DengjenAudioResult> = sentences
-            .par_iter()
+            .into_par_iter()
             .map(|sentence| {
                 worker_span.in_scope(|| {
                     let chunk_span = tracing::debug_span!("chunk");
                     let _enter = chunk_span.enter();
-                    let result = provider.process_one_sentence(sentence.clone());
+                    let result = provider.process_one_sentence(sentence);
                     if let Ok(audio) = &result {
                         tracing::debug!(sample_count = audio.len(), "chunk_ready");
                     }
