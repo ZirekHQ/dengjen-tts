@@ -438,17 +438,33 @@ impl Iterator for DengjenSpeechStreamLazy {
 #[must_use]
 pub struct DengjenSpeechStreamParallel {
     finished: std::vec::IntoIter<DengjenAudioResult>,
+    // Kept only to hold the span open for the stream's lifetime; `new()` already
+    // performs all synthesis eagerly, so no code path reads it back.
+    _span: tracing::Span,
 }
 
 impl DengjenSpeechStreamParallel {
     fn new(provider: SpeechSynthesisTaskProvider) -> DengjenResult<Self> {
-        let sentences = provider.get_phonemes()?;
+        let span = tracing::info_span!("synthesis_request", mode = "parallel");
+        let sentences = span.in_scope(|| provider.get_phonemes())?;
+        let worker_span = span.clone();
         let finished: Vec<DengjenAudioResult> = sentences
             .par_iter()
-            .map(|sentence| provider.process_one_sentence(sentence.clone()))
+            .map(|sentence| {
+                worker_span.in_scope(|| {
+                    let chunk_span = tracing::debug_span!("chunk");
+                    let _enter = chunk_span.enter();
+                    let result = provider.process_one_sentence(sentence.clone());
+                    if let Ok(audio) = &result {
+                        tracing::debug!(sample_count = audio.len(), "chunk_ready");
+                    }
+                    result
+                })
+            })
             .collect();
         Ok(Self {
             finished: finished.into_iter(),
+            _span: span,
         })
     }
 }
