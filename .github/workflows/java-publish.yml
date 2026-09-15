@@ -166,6 +166,10 @@ jobs:
     needs: [check, build-natives]
     if: needs.check.outputs.skip != 'true'
     runs-on: ubuntu-latest
+    # A required reviewer on this environment is what actually closes the workflow_dispatch loophole
+    # noted above: the JReleaser/GPG secrets are only handed to this job once someone approves the
+    # run, whether it came from the merge-gated release.yml chain or a direct manual dispatch.
+    environment: release
     permissions:
       contents: write
     steps:

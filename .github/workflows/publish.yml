@@ -27,6 +27,10 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # A required reviewer on this environment is what actually closes the workflow_dispatch loophole
+    # noted above: CARGO_REGISTRY_TOKEN is only handed to this job once someone approves the run,
+    # whether that run came from the merge-gated release.yml chain or a direct manual dispatch.
+    environment: release
     permissions:
       contents: read
     env:
