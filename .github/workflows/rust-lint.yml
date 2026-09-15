@@ -115,6 +115,26 @@ jobs:
           # covered by the separate `rustsec/audit-check` job above (kept as belt-and-braces).
           command: check licenses bans sources
 
+  # rust-version isn't an independently verified floor yet (see Cargo.toml) -- this job exists so a
+  # future rust-toolchain.toml bump and a Cargo.toml rust-version bump can't silently drift apart.
+  msrv:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-native-build-deps # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
+        timeout-minutes: 15
+        with:
+          apt-packages: clang libclang-dev llvm-dev cmake protobuf-compiler
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: "1.97.1" # must match [workspace.package].rust-version in Cargo.toml
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: cargo check (MSRV)
+        run: cargo check --workspace --locked
+
   # crates/audio/sonic-sys/build.rs compiles vendor/sonic.c/.h, not deps/sonic's copies -- nothing
   # in the build touches that submodule anymore. Renovate still opens bump PRs for it though;
   # without this check, merging one would pass CI green while silently leaving vendor/ stale.
