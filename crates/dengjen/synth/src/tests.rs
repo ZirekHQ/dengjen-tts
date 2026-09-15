@@ -2,6 +2,94 @@ mod dev_utils;
 
 use dengjen_tts::DengjenResult;
 use std::{path::PathBuf, sync::Arc};
+use tracing_test::traced_test;
+
+#[traced_test]
+#[test]
+fn lazy_stream_emits_nested_synthesis_request_and_chunk_spans() {
+    let (model, _fixture_dir) = build_synthetic_kokoro_model();
+    let model: Arc<dyn dengjen_tts_core::DengjenModel + Send + Sync> = Arc::new(model);
+    let synthesizer = dengjen_tts::DengjenSpeechSynthesizer::new(model).unwrap();
+
+    let stream = synthesizer.synthesize_lazy("t\u{025b}st".to_string(), None);
+    let stream = match stream {
+        Ok(stream) => stream,
+        Err(dengjen_tts_core::DengjenError::PhonemizationError(msg))
+            if msg.contains("Failed to initialize eSpeak-ng") =>
+        {
+            eprintln!(
+                "skipping lazy_stream_emits_nested_synthesis_request_and_chunk_spans: espeak-ng data unavailable"
+            );
+            return;
+        }
+        Err(e) => panic!("synthesize_lazy failed unexpectedly: {e:?}"),
+    };
+
+    let _chunks: Vec<_> = stream.collect();
+
+    assert!(logs_contain("synthesis_request"));
+    assert!(logs_contain("chunk_ready"));
+}
+
+#[traced_test]
+#[test]
+fn parallel_stream_emits_nested_synthesis_request_and_chunk_spans() {
+    let (model, _fixture_dir) = build_synthetic_kokoro_model();
+    let model: Arc<dyn dengjen_tts_core::DengjenModel + Send + Sync> = Arc::new(model);
+    let synthesizer = dengjen_tts::DengjenSpeechSynthesizer::new(model).unwrap();
+
+    let stream = synthesizer.synthesize_parallel("t\u{025b}st".to_string(), None);
+    let stream = match stream {
+        Ok(stream) => stream,
+        Err(dengjen_tts_core::DengjenError::PhonemizationError(msg))
+            if msg.contains("Failed to initialize eSpeak-ng") =>
+        {
+            eprintln!(
+                "skipping parallel_stream_emits_nested_synthesis_request_and_chunk_spans: espeak-ng data unavailable"
+            );
+            return;
+        }
+        Err(e) => panic!("synthesize_parallel failed unexpectedly: {e:?}"),
+    };
+
+    let _chunks: Vec<_> = stream.collect();
+
+    assert!(logs_contain("synthesis_request"));
+    assert!(logs_contain("chunk_ready"));
+}
+
+#[traced_test]
+#[test]
+fn realtime_stream_emits_nested_synthesis_request_and_chunk_spans() {
+    let (model, _fixture_dir) = build_synthetic_kokoro_model();
+    let model: Arc<dyn dengjen_tts_core::DengjenModel + Send + Sync> = Arc::new(model);
+    let synthesizer = dengjen_tts::DengjenSpeechSynthesizer::new(model).unwrap();
+
+    let stream = synthesizer.synthesize_streamed(
+        "t\u{025b}st".to_string(),
+        None,
+        72,
+        3,
+        dengjen_tts_core::CancellationToken::new(),
+    );
+    let stream = match stream {
+        Ok(stream) => stream,
+        Err(dengjen_tts_core::DengjenError::PhonemizationError(msg))
+            if msg.contains("Failed to initialize eSpeak-ng") =>
+        {
+            eprintln!(
+                "skipping realtime_stream_emits_nested_synthesis_request_and_chunk_spans: espeak-ng data unavailable"
+            );
+            return;
+        }
+        Err(e) => panic!("synthesize_streamed failed unexpectedly: {e:?}"),
+    };
+
+    let _chunks: Vec<_> = stream.map(|c| c.expect("chunk synthesis failed")).collect();
+
+    assert!(logs_contain("synthesis_request"));
+    assert!(logs_contain("chunk_ready"));
+}
 
 #[test]
 fn test_lazy_stream() -> DengjenResult<()> {

@@ -30,6 +30,7 @@ const PAD: &str = "_";
 const BOS: &str = "^";
 const EOS: &str = "$";
 
+#[tracing::instrument(skip_all, fields(config_path = %config_path.display()), err)]
 pub fn from_config_path(config_path: &Path) -> DengjenResult<Arc<dyn DengjenModel + Send + Sync>> {
     let (config, synth_config) = load_model_config(config_path)?;
 

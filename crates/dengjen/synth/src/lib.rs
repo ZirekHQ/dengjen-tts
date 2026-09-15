@@ -402,14 +402,17 @@ impl SpeechSynthesisTaskProvider {
 pub struct DengjenSpeechStreamLazy {
     provider: SpeechSynthesisTaskProvider,
     pending_sentences: std::vec::IntoIter<String>,
+    span: tracing::Span,
 }
 
 impl DengjenSpeechStreamLazy {
     fn new(provider: SpeechSynthesisTaskProvider) -> DengjenResult<Self> {
-        let pending_sentences = provider.get_phonemes()?.into_iter();
+        let span = tracing::info_span!("synthesis_request", mode = "lazy");
+        let pending_sentences = span.in_scope(|| provider.get_phonemes())?.into_iter();
         Ok(Self {
             provider,
             pending_sentences,
+            span,
         })
     }
 }
@@ -418,26 +421,50 @@ impl Iterator for DengjenSpeechStreamLazy {
     type Item = DengjenAudioResult;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.pending_sentences
-            .next()
-            .map(|sentence| self.provider.process_one_sentence(sentence))
+        let sentence = self.pending_sentences.next()?;
+        let provider = &self.provider;
+        Some(self.span.in_scope(|| {
+            let chunk_span = tracing::debug_span!("chunk");
+            let _enter = chunk_span.enter();
+            let result = provider.process_one_sentence(sentence);
+            if let Ok(audio) = &result {
+                tracing::debug!(sample_count = audio.len(), "chunk_ready");
+            }
+            result
+        }))
     }
 }
 
 #[must_use]
 pub struct DengjenSpeechStreamParallel {
     finished: std::vec::IntoIter<DengjenAudioResult>,
+    // Kept only to hold the span open for the stream's lifetime; `new()` already
+    // performs all synthesis eagerly, so no code path reads it back.
+    _span: tracing::Span,
 }
 
 impl DengjenSpeechStreamParallel {
     fn new(provider: SpeechSynthesisTaskProvider) -> DengjenResult<Self> {
-        let sentences = provider.get_phonemes()?;
+        let span = tracing::info_span!("synthesis_request", mode = "parallel");
+        let sentences = span.in_scope(|| provider.get_phonemes())?;
+        let worker_span = span.clone();
         let finished: Vec<DengjenAudioResult> = sentences
-            .par_iter()
-            .map(|sentence| provider.process_one_sentence(sentence.clone()))
+            .into_par_iter()
+            .map(|sentence| {
+                worker_span.in_scope(|| {
+                    let chunk_span = tracing::debug_span!("chunk");
+                    let _enter = chunk_span.enter();
+                    let result = provider.process_one_sentence(sentence);
+                    if let Ok(audio) = &result {
+                        tracing::debug!(sample_count = audio.len(), "chunk_ready");
+                    }
+                    result
+                })
+            })
             .collect();
         Ok(Self {
             finished: finished.into_iter(),
+            _span: span,
         })
     }
 }
@@ -450,11 +477,18 @@ impl Iterator for DengjenSpeechStreamParallel {
     }
 }
 
+// tracing::Span holds a Dispatch over `dyn Subscriber`, which strips the
+// auto-derived UnwindSafe/RefUnwindSafe impls even though the span itself
+// carries no invariant a caller could observe as broken after a panic.
+impl std::panic::UnwindSafe for DengjenSpeechStreamParallel {}
+impl std::panic::RefUnwindSafe for DengjenSpeechStreamParallel {}
+
 const MAX_STREAM_CHUNK_SIZE: usize = 1_000_000;
 
 pub struct RealtimeSpeechStream {
     rx: Receiver<DengjenResult<AudioSamples>>,
     cancel_token: CancellationToken,
+    span: tracing::Span,
 }
 
 impl RealtimeSpeechStream {
@@ -474,11 +508,14 @@ impl RealtimeSpeechStream {
         num_channels: usize,
         cancel_token: CancellationToken,
     ) -> DengjenResult<Self> {
-        let sentences = provider.get_phonemes()?;
+        let span = tracing::info_span!("synthesis_request", mode = "realtime");
+        let sentences = span.in_scope(|| provider.get_phonemes())?;
         let (tx, rx) = flume::unbounded();
         let producer_cancel_token = cancel_token.clone();
+        let producer_span = span.clone();
 
         SYNTHESIS_THREAD_POOL.spawn(move || {
+            let _enter = producer_span.enter();
             let cancel_token = producer_cancel_token;
             for (sentence_index, phonemes) in sentences.into_iter().enumerate() {
                 if cancel_token.is_cancelled() {
@@ -513,7 +550,11 @@ impl RealtimeSpeechStream {
             }
         });
 
-        Ok(Self { rx, cancel_token })
+        Ok(Self {
+            rx,
+            cancel_token,
+            span,
+        })
     }
 
     fn process_rt_stream(
@@ -559,9 +600,21 @@ impl Iterator for RealtimeSpeechStream {
         if self.cancel_token.is_cancelled() {
             return None;
         }
-        self.rx.recv().ok()
+        let result = self.rx.recv().ok()?;
+        self.span.in_scope(|| {
+            let chunk_span = tracing::debug_span!("chunk");
+            let _enter = chunk_span.enter();
+            if let Ok(samples) = &result {
+                tracing::debug!(sample_count = samples.len(), "chunk_ready");
+            }
+        });
+        Some(result)
     }
 }
+
+// See the same impls on `DengjenSpeechStreamParallel` above for why this is semver-safe.
+impl std::panic::UnwindSafe for RealtimeSpeechStream {}
+impl std::panic::RefUnwindSafe for RealtimeSpeechStream {}
 
 #[cfg(test)]
 mod chunk_size_growth_tests {

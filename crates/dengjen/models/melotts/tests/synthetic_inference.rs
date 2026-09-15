@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use tracing_test::traced_test;
 
 fn synthetic_model_config_json() -> &'static str {
     r#"{
@@ -71,6 +72,7 @@ fn set_fallback_synthesis_config_changes_inference_output_values() {
     );
 }
 
+#[traced_test]
 #[test]
 fn from_config_path_reports_a_load_error_for_a_missing_onnx_file() {
     let dir = std::env::temp_dir().join("dengjen_melotts_missing_model_path_test");
@@ -91,6 +93,7 @@ fn from_config_path_reports_a_load_error_for_a_missing_onnx_file() {
             .contains("Failed to load MeloTTS ONNX model"),
         "unexpected error message: {err}"
     );
+    assert!(logs_contain("from_config_path"));
 }
 
 #[test]

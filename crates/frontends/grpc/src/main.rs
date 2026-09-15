@@ -521,9 +521,22 @@ impl DengjenGrpc for DengjenGrpcService {
     }
 }
 
-fn setup_logging() {
-    let log_filter = env_logger::Env::default().filter_or("DENGJEN_GRPC", "info");
-    env_logger::init_from_env(log_filter);
+fn setup_logging() -> Result<(), Box<dyn std::error::Error>> {
+    // `fmt().init()` installs the LogTracer bridge itself (tracing-subscriber's
+    // default "tracing-log" feature) — a separate explicit `LogTracer::init()` call
+    // here would double-install the `log` backend and panic with `SetLoggerError`.
+    let filter = tracing_subscriber::EnvFilter::try_from_env("DENGJEN_GRPC")
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+    // stdout carries the listening-port announcement (see `listening_announcement`); logs
+    // must go to stderr, matching the `env_logger` default this replaces, or they corrupt
+    // that line for anything parsing it.
+    tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .with_ansi(std::io::IsTerminal::is_terminal(&std::io::stderr()))
+        .with_env_filter(filter)
+        .try_init()
+        .map_err(|err| -> Box<dyn std::error::Error> { err })?;
+    Ok(())
 }
 
 fn init_ort_environment() -> bool {
@@ -547,7 +560,7 @@ fn listening_announcement(port: u16) -> String {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    setup_logging();
+    setup_logging()?;
 
     if !init_ort_environment() {
         log::error!("Could not initialize onnxruntime environment");

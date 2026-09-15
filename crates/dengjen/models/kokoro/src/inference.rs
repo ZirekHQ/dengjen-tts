@@ -129,12 +129,14 @@ impl DengjenModel for KokoroModel {
         })
     }
 
+    #[tracing::instrument(skip(self, text), fields(text_len = text.len()), err)]
     fn phonemize_text(&self, text: &str) -> DengjenResult<Phonemes> {
         let language = "en-US";
         let sentences = text_to_kokoro_phonemes(text, language)?;
         Ok(Phonemes::from(sentences))
     }
 
+    #[tracing::instrument(skip(self, phoneme_batches), fields(batch_len = phoneme_batches.len()), err)]
     fn speak_batch(&self, phoneme_batches: Vec<String>) -> DengjenResult<Vec<Audio>> {
         phoneme_batches
             .into_iter()
@@ -142,6 +144,7 @@ impl DengjenModel for KokoroModel {
             .collect()
     }
 
+    #[tracing::instrument(skip(self, phonemes), fields(phonemes_len = phonemes.len()), err)]
     fn speak_one_sentence(&self, phonemes: String) -> DengjenAudioResult {
         self.synthesize_phonemes(&phonemes)
     }

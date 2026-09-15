@@ -155,9 +155,22 @@ impl SynthesisRequest {
     }
 }
 
-fn enable_logging() {
-    let env = env_logger::Env::default().filter_or("DENGJEN_LOG", "info");
-    env_logger::Builder::from_env(env).init();
+fn enable_logging() -> anyhow::Result<()> {
+    // `fmt().init()` installs the LogTracer bridge itself (tracing-subscriber's
+    // default "tracing-log" feature) — a separate explicit `LogTracer::init()` call
+    // here would double-install the `log` backend and panic with `SetLoggerError`.
+    let filter = tracing_subscriber::EnvFilter::try_from_env("DENGJEN_LOG")
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+    // stdout carries synthesized PCM/WAV bytes (see `consume_stream`); logs must go to
+    // stderr, matching the `env_logger` default this replaces, or they corrupt the audio
+    // stream.
+    tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .with_ansi(std::io::IsTerminal::is_terminal(&std::io::stderr()))
+        .with_env_filter(filter)
+        .try_init()
+        .map_err(anyhow::Error::from_boxed)?;
+    Ok(())
 }
 
 fn read_synthesis_request<R: BufRead>(reader: &mut R) -> anyhow::Result<Option<SynthesisRequest>> {
@@ -551,7 +564,7 @@ fn load_voice(
 }
 
 fn main() -> anyhow::Result<()> {
-    enable_logging();
+    enable_logging()?;
     init_ort_environment();
 
     let mut cli = Cli::parse();

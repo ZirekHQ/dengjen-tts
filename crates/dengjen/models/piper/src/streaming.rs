@@ -110,10 +110,12 @@ impl VitsModelCommons for VitsStreamingModel {
 }
 
 impl DengjenModel for VitsStreamingModel {
+    #[tracing::instrument(skip(self, text), fields(text_len = text.len()), err)]
     fn phonemize_text(&self, text: &str) -> DengjenResult<Phonemes> {
         self.do_phonemize_text(text)
     }
 
+    #[tracing::instrument(skip(self, phoneme_batches), fields(batch_len = phoneme_batches.len()), err)]
     fn speak_batch(&self, phoneme_batches: Vec<String>) -> DengjenResult<Vec<Audio>> {
         let (pad_id, bos_id, eos_id) = self.get_meta_ids()?;
         phoneme_batches
@@ -124,6 +126,8 @@ impl DengjenModel for VitsStreamingModel {
             })
             .collect()
     }
+
+    #[tracing::instrument(skip(self, phonemes), fields(phonemes_len = phonemes.len()), err)]
     fn speak_one_sentence(&self, phonemes: String) -> DengjenAudioResult {
         let (pad_id, bos_id, eos_id) = self.get_meta_ids()?;
         self.infer_with_values(self.phonemes_to_input_ids(&phonemes, pad_id, bos_id, eos_id))
