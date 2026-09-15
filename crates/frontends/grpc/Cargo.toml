@@ -22,17 +22,18 @@ ort-dylib = ["ort/load-dynamic"]
 
 [dependencies]
 async-stream = "0.3.5"
-env_logger = "0.10.0"
+env_logger = "0.11.0"
 log = "0.4.18"
 dengjen-tts-core.workspace = true
 dengjen-tts.workspace = true
 dengjen-tts-piper.workspace = true
 dengjen-tts-kokoro.workspace = true
 dengjen-tts-melotts.workspace = true
-prost = "0.13.3"
+prost = "0.14.0"
 tokio = { version = "1.41.1", features = ["macros", "rt-multi-thread"] }
 tokio-stream = "0.1.16"
-tonic = "0.12.3"
+tonic = "0.14.0"
+tonic-prost = "0.14.0"
 xxhash-rust = { version = "0.8.12", features = ["xxh3"] }
 
 [dependencies.ort]
@@ -41,4 +42,4 @@ default-features = false
 features = ["std", "ndarray", "tracing", "download-binaries", "tls-rustls", "copy-dylibs", "api-27"]
 
 [build-dependencies]
-tonic-build = "0.12.3"
+tonic-prost-build = "0.14.0"
