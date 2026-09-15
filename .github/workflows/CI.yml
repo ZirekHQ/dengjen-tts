@@ -13,6 +13,12 @@ on:
 permissions:
   contents: read
 
+# Each tag push gets its own ref (refs/tags/vX.Y.Z), so this never collides with -- and
+# never cancels -- the release job's run; only superseded main/PR builds get cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   linux:
     runs-on: ${{ matrix.platform.runner }}
