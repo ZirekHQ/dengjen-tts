@@ -23,7 +23,6 @@ ort-dylib = ["ort/load-dynamic"]
 [dependencies]
 async-stream = "0.3.5"
 log = "0.4.18"
-tracing-log = "0.2"
 dengjen-tts-core.workspace = true
 dengjen-tts.workspace = true
 dengjen-tts-piper.workspace = true

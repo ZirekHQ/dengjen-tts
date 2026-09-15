@@ -156,10 +156,18 @@ impl SynthesisRequest {
 }
 
 fn enable_logging() -> anyhow::Result<()> {
-    tracing_log::LogTracer::init()?;
+    // `fmt().init()` installs the LogTracer bridge itself (tracing-subscriber's
+    // default "tracing-log" feature) — a separate explicit `LogTracer::init()` call
+    // here would double-install the `log` backend and panic with `SetLoggerError`.
     let filter = tracing_subscriber::EnvFilter::try_from_env("DENGJEN_LOG")
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-    tracing_subscriber::fmt().with_env_filter(filter).init();
+    // stdout carries synthesized PCM/WAV bytes (see `consume_stream`); logs must go to
+    // stderr, matching the `env_logger` default this replaces, or they corrupt the audio
+    // stream.
+    tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .with_env_filter(filter)
+        .init();
     Ok(())
 }
 

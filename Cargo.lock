@@ -639,7 +639,6 @@ dependencies = [
  "ort",
  "serde",
  "serde_json",
- "tracing-log",
  "tracing-subscriber",
 ]
 
@@ -669,7 +668,6 @@ dependencies = [
  "tonic",
  "tonic-prost",
  "tonic-prost-build",
- "tracing-log",
  "tracing-subscriber",
  "xxhash-rust",
 ]
