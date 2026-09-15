@@ -25,6 +25,7 @@ permissions: {}
 jobs:
   tag-and-release:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     # head_commit is absent on workflow_dispatch, hence the event_name check first.
     if: "github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'chore: bump workspace version -> ')"
     permissions:
@@ -149,6 +150,7 @@ jobs:
       needs.crates.result == 'success' && needs.java.result == 'success' &&
       needs.go.result == 'success' && needs.grpc.result == 'success'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:

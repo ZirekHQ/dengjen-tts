@@ -38,6 +38,7 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     outputs:
@@ -83,6 +84,7 @@ jobs:
     needs: check
     if: needs.check.outputs.skip != 'true' || inputs.dry_run == true
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
     strategy:
@@ -161,6 +163,7 @@ jobs:
     needs: check
     if: needs.check.outputs.skip != 'true' || inputs.dry_run == true
     runs-on: windows-2022
+    timeout-minutes: 20
     permissions:
       contents: read
     env:
@@ -213,6 +216,7 @@ jobs:
     needs: check
     if: needs.check.outputs.skip != 'true' || inputs.dry_run == true
     runs-on: macos-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -266,6 +270,7 @@ jobs:
   gate:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     environment: release
     steps:
       - run: echo "approved"
@@ -276,6 +281,7 @@ jobs:
       always() && (needs.check.outputs.skip != 'true' || inputs.dry_run == true) &&
       (needs.gate.result == 'success' || needs.gate.result == 'skipped')
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
     outputs:
@@ -520,6 +526,7 @@ jobs:
     # fail against a tag that was only logged, not created.
     if: inputs.dry_run != true
     runs-on: ${{ matrix.platform.runner }}
+    timeout-minutes: 15
     permissions:
       contents: read
     strategy:
@@ -579,6 +586,7 @@ jobs:
     needs: [assemble-and-push, verify]
     if: failure()
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     # Deliberately not on the `release` environment: it only ever deletes a tag this same
     # already-gated run just pushed, and gating cleanup too would leave a failed tag stranded.
     permissions:
