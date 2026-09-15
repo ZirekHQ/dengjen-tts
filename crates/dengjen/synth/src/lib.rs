@@ -482,6 +482,7 @@ const MAX_STREAM_CHUNK_SIZE: usize = 1_000_000;
 pub struct RealtimeSpeechStream {
     rx: Receiver<DengjenResult<AudioSamples>>,
     cancel_token: CancellationToken,
+    span: tracing::Span,
 }
 
 impl RealtimeSpeechStream {
@@ -501,11 +502,14 @@ impl RealtimeSpeechStream {
         num_channels: usize,
         cancel_token: CancellationToken,
     ) -> DengjenResult<Self> {
-        let sentences = provider.get_phonemes()?;
+        let span = tracing::info_span!("synthesis_request", mode = "realtime");
+        let sentences = span.in_scope(|| provider.get_phonemes())?;
         let (tx, rx) = flume::unbounded();
         let producer_cancel_token = cancel_token.clone();
+        let producer_span = span.clone();
 
         SYNTHESIS_THREAD_POOL.spawn(move || {
+            let _enter = producer_span.enter();
             let cancel_token = producer_cancel_token;
             for (sentence_index, phonemes) in sentences.into_iter().enumerate() {
                 if cancel_token.is_cancelled() {
@@ -540,7 +544,11 @@ impl RealtimeSpeechStream {
             }
         });
 
-        Ok(Self { rx, cancel_token })
+        Ok(Self {
+            rx,
+            cancel_token,
+            span,
+        })
     }
 
     fn process_rt_stream(
@@ -586,7 +594,15 @@ impl Iterator for RealtimeSpeechStream {
         if self.cancel_token.is_cancelled() {
             return None;
         }
-        self.rx.recv().ok()
+        let result = self.rx.recv().ok()?;
+        self.span.in_scope(|| {
+            let chunk_span = tracing::debug_span!("chunk");
+            let _enter = chunk_span.enter();
+            if let Ok(samples) = &result {
+                tracing::debug!(sample_count = samples.len(), "chunk_ready");
+            }
+        });
+        Some(result)
     }
 }
 
