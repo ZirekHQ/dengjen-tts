@@ -3,8 +3,8 @@
 
 #[cfg(feature = "tashkeel")]
 use dengjen_tashkeel::{
-    create_inference_engine, do_tashkeel, DynamicInferenceEngine as TashkeelInferenceEngine,
-    LibtashkeelResult,
+    create_inference_engine, do_tashkeel, DengjenTashkeelResult,
+    DynamicInferenceEngine as TashkeelInferenceEngine,
 };
 use dengjen_tts::{
     detect_model_type, AudioOutputConfig, DengjenSpeechStreamLazy, DengjenSpeechStreamParallel,
@@ -24,7 +24,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 #[cfg(feature = "tashkeel")]
-static LIBTASHKEEL_ENGINE: Lazy<LibtashkeelResult<TashkeelInferenceEngine>> =
+static LIBTASHKEEL_ENGINE: Lazy<DengjenTashkeelResult<TashkeelInferenceEngine>> =
     Lazy::new(|| create_inference_engine(None));
 
 #[cfg(feature = "tashkeel")]

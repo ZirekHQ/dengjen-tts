@@ -579,9 +579,9 @@ dependencies = [
 
 [[package]]
 name = "dengjen-tashkeel"
-version = "1.5.1"
+version = "1.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "638c64749ad0054363ff8dc87d516f8c15bf10ea93004a63bc6fb61a677bcb81"
+checksum = "17f2061ad7a26c6968012557bb539c7a76b522e401141266f3a921d5b1d62d07"
 dependencies = [
  "libtqsm",
  "log",
