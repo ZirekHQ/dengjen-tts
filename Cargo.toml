@@ -23,9 +23,10 @@ members = [
 
 
 version = "1.2.3"
-# Set to the toolchain rust-toolchain.toml already pins, not an independently verified
-# floor -- no dependency-driven MSRV bisection has been run against this workspace yet.
-rust-version = "1.97.1"
+# Floor set by the highest dependency-declared rust-version in the tree (ort/ort-sys at
+# 1.88, per `cargo metadata`), then confirmed to actually compile at that version with
+# both default and --all-features.
+rust-version = "1.88.0"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/ZirekHQ/dengjen-tts"
 homepage = "https://github.com/ZirekHQ/dengjen-tts"
