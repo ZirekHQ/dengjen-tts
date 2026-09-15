@@ -39,6 +39,7 @@ allow = [
     "Unlicense",
     "CDLA-Permissive-2.0",
     "GPL-3.0-or-later",
+    "Zlib",
 ]
 confidence-threshold = 0.8
 exceptions = []

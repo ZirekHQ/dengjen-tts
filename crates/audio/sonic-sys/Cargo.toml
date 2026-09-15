@@ -14,7 +14,7 @@ readme = "README.md"
 workspace = true
 
 [build-dependencies.bindgen]
-version = "0.73.0"
+version = "0.72"
 
 [build-dependencies]
 cc = "1.0.79"

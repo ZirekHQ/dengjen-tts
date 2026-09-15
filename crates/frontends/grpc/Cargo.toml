@@ -33,6 +33,7 @@ prost = "0.14.0"
 tokio = { version = "1.41.1", features = ["macros", "rt-multi-thread"] }
 tokio-stream = "0.1.16"
 tonic = "0.14.0"
+tonic-prost = "0.14.0"
 xxhash-rust = { version = "0.8.12", features = ["xxh3"] }
 
 [dependencies.ort]
@@ -41,4 +42,4 @@ default-features = false
 features = ["std", "ndarray", "tracing", "download-binaries", "tls-rustls", "copy-dylibs", "api-27"]
 
 [build-dependencies]
-tonic-build = "0.14.0"
+tonic-prost-build = "0.14.0"
