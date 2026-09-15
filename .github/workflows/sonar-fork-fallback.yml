@@ -16,6 +16,7 @@ jobs:
   neutral_status:
     name: Sonar fork fallback
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       statuses: write
     # Same-repo PRs get a real analysis; never overwrite it.

@@ -17,6 +17,7 @@ jobs:
   sonar:
     name: Sonar
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     # Fork PRs are never given repository secrets, so SONAR_TOKEN would be empty

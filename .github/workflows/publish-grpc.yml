@@ -32,6 +32,7 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     outputs:
@@ -85,6 +86,7 @@ jobs:
   gate:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     environment: release
     steps:
       - run: echo "approved"
@@ -95,6 +97,7 @@ jobs:
       always() && needs.check.outputs.skip != 'true' &&
       (needs.gate.result == 'success' || needs.gate.result == 'skipped')
     runs-on: windows-2022
+    timeout-minutes: 30
     permissions:
       contents: write
     env:
