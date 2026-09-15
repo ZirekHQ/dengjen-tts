@@ -64,7 +64,7 @@ jobs:
           # Pinned so Renovate (see renovate.json) can bump it deliberately,
           # rather than the action re-resolving "latest" over the network
           # on every retry.
-          maturin-version: v1.14.1
+          maturin-version: v1.15.0
           before-script-linux: |
             export DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a
             if command -v yum &> /dev/null; then
@@ -153,7 +153,7 @@ jobs:
           # Pinned so Renovate (see renovate.json) can bump it deliberately,
           # rather than the action re-resolving "latest" over the network
           # on every retry.
-          maturin-version: v1.14.1
+          maturin-version: v1.15.0
       - name: Upload wheels
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -192,7 +192,7 @@ jobs:
           # Pinned so Renovate (see renovate.json) can bump it deliberately,
           # rather than the action re-resolving "latest" over the network
           # on every retry.
-          maturin-version: v1.14.1
+          maturin-version: v1.15.0
       - name: Upload wheels
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -218,7 +218,7 @@ jobs:
           # Pinned so Renovate (see renovate.json) can bump it deliberately,
           # rather than the action re-resolving "latest" over the network
           # on every retry.
-          maturin-version: v1.14.1
+          maturin-version: v1.15.0
       - name: Upload sdist
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -290,7 +290,7 @@ jobs:
           # Pinned so Renovate (see renovate.json) can bump it deliberately,
           # rather than the action re-resolving "latest" over the network
           # on every retry.
-          maturin-version: v1.14.1
+          maturin-version: v1.15.0
       # packages-dir below needs a flat directory, not a glob -- re-downloads separately rather
       # than changing the first download step's subdirectory layout, which the maturin-action
       # step's shell-expanded glob (dist/wheels-*/*) above depends on.
