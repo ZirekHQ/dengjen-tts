@@ -43,6 +43,26 @@ jobs:
     outputs:
       skip: ${{ steps.check.outputs.skip }}
     steps:
+      # inputs.tag (workflow_dispatch) is free text from whoever has dispatch access -- unvalidated,
+      # every job below would check out whatever ref the UI's branch/tag dropdown happened to have
+      # selected while labeling and publishing the release under this string, silently diverging from it.
+      - name: Validate release tag input
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if ! echo "${RELEASE_TAG}" | grep -qE '^go-release-v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::'${RELEASE_TAG}' doesn't look like a go-release-vX.Y.Z tag"
+            exit 1
+          fi
+          if ! gh api "repos/${REPO}/git/refs/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "::error::'${RELEASE_TAG}' is not an existing tag on this repository -- refusing to build from an arbitrary ref"
+            exit 1
+          fi
+
       - name: Check whether this version's tag already exists on dengjen-tts-go
         id: check
         env:
@@ -77,6 +97,10 @@ jobs:
     steps:
       - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
+          # On workflow_dispatch, pins the build to the tag this run is labeled and published
+          # under (validated by check's "Validate release tag input") instead of trusting the
+          # UI's separate branch/tag selector to have picked the same commit.
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.sha }}
           persist-credentials: false
       - uses: ./.github/actions/setup-native-build-deps # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
         timeout-minutes: 15
@@ -146,6 +170,7 @@ jobs:
         run: choco install llvm -y --no-progress
       - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.sha }}
           persist-credentials: false
       - uses: ./.github/actions/setup-native-build-deps # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
       - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
@@ -197,6 +222,7 @@ jobs:
           echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
       - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.sha }}
           persist-credentials: false
       - uses: ./.github/actions/setup-native-build-deps # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
       # channel comes from rust-toolchain.toml
@@ -238,6 +264,9 @@ jobs:
     needs: [check, build-linux, build-windows, build-macos]
     if: needs.check.outputs.skip != 'true' || inputs.dry_run == true
     runs-on: ubuntu-latest
+    # A required reviewer here is what closes the workflow_dispatch loophole noted in check's
+    # tag-validation step -- DENGJEN_TTS_GO_DEPLOY_TOKEN is only handed to this job once approved.
+    environment: release
     permissions:
       contents: read
     outputs:
@@ -246,6 +275,7 @@ jobs:
     steps:
       - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.sha }}
           path: dengjen-tts
           persist-credentials: false
       # Local-action paths resolve off $GITHUB_WORKSPACE, not this step's own `path:` -- since the
@@ -540,6 +570,8 @@ jobs:
     needs: [assemble-and-push, verify]
     if: failure()
     runs-on: ubuntu-latest
+    # Deliberately not on the `release` environment: it only ever deletes a tag this same
+    # already-approved run just pushed, and gating cleanup would leave a failed tag stranded.
     permissions:
       contents: read
     steps:
