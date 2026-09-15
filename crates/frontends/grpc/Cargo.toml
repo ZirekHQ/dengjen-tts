@@ -22,8 +22,8 @@ ort-dylib = ["ort/load-dynamic"]
 
 [dependencies]
 async-stream = "0.3.5"
-env_logger = "0.11.0"
 log = "0.4.18"
+tracing-log = "0.2"
 dengjen-tts-core.workspace = true
 dengjen-tts.workspace = true
 dengjen-tts-piper.workspace = true
@@ -35,6 +35,10 @@ tokio-stream = "0.1.16"
 tonic = "0.14.0"
 tonic-prost = "0.14.0"
 xxhash-rust = { version = "0.8.12", features = ["xxh3"] }
+
+[dependencies.tracing-subscriber]
+version = "0.3"
+features = ["fmt", "env-filter"]
 
 [dependencies.ort]
 version = "2.0.0-rc.13"
