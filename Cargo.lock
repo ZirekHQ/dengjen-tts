@@ -635,11 +635,13 @@ dependencies = [
  "dengjen-tts-kokoro",
  "dengjen-tts-melotts",
  "dengjen-tts-piper",
- "env_logger",
  "log",
  "ort",
  "serde",
  "serde_json",
+ "tracing",
+ "tracing-log",
+ "tracing-subscriber",
 ]
 
 [[package]]

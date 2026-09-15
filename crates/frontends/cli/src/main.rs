@@ -155,9 +155,12 @@ impl SynthesisRequest {
     }
 }
 
-fn enable_logging() {
-    let env = env_logger::Env::default().filter_or("DENGJEN_LOG", "info");
-    env_logger::Builder::from_env(env).init();
+fn enable_logging() -> anyhow::Result<()> {
+    tracing_log::LogTracer::init()?;
+    let filter = tracing_subscriber::EnvFilter::try_from_env("DENGJEN_LOG")
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+    tracing_subscriber::fmt().with_env_filter(filter).init();
+    Ok(())
 }
 
 fn read_synthesis_request<R: BufRead>(reader: &mut R) -> anyhow::Result<Option<SynthesisRequest>> {
@@ -551,7 +554,7 @@ fn load_voice(
 }
 
 fn main() -> anyhow::Result<()> {
-    enable_logging();
+    enable_logging()?;
     init_ort_environment();
 
     let mut cli = Cli::parse();
