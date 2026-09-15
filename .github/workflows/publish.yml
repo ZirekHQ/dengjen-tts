@@ -11,6 +11,11 @@ on:
         required: false
         type: boolean
         default: false
+      use_oidc:
+        description: "Use crates.io OIDC trusted publishing instead of CARGO_REGISTRY_TOKEN (manual-dispatch only, for validating Trusted Publisher config before switching the real release path)"
+        required: false
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       dry_run:
@@ -43,8 +48,12 @@ jobs:
     timeout-minutes: 60
     permissions:
       contents: read
+      # Only exercised when use_oidc is set, which only workflow_dispatch can do -- workflow_call
+      # never passes it, so the automated release path never attempts an OIDC token mint.
+      id-token: write
     env:
       DRY_RUN: ${{ inputs.dry_run }}
+      USE_OIDC: ${{ github.event_name == 'workflow_dispatch' && inputs.use_oidc == true }}
     steps:
       - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
@@ -55,6 +64,14 @@ jobs:
           apt-packages: clang libclang-dev llvm-dev cmake protobuf-compiler
       # channel comes from rust-toolchain.toml
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+
+      # Not yet the default: crates.io's Trusted Publisher config for this repo's 14 crates
+      # doesn't exist yet -- this validates it via manual dispatch before the real release path
+      # switches over and drops CARGO_REGISTRY_TOKEN entirely.
+      - name: Authenticate with crates.io via OIDC (manual validation only)
+        if: env.USE_OIDC == 'true'
+        id: oidc-auth
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
 
       - name: Resolve workspace version
         id: version
@@ -67,7 +84,7 @@ jobs:
       # needed) before CARGO_REGISTRY_TOKEN is read -- see the script's own comment for why.
       - name: publish tier 1 (dengjen-audio-ops, dengjen-sonic-sys)
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.oidc-auth.outputs.token || secrets.CARGO_REGISTRY_TOKEN }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           bash .github/scripts/publish-crate-if-needed.sh dengjen-audio-ops "$VERSION"
@@ -82,7 +99,7 @@ jobs:
 
       - name: publish tier 2 (dengjen-tts-core)
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.oidc-auth.outputs.token || secrets.CARGO_REGISTRY_TOKEN }}
           VERSION: ${{ steps.version.outputs.version }}
         run: bash .github/scripts/publish-crate-if-needed.sh dengjen-tts-core "$VERSION"
       - name: wait for tier 2 to index
@@ -93,7 +110,7 @@ jobs:
 
       - name: publish tier 3 (dengjen-hebrew-phonemizer, dengjen-pinyin-phonemizer)
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.oidc-auth.outputs.token || secrets.CARGO_REGISTRY_TOKEN }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           bash .github/scripts/publish-crate-if-needed.sh dengjen-hebrew-phonemizer "$VERSION"
@@ -108,7 +125,7 @@ jobs:
 
       - name: publish tier 4 (dengjen-espeak-phonemizer)
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.oidc-auth.outputs.token || secrets.CARGO_REGISTRY_TOKEN }}
           VERSION: ${{ steps.version.outputs.version }}
         run: bash .github/scripts/publish-crate-if-needed.sh dengjen-espeak-phonemizer "$VERSION"
       - name: wait for tier 4 to index
@@ -119,7 +136,7 @@ jobs:
 
       - name: publish tier 5 (dengjen-tts-piper, dengjen-tts-kokoro, dengjen-tts-melotts)
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.oidc-auth.outputs.token || secrets.CARGO_REGISTRY_TOKEN }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           bash .github/scripts/publish-crate-if-needed.sh dengjen-tts-piper "$VERSION"
@@ -136,7 +153,7 @@ jobs:
 
       - name: publish tier 6 (dengjen-tts)
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.oidc-auth.outputs.token || secrets.CARGO_REGISTRY_TOKEN }}
           VERSION: ${{ steps.version.outputs.version }}
         run: bash .github/scripts/publish-crate-if-needed.sh dengjen-tts "$VERSION"
       - name: wait for tier 6 to index
@@ -147,7 +164,7 @@ jobs:
 
       - name: publish tier 7 (dengjen-tts-cli, dengjen-tts-grpc, dengjen-tts-python, libdengjen)
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.oidc-auth.outputs.token || secrets.CARGO_REGISTRY_TOKEN }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           bash .github/scripts/publish-crate-if-needed.sh dengjen-tts-cli "$VERSION"
