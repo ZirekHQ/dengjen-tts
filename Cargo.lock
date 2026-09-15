@@ -639,7 +639,6 @@ dependencies = [
  "ort",
  "serde",
  "serde_json",
- "tracing",
  "tracing-log",
  "tracing-subscriber",
 ]
