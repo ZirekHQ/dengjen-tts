@@ -79,8 +79,8 @@ jobs:
             exit 1
           fi
 
-  # Only gates workflow_dispatch: the release.yml chain's real decision point is merging the
-  # version-bump PR (#201 removed release.yml's own post-tag gate for the same reason this one
+  # Only gates workflow_dispatch: the tag-and-release.yml chain's real decision point is merging
+  # the version-bump PR (#201 removed release.yml's own post-tag gate for the same reason this one
   # would be too late there -- the tag is already public by then).
   gate:
     if: github.event_name == 'workflow_dispatch'
@@ -120,7 +120,7 @@ jobs:
       - name: cargo build (release)
         run: cargo build --release --locked -p dengjen-tts-grpc --target x86_64-pc-windows-msvc
       - name: assert no unbundled runtime dependency
-        # Same check as publish-go.yml's build-windows job: ort's copy-dylibs feature can drop a
+        # Same check as go-publish.yml's build-windows job: ort's copy-dylibs feature can drop a
         # companion ONNX Runtime DLL next to the build output instead of statically linking it -- the
         # release archive below must include it too, or dengjen-nvda's vendored binary fails to start.
         shell: bash

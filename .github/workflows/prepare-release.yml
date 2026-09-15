@@ -1,6 +1,6 @@
 name: Prepare release
 
-# Proposes a release; merging the opened PR is what actually cuts one -- release.yml tags that
+# Proposes a release; merging the opened PR is what actually cuts one -- tag-and-release.yml tags that
 # merge commit and triggers every downstream release workflow automatically.
 on:
   workflow_dispatch: {}
@@ -69,5 +69,5 @@ jobs:
           git commit -m "chore: bump workspace version -> ${VERSION}"
           git push -u origin "$branch"
           gh pr create --title "chore: bump workspace version -> ${VERSION}" \
-            --body "Computed by \`prepare-release.yml\` from Conventional Commit subjects since the last tag (see \`scripts/next-version.sh\`). **Merging this releases v${VERSION}**: \`release.yml\` tags this merge commit \`v${VERSION}\` and runs \`publish.yml\` (crates.io), \`java-publish.yml\` (Maven Central), \`publish-go.yml\` (the ZirekHQ/dengjen-tts-go mirror), and \`publish-grpc.yml\` (the gRPC server's GitHub Release) as jobs of that same run, plus dispatches \`CI.yml\`'s release job (PyPI) separately, no further approval needed. Review the version and the diff carefully before merging -- this is the real decision point." \
+            --body "Computed by \`prepare-release.yml\` from Conventional Commit subjects since the last tag (see \`scripts/next-version.sh\`). **Merging this releases v${VERSION}**: \`tag-and-release.yml\` tags this merge commit \`v${VERSION}\` and runs \`publish.yml\` (crates.io), \`java-publish.yml\` (Maven Central), \`go-publish.yml\` (the ZirekHQ/dengjen-tts-go mirror), and \`grpc-publish.yml\` (the gRPC server's GitHub Release) as jobs of that same run, plus dispatches \`CI.yml\`'s release job (PyPI) separately, no further approval needed. Review the version and the diff carefully before merging -- this is the real decision point." \
             --base main --head "$branch"

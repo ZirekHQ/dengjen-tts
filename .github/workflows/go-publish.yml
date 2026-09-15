@@ -260,8 +260,8 @@ jobs:
           name: libdengjen-macos-arm64
           path: target/aarch64-apple-darwin/release/*.dylib
 
-  # Only gates workflow_dispatch: the release.yml chain's real decision point is merging the
-  # version-bump PR (#201 removed release.yml's own post-tag gate for the same reason this one
+  # Only gates workflow_dispatch: the tag-and-release.yml chain's real decision point is merging
+  # the version-bump PR (#201 removed release.yml's own post-tag gate for the same reason this one
   # would be too late there -- the tag is already public by then).
   gate:
     if: github.event_name == 'workflow_dispatch'

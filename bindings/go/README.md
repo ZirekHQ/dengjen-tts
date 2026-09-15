@@ -73,7 +73,7 @@ if there's any chance it might panic.
   linux/amd64, linux/arm64, windows/amd64, and darwin/arm64, use
   [github.com/ZirekHQ/dengjen-tts-go](https://github.com/ZirekHQ/dengjen-tts-go)
   instead — it's generated from this directory on every tagged release
-  (see `.github/workflows/publish-go.yml`). Changes to the bindings
+  (see `.github/workflows/go-publish.yml`). Changes to the bindings
   themselves are made here, not in that repo.
 - A consumer binary built against *this* development copy needs
   `LD_LIBRARY_PATH` (or an equivalent runtime library search path)

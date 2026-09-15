@@ -1,6 +1,6 @@
 name: CI
 
-# No `tags:` trigger here -- release.yml's `tag-and-release` job already dispatches this
+# No `tags:` trigger here -- tag-and-release.yml's `tag-and-release` job already dispatches this
 # workflow explicitly once the tag is pushed, so also matching the tag push would run the
 # full build matrix and the `release` job (PyPI) twice per release.
 on:
