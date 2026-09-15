@@ -260,13 +260,22 @@ jobs:
           name: libdengjen-macos-arm64
           path: target/aarch64-apple-darwin/release/*.dylib
 
-  assemble-and-push:
-    needs: [check, build-linux, build-windows, build-macos]
-    if: needs.check.outputs.skip != 'true' || inputs.dry_run == true
+  # Only gates workflow_dispatch: the release.yml chain's real decision point is merging the
+  # version-bump PR (#201 removed release.yml's own post-tag gate for the same reason this one
+  # would be too late there -- the tag is already public by then).
+  gate:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    # A required reviewer here is what closes the workflow_dispatch loophole noted in check's
-    # tag-validation step -- DENGJEN_TTS_GO_DEPLOY_TOKEN is only handed to this job once approved.
     environment: release
+    steps:
+      - run: echo "approved"
+
+  assemble-and-push:
+    needs: [check, build-linux, build-windows, build-macos, gate]
+    if: >-
+      always() && (needs.check.outputs.skip != 'true' || inputs.dry_run == true) &&
+      (needs.gate.result == 'success' || needs.gate.result == 'skipped')
+    runs-on: ubuntu-latest
     permissions:
       contents: read
     outputs:
@@ -571,7 +580,7 @@ jobs:
     if: failure()
     runs-on: ubuntu-latest
     # Deliberately not on the `release` environment: it only ever deletes a tag this same
-    # already-approved run just pushed, and gating cleanup would leave a failed tag stranded.
+    # already-gated run just pushed, and gating cleanup too would leave a failed tag stranded.
     permissions:
       contents: read
     steps:

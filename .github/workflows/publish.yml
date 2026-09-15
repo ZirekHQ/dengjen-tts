@@ -25,12 +25,20 @@ permissions:
   contents: read
 
 jobs:
-  publish:
+  # Only gates workflow_dispatch: the release.yml chain's real decision point is merging the
+  # version-bump PR (#201 removed release.yml's own post-tag gate for the same reason this one
+  # would be too late there -- the tag is already public by then).
+  gate:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    # A required reviewer on this environment is what actually closes the workflow_dispatch loophole
-    # noted above: CARGO_REGISTRY_TOKEN is only handed to this job once someone approves the run,
-    # whether that run came from the merge-gated release.yml chain or a direct manual dispatch.
     environment: release
+    steps:
+      - run: echo "approved"
+
+  publish:
+    needs: gate
+    if: always() && (needs.gate.result == 'success' || needs.gate.result == 'skipped')
+    runs-on: ubuntu-latest
     permissions:
       contents: read
     env:

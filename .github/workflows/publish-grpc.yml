@@ -79,13 +79,22 @@ jobs:
             exit 1
           fi
 
-  build-windows:
-    needs: check
-    if: needs.check.outputs.skip != 'true'
-    runs-on: windows-2022
-    # A required reviewer here is what closes the workflow_dispatch loophole noted in check's
-    # tag-validation step -- this job creates the real GitHub Release once approved.
+  # Only gates workflow_dispatch: the release.yml chain's real decision point is merging the
+  # version-bump PR (#201 removed release.yml's own post-tag gate for the same reason this one
+  # would be too late there -- the tag is already public by then).
+  gate:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
     environment: release
+    steps:
+      - run: echo "approved"
+
+  build-windows:
+    needs: [check, gate]
+    if: >-
+      always() && needs.check.outputs.skip != 'true' &&
+      (needs.gate.result == 'success' || needs.gate.result == 'skipped')
+    runs-on: windows-2022
     permissions:
       contents: write
     env:
