@@ -477,6 +477,13 @@ impl Iterator for DengjenSpeechStreamParallel {
     }
 }
 
+// tracing::Span holds a Dispatch over `dyn Subscriber`, which strips the
+// auto-derived UnwindSafe/RefUnwindSafe impls even though the span itself
+// carries no invariant a caller could observe as broken after a panic.
+// Restoring them keeps this a semver-compatible field addition.
+impl std::panic::UnwindSafe for DengjenSpeechStreamParallel {}
+impl std::panic::RefUnwindSafe for DengjenSpeechStreamParallel {}
+
 const MAX_STREAM_CHUNK_SIZE: usize = 1_000_000;
 
 pub struct RealtimeSpeechStream {
@@ -605,6 +612,10 @@ impl Iterator for RealtimeSpeechStream {
         Some(result)
     }
 }
+
+// See the same impls on `DengjenSpeechStreamParallel` above for why this is semver-safe.
+impl std::panic::UnwindSafe for RealtimeSpeechStream {}
+impl std::panic::RefUnwindSafe for RealtimeSpeechStream {}
 
 #[cfg(test)]
 mod chunk_size_growth_tests {
