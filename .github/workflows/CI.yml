@@ -39,7 +39,7 @@ jobs:
           - runner: ubuntu-latest
             target: aarch64
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-native-build-deps # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
@@ -132,7 +132,7 @@ jobs:
     steps:
       - name: install-clang
         run: choco install llvm
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-native-build-deps # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
@@ -175,7 +175,7 @@ jobs:
         run: |
           brew install llvm
           echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-native-build-deps # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
@@ -205,7 +205,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-native-build-deps # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
@@ -231,7 +231,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-native-build-deps # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
