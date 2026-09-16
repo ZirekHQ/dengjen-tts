@@ -98,6 +98,9 @@ jobs:
   crates:
     name: crates.io
     needs: tag-and-release
+    # Default `if: success()` checks the whole needs chain, not just this job's own direct
+    # need -- gate's skip (expected on a push trigger) otherwise propagates down and skips this too.
+    if: "!cancelled() && needs.tag-and-release.result == 'success'"
     permissions:
       contents: read
       id-token: write
@@ -108,6 +111,7 @@ jobs:
   java:
     name: Maven Central (Java bindings)
     needs: tag-and-release
+    if: "!cancelled() && needs.tag-and-release.result == 'success'"
     permissions:
       contents: write
     uses: ./.github/workflows/publish-java.yml # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
@@ -125,6 +129,7 @@ jobs:
   go:
     name: dengjen-tts-go mirror
     needs: tag-and-release
+    if: "!cancelled() && needs.tag-and-release.result == 'success'"
     permissions:
       contents: read
     uses: ./.github/workflows/publish-go.yml # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
@@ -137,6 +142,7 @@ jobs:
   grpc:
     name: gRPC server GitHub Release
     needs: tag-and-release
+    if: "!cancelled() && needs.tag-and-release.result == 'success'"
     permissions:
       contents: write
     uses: ./.github/workflows/publish-grpc.yml # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
@@ -147,6 +153,7 @@ jobs:
   python:
     name: PyPI
     needs: tag-and-release
+    if: "!cancelled() && needs.tag-and-release.result == 'success'"
     permissions:
       contents: read
     uses: ./.github/workflows/publish-python.yml # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
@@ -167,7 +174,7 @@ jobs:
     name: Whole-repo GitHub Release
     needs: [tag-and-release, crates, java, go, grpc]
     if: >-
-      always() && inputs.dry_run != true &&
+      !cancelled() && inputs.dry_run != true &&
       needs.tag-and-release.result == 'success' &&
       needs.crates.result == 'success' && needs.java.result == 'success' &&
       needs.go.result == 'success' && needs.grpc.result == 'success'
