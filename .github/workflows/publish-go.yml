@@ -4,20 +4,8 @@
 name: Publish Go bindings release
 
 on:
-  # No `environment:` gate on the jobs below: for workflow_call, merging the version-bump PR is the
-  # real decision point (#201) -- but a manual workflow_dispatch bypasses that and publishes
-  # whatever tag is given, unreviewed.
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "go-release-vX.Y.Z to release"
-        required: true
-        type: string
-      dry_run:
-        description: "Dry Run: publish nothing"
-        required: false
-        type: boolean
-        default: false
+  # Called as a job of release.yml's flow; release.yml's own gate job (single-trigger,
+  # single-gate) covers this file too, so it has none of its own.
   workflow_call:
     inputs:
       tag:
@@ -44,26 +32,21 @@ jobs:
     outputs:
       skip: ${{ steps.check.outputs.skip }}
     steps:
-      # inputs.tag (workflow_dispatch) is free text from whoever has dispatch access -- unvalidated,
-      # every job below would check out whatever ref the UI's branch/tag dropdown happened to have
-      # selected while labeling and publishing the release under this string, silently diverging from it.
-      - name: Validate release tag input
-        if: github.event_name == 'workflow_dispatch'
+      # github.workflow_ref stays bound to the top-level caller even inside a called reusable
+      # workflow -- rejects a differently-named workflow file invoking this publish flow directly,
+      # or a workflow_dispatch of release.yml from a non-main branch, either of which would skip
+      # release.yml's tag-and-release gate. Compares the full ref, not just the path: stripping the
+      # @ref accepted any branch. Same check as publish-crates.yml.
+      - name: verify this workflow was only reached through release.yml on main
         env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag }}
-          REPO: ${{ github.repository }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
         run: |
           set -euo pipefail
-          if ! echo "${RELEASE_TAG}" | grep -qE '^go-release-v[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "::error::'${RELEASE_TAG}' doesn't look like a go-release-vX.Y.Z tag"
+          expected="ZirekHQ/dengjen-tts/.github/workflows/release.yml@refs/heads/main"
+          if [ "$WORKFLOW_REF" != "$expected" ]; then
+            echo "::error::workflow_ref is '${WORKFLOW_REF}', expected '${expected}' -- refusing to run outside release.yml's main-branch flow" >&2
             exit 1
           fi
-          if ! gh api "repos/${REPO}/git/refs/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
-            echo "::error::'${RELEASE_TAG}' is not an existing tag on this repository -- refusing to build from an arbitrary ref"
-            exit 1
-          fi
-
       - name: Check whether this version's tag already exists on dengjen-tts-go
         id: check
         env:
@@ -99,10 +82,6 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          # On workflow_dispatch, pins the build to the tag this run is labeled and published
-          # under (validated by check's "Validate release tag input") instead of trusting the
-          # UI's separate branch/tag selector to have picked the same commit.
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.sha }}
           persist-credentials: false
       - uses: ./.github/actions/setup-native-build-deps # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
         timeout-minutes: 15
@@ -173,7 +152,7 @@ jobs:
         run: choco install llvm -y --no-progress
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: ./.github/actions/setup-native-build-deps # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
       - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
@@ -226,7 +205,7 @@ jobs:
           echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: ./.github/actions/setup-native-build-deps # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
       # channel comes from rust-toolchain.toml
@@ -264,22 +243,9 @@ jobs:
           name: libdengjen-macos-arm64
           path: target/aarch64-apple-darwin/release/*.dylib
 
-  # Only gates workflow_dispatch: the release.yml chain's real decision point is merging the
-  # version-bump PR (#201 removed release.yml's own post-tag gate for the same reason this one
-  # would be too late there -- the tag is already public by then).
-  gate:
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    environment: release
-    steps:
-      - run: echo "approved"
-
   assemble-and-push:
-    needs: [check, build-linux, build-windows, build-macos, gate]
-    if: >-
-      always() && (needs.check.outputs.skip != 'true' || inputs.dry_run == true) &&
-      (needs.gate.result == 'success' || needs.gate.result == 'skipped')
+    needs: [check, build-linux, build-windows, build-macos]
+    if: needs.check.outputs.skip != 'true' || inputs.dry_run == true
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -290,7 +256,7 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.sha }}
+          ref: ${{ github.sha }}
           path: dengjen-tts
           persist-credentials: false
       # Local-action paths resolve off $GITHUB_WORKSPACE, not this step's own `path:` -- since the

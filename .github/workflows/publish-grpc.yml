@@ -1,20 +1,8 @@
 name: Publish gRPC server release
 
 on:
-  # No `environment:` gate on the jobs below: for workflow_call, merging the version-bump PR is the
-  # real decision point (#201) -- but a manual workflow_dispatch bypasses that and publishes
-  # whatever tag is given, unreviewed.
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "grpc-release-vX.Y.Z to release"
-        required: true
-        type: string
-      dry_run:
-        description: "Dry Run: publish nothing"
-        required: false
-        type: boolean
-        default: false
+  # Called as a job of release.yml's flow; release.yml's own gate job (single-trigger,
+  # single-gate) covers this file too, so it has none of its own.
   workflow_call:
     inputs:
       tag:
@@ -38,26 +26,21 @@ jobs:
     outputs:
       skip: ${{ steps.check.outputs.skip }}
     steps:
-      # inputs.tag (workflow_dispatch) is free text from whoever has dispatch access -- unvalidated,
-      # build-windows below would check out whatever ref the UI's branch/tag dropdown happened to
-      # have selected while labeling and publishing the release under this string, silently diverging from it.
-      - name: Validate release tag input
-        if: github.event_name == 'workflow_dispatch'
+      # github.workflow_ref stays bound to the top-level caller even inside a called reusable
+      # workflow -- rejects a differently-named workflow file invoking this publish flow directly,
+      # or a workflow_dispatch of release.yml from a non-main branch, either of which would skip
+      # release.yml's tag-and-release gate. Compares the full ref, not just the path: stripping the
+      # @ref accepted any branch. Same check as publish-crates.yml.
+      - name: verify this workflow was only reached through release.yml on main
         env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag }}
-          REPO: ${{ github.repository }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
         run: |
           set -euo pipefail
-          if ! echo "${RELEASE_TAG}" | grep -qE '^grpc-release-v[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "::error::'${RELEASE_TAG}' doesn't look like a grpc-release-vX.Y.Z tag"
+          expected="ZirekHQ/dengjen-tts/.github/workflows/release.yml@refs/heads/main"
+          if [ "$WORKFLOW_REF" != "$expected" ]; then
+            echo "::error::workflow_ref is '${WORKFLOW_REF}', expected '${expected}' -- refusing to run outside release.yml's main-branch flow" >&2
             exit 1
           fi
-          if ! gh api "repos/${REPO}/git/refs/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
-            echo "::error::'${RELEASE_TAG}' is not an existing tag on this repository -- refusing to build from an arbitrary ref"
-            exit 1
-          fi
-
       - name: Check whether this version already has a GitHub Release
         id: check
         env:
@@ -80,22 +63,9 @@ jobs:
             exit 1
           fi
 
-  # Only gates workflow_dispatch: the release.yml chain's real decision point is merging the
-  # version-bump PR (#201 removed release.yml's own post-tag gate for the same reason this one
-  # would be too late there -- the tag is already public by then).
-  gate:
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    environment: release
-    steps:
-      - run: echo "approved"
-
   build-windows:
-    needs: [check, gate]
-    if: >-
-      always() && needs.check.outputs.skip != 'true' &&
-      (needs.gate.result == 'success' || needs.gate.result == 'skipped')
+    needs: check
+    if: needs.check.outputs.skip != 'true'
     runs-on: windows-2022
     timeout-minutes: 30
     permissions:
@@ -110,7 +80,6 @@ jobs:
         run: choco install protoc -y --no-progress
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.sha }}
           persist-credentials: false
       - uses: ./.github/actions/setup-native-build-deps # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
       - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
@@ -191,7 +160,7 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag }}
           RELEASE_VERSION: ${{ steps.version.outputs.version }}
           # gh release create defaults an unset --target to the repo's default branch, not the
-          # commit checked out -- on workflow_dispatch that'd point at whatever main is by then. Pin it.
+          # commit checked out -- pin it explicitly instead.
           RELEASE_SHA: ${{ github.sha }}
           ZIP_NAME: ${{ steps.package.outputs.zip_name }}
           DRY_RUN: ${{ inputs.dry_run }}
