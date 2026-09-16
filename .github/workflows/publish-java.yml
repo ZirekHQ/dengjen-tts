@@ -1,24 +1,8 @@
 name: Publish Java bindings
 
 on:
-  # No `environment:` gate on the `release` job below: for workflow_call, merging the version-bump
-  # PR is the real decision point (#201) -- but a manual workflow_dispatch bypasses that and
-  # publishes whatever tag is given, unreviewed.
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "java-vX.Y.Z to publish"
-        required: true
-        type: string
-      previous_tag:
-        description: "Override changelog baseline tag"
-        required: false
-        type: string
-      dry_run:
-        description: "Dry Run: publish nothing"
-        required: false
-        type: boolean
-        default: false
+  # Called as a job of release.yml's flow; release.yml's own gate job (single-trigger,
+  # single-gate) covers this file too, so it has none of its own.
   workflow_call:
     inputs:
       tag:
@@ -57,25 +41,21 @@ jobs:
     outputs:
       skip: ${{ steps.check.outputs.skip }}
     steps:
-      # inputs.tag (workflow_dispatch) is free text from whoever has dispatch
-      # access -- unvalidated it'd publish whatever ref it names, real GPG/OSSRH secrets included.
-      - name: Validate release tag input
-        if: github.event_name == 'workflow_dispatch'
+      # github.workflow_ref stays bound to the top-level caller even inside a called reusable
+      # workflow -- rejects a differently-named workflow file invoking this publish flow directly,
+      # or a workflow_dispatch of release.yml from a non-main branch, either of which would skip
+      # release.yml's tag-and-release gate. Compares the full ref, not just the path: stripping the
+      # @ref accepted any branch. Same check as publish-crates.yml.
+      - name: verify this workflow was only reached through release.yml on main
         env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag }}
-          REPO: ${{ github.repository }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
         run: |
           set -euo pipefail
-          if ! echo "${RELEASE_TAG}" | grep -qE '^java-v[0-9]+\.[0-9]+\.[0-9]+.*$'; then
-            echo "::error::'${RELEASE_TAG}' doesn't look like a java-vX.Y.Z tag"
+          expected="ZirekHQ/dengjen-tts/.github/workflows/release.yml@refs/heads/main"
+          if [ "$WORKFLOW_REF" != "$expected" ]; then
+            echo "::error::workflow_ref is '${WORKFLOW_REF}', expected '${expected}' -- refusing to run outside release.yml's main-branch flow" >&2
             exit 1
           fi
-          if ! gh api "repos/${REPO}/git/refs/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
-            echo "::error::'${RELEASE_TAG}' is not an existing tag on this repository -- refusing to build from an arbitrary ref"
-            exit 1
-          fi
-
       - name: Check whether this version is already on Maven Central
         id: check
         env:
@@ -120,9 +100,6 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          # A workflow_dispatch run whose `tag` input doesn't match the dispatched ref would
-          # otherwise build from the wrong commit and publish it under the given tag's label.
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.sha }}
           persist-credentials: false
       - uses: ./.github/actions/setup-native-build-deps # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
         timeout-minutes: 15
@@ -164,22 +141,9 @@ jobs:
           name: native-${{ matrix.platform.classifier }}
           path: native-artifacts/${{ matrix.platform.classifier }}
 
-  # Only gates workflow_dispatch: the release.yml chain's real decision point is merging the
-  # version-bump PR (#201 removed release.yml's own post-tag gate for the same reason this one
-  # would be too late there -- the tag is already public by then).
-  gate:
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    environment: release
-    steps:
-      - run: echo "approved"
-
   release:
-    needs: [check, build-natives, gate]
-    if: >-
-      always() && needs.check.outputs.skip != 'true' &&
-      (needs.gate.result == 'success' || needs.gate.result == 'skipped')
+    needs: [check, build-natives]
+    if: needs.check.outputs.skip != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
@@ -187,7 +151,6 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.sha }}
           fetch-depth: 0 # needed for JReleaser's conventional-commits changelog; VERSIONING_GIT_TAG (below) drives the actual version resolution
           persist-credentials: false
       - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0

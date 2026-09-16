@@ -23,15 +23,30 @@ on:
 permissions: {}
 
 jobs:
+  # Single gate for the whole pipeline: the push path needs none, its approval was the
+  # PR merge. Gating tag-and-release rather than the publish file widens coverage to the
+  # tag push -- the old per-file gates covered publishing only.
+  gate:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: release
+    steps:
+      - run: echo "approved"
+
   tag-and-release:
+    needs: gate
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # head_commit is absent on workflow_dispatch, hence the event_name check first.
-    if: "github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'chore: bump workspace version -> ')"
+    # head_commit is absent on workflow_dispatch, hence the event_name check first. Combined
+    # with needs.gate: a push-triggered run skips gate (event_name != workflow_dispatch) and
+    # proceeds if the commit message matches; a dispatched run must clear gate first.
+    if: >-
+      always() && (needs.gate.result == 'success' || needs.gate.result == 'skipped') &&
+      (github.event_name == 'workflow_dispatch' ||
+      startsWith(github.event.head_commit.message, 'chore: bump workspace version -> '))
     permissions:
       contents: write
-      # Needed for `gh workflow run` below; GITHUB_TOKEN can't dispatch from a `push`-triggered run (recursion guard).
-      actions: write
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -80,31 +95,22 @@ jobs:
             exit 1
           fi
 
-      - name: Trigger PyPI release (CI.yml)
-        if: inputs.dry_run != true
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.version.outputs.version }}
-        # Dispatched against the real v${VERSION} tag, not `main` -- main can move between the tag push and this step.
-        run: gh workflow run CI.yml --ref "v${VERSION}"
-
   crates:
     name: crates.io
     needs: tag-and-release
     permissions:
       contents: read
-    uses: ./.github/workflows/publish.yml # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
+      id-token: write
+    uses: ./.github/workflows/publish-crates.yml # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
     with:
       dry_run: ${{ inputs.dry_run == true }}
-    secrets:
-      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
   java:
     name: Maven Central (Java bindings)
     needs: tag-and-release
     permissions:
       contents: write
-    uses: ./.github/workflows/java-publish.yml # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
+    uses: ./.github/workflows/publish-java.yml # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
     with:
       tag: java-v${{ needs.tag-and-release.outputs.version }}
       previous_tag: ${{ inputs.previous_tag }}
@@ -138,9 +144,25 @@ jobs:
       tag: grpc-release-v${{ needs.tag-and-release.outputs.version }}
       dry_run: ${{ inputs.dry_run == true }}
 
+  python:
+    name: PyPI
+    needs: tag-and-release
+    permissions:
+      contents: read
+    uses: ./.github/workflows/publish-python.yml # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
+    with:
+      dry_run: ${{ inputs.dry_run == true }}
+    secrets:
+      PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+
   # crates/java/go/grpc each publish their own artifact-scoped release, none of which represent
   # the repo as a whole -- without this job the `v${VERSION}` tag never gets a release object, so
   # GitHub's `/releases/latest` falls back to whichever component release published last.
+  #
+  # python is deliberately NOT in needs/if here: PyPI publishing has never actually worked in
+  # this repo (no PYPI_API_TOKEN configured), so gating the whole-repo release on it would turn
+  # a pre-existing, already-broken capability into a hard release blocker -- worse than today's
+  # behavior, where it was a decoupled dispatch release.yml never even saw the result of.
   github-release:
     name: Whole-repo GitHub Release
     needs: [tag-and-release, crates, java, go, grpc]

@@ -1,21 +1,28 @@
-name: CI
+name: Publish Python wheels
 
-# Smoke-test only: builds the wheel matrix to catch build breakage on every push/PR, but never
-# publishes. The real release build+publish lives in publish-python.yml, invoked by release.yml
-# (single-trigger, single-gate) -- this file is never called by it and has no gate of its own.
+# Called as a job of release.yml's flow; release.yml's own gate job (single-trigger,
+# single-gate) covers this file too, so it has none of its own. Separate from CI.yml's
+# own build matrix, which smoke-tests on every push/PR but never publishes -- this file
+# duplicates that matrix rather than sharing it, same split tashkeel already uses for its
+# own python-wheel.yml (CI-only) vs python-publish.yml (release-only) pair.
+#
+# PYPI_API_TOKEN is optional and PyPI publishing is non-blocking: this repo has never
+# actually published to PyPI (no secret configured, pydengjen doesn't exist on PyPI yet),
+# so making this job's success required elsewhere would turn a pre-existing, already-broken
+# capability into a hard release blocker. Wheels still build either way, for parity checking.
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      dry_run:
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      PYPI_API_TOKEN:
+        required: false
 
 permissions:
   contents: read
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   linux:
@@ -107,7 +114,10 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: wheels-linux-${{ matrix.platform.target }}
-          path: dist
+          # maturin-action's working-directory (above) is where --out dist actually lands --
+          # not the workspace root upload-artifact resolves `path:` against by default.
+          path: crates/frontends/python/dist
+          if-no-files-found: error
 
   windows:
     runs-on: ${{ matrix.platform.runner }}
@@ -150,7 +160,8 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: wheels-windows-${{ matrix.platform.target }}
-          path: dist
+          path: crates/frontends/python/dist
+          if-no-files-found: error
 
   macos:
     runs-on: ${{ matrix.platform.runner }}
@@ -189,7 +200,8 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: wheels-macos-${{ matrix.platform.target }}
-          path: dist
+          path: crates/frontends/python/dist
+          if-no-files-found: error
 
   sdist:
     runs-on: ubuntu-latest
@@ -215,38 +227,51 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: wheels-sdist
-          path: dist
+          path: crates/frontends/python/dist
+          if-no-files-found: error
 
-  test:
+  publish:
+    name: Publish to PyPI
+    needs: [linux, windows, macos, sdist]
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     permissions:
       contents: read
+    env:
+      # `if:` can't reference `secrets.*` directly -- mirror it into `env` so the step below can.
+      PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          persist-credentials: false
-      - uses: ./.github/actions/setup-native-build-deps # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
-        timeout-minutes: 15
-        with:
-          apt-packages: llvm llvm-dev llvm-runtime libclang-dev espeak-ng protobuf-compiler
-      - name: cargo test (workspace, excluding dengjen-espeak-phonemizer, dengjen-tts, and dengjen-tts-kokoro)
-        run: cargo test --workspace --exclude dengjen-espeak-phonemizer --exclude dengjen-tts --exclude dengjen-tts-kokoro --no-fail-fast
-      - name: locate espeak-ng-data directory
+      # github.workflow_ref stays bound to the top-level caller even inside a called reusable
+      # workflow -- rejects a differently-named workflow file invoking this publish flow directly,
+      # or a workflow_dispatch of release.yml from a non-main branch, either of which would skip
+      # release.yml's tag-and-release gate. Same check as publish-crates/go/grpc/java.yml.
+      - name: verify this workflow was only reached through release.yml on main
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
         run: |
-          data_dir="$(dirname "$(find /usr -maxdepth 5 -type d -name espeak-ng-data -not -path '/usr/share/doc/*' | head -n1)")"
-          if [ -z "$data_dir" ] || [ "$data_dir" = "." ]; then
-            echo "Could not locate an espeak-ng-data directory" >&2
+          set -euo pipefail
+          expected="ZirekHQ/dengjen-tts/.github/workflows/release.yml@refs/heads/main"
+          if [ "$WORKFLOW_REF" != "$expected" ]; then
+            echo "::error::workflow_ref is '${WORKFLOW_REF}', expected '${expected}' -- refusing to run outside release.yml's main-branch flow" >&2
             exit 1
           fi
-          echo "DENGJEN_ESPEAKNG_DATA_DIRECTORY=$data_dir" >> "$GITHUB_ENV"
-      - name: cargo test (dengjen-espeak-phonemizer, single-threaded)
-        run: cargo test -p dengjen-espeak-phonemizer -- --test-threads=1
-      - name: cargo test (dengjen-tts-piper, hebrew and pinyin features enabled)
-        run: cargo test -p dengjen-tts-piper --no-default-features --features espeak,tashkeel,hebrew,pinyin
-      - name: cargo test (dengjen-tts-piper, espeak feature disabled)
-        run: cargo test -p dengjen-tts-piper --no-default-features --features tashkeel
-      - name: cargo test (dengjen-tts-kokoro, espeak feature enabled)
-        run: cargo test -p dengjen-tts-kokoro --features espeak
-      - name: cargo test (dengjen-tts-kokoro, espeak feature disabled)
-        run: cargo test -p dengjen-tts-kokoro --no-default-features
+      # No `working-directory` here: `path: dist` downloads artifacts to $GITHUB_WORKSPACE/dist/, and
+      # the upload glob matches workspace-root-relative -- a working-directory previously made that
+      # glob look under crates/frontends/python, which matched nothing.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: dist
+      - name: Publish to PyPI
+        # PYPI_API_TOKEN is optional -- see the file header. Unset, it reads as an empty string
+        # here, so this skips gracefully rather than uploading with a blank token.
+        if: inputs.dry_run != true && env.PYPI_API_TOKEN != ''
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        env:
+          MATURIN_PYPI_TOKEN: ${{ env.PYPI_API_TOKEN }}
+        with:
+          command: upload
+          args: --non-interactive --skip-existing dist/wheels-*/*
+          # Pinned so Renovate (see renovate.json) can bump it deliberately,
+          # rather than the action re-resolving "latest" over the network
+          # on every retry.
+          maturin-version: v1.15.0
