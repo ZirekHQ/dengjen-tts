@@ -118,7 +118,7 @@ jobs:
           - classifier: macos-aarch64
             runner: macos-latest
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # A workflow_dispatch run whose `tag` input doesn't match the dispatched ref would
           # otherwise build from the wrong commit and publish it under the given tag's label.
@@ -185,7 +185,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.sha }}
           fetch-depth: 0 # needed for JReleaser's conventional-commits changelog; VERSIONING_GIT_TAG (below) drives the actual version resolution
