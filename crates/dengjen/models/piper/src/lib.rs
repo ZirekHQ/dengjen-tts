@@ -403,7 +403,7 @@ mod tests {
             Ok(_) => panic!("expected a PhonemizationError, got Ok"),
         };
         assert!(
-            msg.contains("Failed to initialize eSpeak-ng"),
+            msg.contains(dengjen_espeak_phonemizer::ESPEAKNG_INIT_FAILURE_MARKER),
             "wrapped message lost the inner espeak-ng error text: {msg:?}"
         );
     }

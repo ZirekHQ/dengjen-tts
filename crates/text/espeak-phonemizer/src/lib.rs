@@ -21,6 +21,13 @@ const CLAUSE_TYPE_SENTENCE: i32 = 0x00080000;
 
 const DENGJEN_ESPEAKNG_DATA_DIRECTORY: &str = "DENGJEN_ESPEAKNG_DATA_DIRECTORY";
 
+/// Prefix of the error message [`init_espeakng`] produces when eSpeak-ng's own
+/// initialization call fails. Callers that need to detect "eSpeak-ng data is
+/// unavailable" (e.g. to skip a test) should match on this constant instead of
+/// a copy-pasted string literal, so a wording change here keeps every caller's
+/// match in sync automatically instead of silently desynchronizing it.
+pub const ESPEAKNG_INIT_FAILURE_MARKER: &str = "Failed to initialize eSpeak-ng";
+
 #[derive(Debug, Clone)]
 pub struct ESpeakError(pub String);
 
@@ -88,7 +95,7 @@ fn init_espeakng() -> ESpeakResult<()> {
     }
 
     Err(ESpeakError(format!(
-        "Failed to initialize eSpeak-ng, error code `{sample_rate}`. If its data files are \
+        "{ESPEAKNG_INIT_FAILURE_MARKER}, error code `{sample_rate}`. If its data files are \
          installed somewhere non-standard, point `{DENGJEN_ESPEAKNG_DATA_DIRECTORY}` at the \
          directory that holds `espeak-ng-data`."
     )))

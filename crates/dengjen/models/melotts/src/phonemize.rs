@@ -165,7 +165,7 @@ mod tests {
         match espeak_phone_tone_pairs(text, voice) {
             Ok(pairs) => Some(pairs),
             Err(DengjenError::PhonemizationError(msg))
-                if msg.contains("Failed to initialize eSpeak-ng") =>
+                if msg.contains(dengjen_espeak_phonemizer::ESPEAKNG_INIT_FAILURE_MARKER) =>
             {
                 eprintln!(
                     "Skipping: no espeak-ng data available. Set DENGJEN_ESPEAKNG_DATA_DIRECTORY."

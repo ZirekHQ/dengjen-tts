@@ -572,6 +572,7 @@ name = "dengjen-tts"
 version = "1.2.3"
 dependencies = [
  "dengjen-audio-ops",
+ "dengjen-espeak-phonemizer",
  "dengjen-sonic-sys",
  "dengjen-tts-core",
  "dengjen-tts-kokoro",
@@ -594,6 +595,7 @@ version = "1.2.3"
 dependencies = [
  "anyhow",
  "clap",
+ "dengjen-espeak-phonemizer",
  "dengjen-tts",
  "dengjen-tts-kokoro",
  "dengjen-tts-melotts",

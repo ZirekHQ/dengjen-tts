@@ -46,6 +46,7 @@ fn load_synthetic_model(dir_name: &str) -> Arc<dyn dengjen_tts_core::DengjenMode
     model
 }
 
+#[traced_test]
 #[test]
 fn speak_one_sentence_synthesizes_against_the_synthetic_fixture() {
     let model = load_synthetic_model("dengjen_piper_synthetic_speak_one_sentence_test");
@@ -54,8 +55,10 @@ fn speak_one_sentence_synthesizes_against_the_synthetic_fixture() {
         .expect("synthesis against synthetic fixture failed");
     assert_eq!(audio.info.sample_rate, 22050);
     assert!(!audio.samples.into_vec().is_empty());
+    assert!(logs_contain("speak_one_sentence"));
 }
 
+#[traced_test]
 #[test]
 fn speak_batch_synthesizes_each_sentence_independently() {
     let model = load_synthetic_model("dengjen_piper_synthetic_speak_batch_test");
@@ -63,14 +66,17 @@ fn speak_batch_synthesizes_each_sentence_independently() {
         .speak_batch(vec!["t".to_string(), "s".to_string()])
         .expect("batch synthesis against synthetic fixture failed");
     assert_eq!(audios.len(), 2);
+    assert!(logs_contain("speak_batch"));
 }
 
+#[traced_test]
 #[test]
 fn phonemize_text_passes_through_unchanged_for_the_text_phoneme_type() {
     let model = load_synthetic_model("dengjen_piper_synthetic_phonemize_text_test");
     let phonemes = model.phonemize_text("ts").unwrap();
     assert_eq!(phonemes.num_sentences(), 1);
     assert_eq!(phonemes.sentences()[0], "ts");
+    assert!(logs_contain("phonemize_text"));
 }
 
 #[test]

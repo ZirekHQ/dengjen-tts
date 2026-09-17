@@ -402,6 +402,7 @@ impl SpeechSynthesisTaskProvider {
 pub struct DengjenSpeechStreamLazy {
     provider: SpeechSynthesisTaskProvider,
     pending_sentences: std::vec::IntoIter<String>,
+    next_chunk_index: usize,
     span: tracing::Span,
 }
 
@@ -412,6 +413,7 @@ impl DengjenSpeechStreamLazy {
         Ok(Self {
             provider,
             pending_sentences,
+            next_chunk_index: 0,
             span,
         })
     }
@@ -422,9 +424,11 @@ impl Iterator for DengjenSpeechStreamLazy {
 
     fn next(&mut self) -> Option<Self::Item> {
         let sentence = self.pending_sentences.next()?;
+        let chunk_index = self.next_chunk_index;
+        self.next_chunk_index += 1;
         let provider = &self.provider;
         Some(self.span.in_scope(|| {
-            let chunk_span = tracing::debug_span!("chunk");
+            let chunk_span = tracing::debug_span!("chunk", chunk_index);
             let _enter = chunk_span.enter();
             let result = provider.process_one_sentence(sentence);
             if let Ok(audio) = &result {
@@ -450,9 +454,10 @@ impl DengjenSpeechStreamParallel {
         let worker_span = span.clone();
         let finished: Vec<DengjenAudioResult> = sentences
             .into_par_iter()
-            .map(|sentence| {
+            .enumerate()
+            .map(|(chunk_index, sentence)| {
                 worker_span.in_scope(|| {
-                    let chunk_span = tracing::debug_span!("chunk");
+                    let chunk_span = tracing::debug_span!("chunk", chunk_index);
                     let _enter = chunk_span.enter();
                     let result = provider.process_one_sentence(sentence);
                     if let Ok(audio) = &result {
@@ -489,6 +494,7 @@ pub struct RealtimeSpeechStream {
     rx: Receiver<DengjenResult<AudioSamples>>,
     cancel_token: CancellationToken,
     span: tracing::Span,
+    next_chunk_index: usize,
 }
 
 impl RealtimeSpeechStream {
@@ -554,6 +560,7 @@ impl RealtimeSpeechStream {
             rx,
             cancel_token,
             span,
+            next_chunk_index: 0,
         })
     }
 
@@ -601,8 +608,10 @@ impl Iterator for RealtimeSpeechStream {
             return None;
         }
         let result = self.rx.recv().ok()?;
+        let chunk_index = self.next_chunk_index;
+        self.next_chunk_index += 1;
         self.span.in_scope(|| {
-            let chunk_span = tracing::debug_span!("chunk");
+            let chunk_span = tracing::debug_span!("chunk", chunk_index);
             let _enter = chunk_span.enter();
             if let Ok(samples) = &result {
                 tracing::debug!(sample_count = samples.len(), "chunk_ready");

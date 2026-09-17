@@ -30,6 +30,7 @@ fn load_synthetic_model(dir_name: &str) -> Arc<dyn dengjen_tts_core::DengjenMode
     model
 }
 
+#[traced_test]
 #[test]
 fn synthesizes_against_synthetic_fixture_without_panicking() {
     let model = load_synthetic_model("dengjen_melotts_synthetic_inference_test");
@@ -40,6 +41,7 @@ fn synthesizes_against_synthetic_fixture_without_panicking() {
 
     assert_eq!(audio.info.sample_rate, 24000);
     assert_eq!(audio.samples.into_vec().len(), 16000);
+    assert!(logs_contain("speak_one_sentence"));
 }
 
 #[test]
@@ -141,13 +143,14 @@ fn get_speakers_returns_the_empty_map_when_the_config_declares_no_speakers() {
 }
 
 #[cfg(feature = "espeak")]
+#[traced_test]
 #[test]
 fn phonemize_text_produces_phone_tone_pairs_joined_by_a_colon() {
     let model = load_synthetic_model("dengjen_melotts_synthetic_phonemize_text_test");
     let phonemes = match model.phonemize_text("hi") {
         Ok(phonemes) => phonemes,
         Err(dengjen_tts_core::DengjenError::PhonemizationError(msg))
-            if msg.contains("Failed to initialize eSpeak-ng") =>
+            if msg.contains(dengjen_espeak_phonemizer::ESPEAKNG_INIT_FAILURE_MARKER) =>
         {
             eprintln!(
                 "skipping phonemize_text_produces_phone_tone_pairs_joined_by_a_colon: \
@@ -164,8 +167,10 @@ fn phonemize_text_produces_phone_tone_pairs_joined_by_a_colon() {
             "expected every token to carry a `phone:tone` pair, got {token:?}"
         );
     }
+    assert!(logs_contain("phonemize_text"));
 }
 
+#[traced_test]
 #[test]
 fn speak_batch_synthesizes_each_sentence_independently() {
     let model = load_synthetic_model("dengjen_melotts_synthetic_speak_batch_test");
@@ -173,4 +178,5 @@ fn speak_batch_synthesizes_each_sentence_independently() {
         .speak_batch(vec!["t:_".to_string(), "t:_".to_string()])
         .expect("batch synthesis against synthetic fixture failed");
     assert_eq!(audios.len(), 2);
+    assert!(logs_contain("speak_batch"));
 }

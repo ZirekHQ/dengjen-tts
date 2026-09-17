@@ -166,6 +166,11 @@ impl DengjenModel for VitsStreamingModel {
     fn supports_streaming_output(&self) -> bool {
         true
     }
+    #[tracing::instrument(
+        skip(self, phonemes, cancel_token),
+        fields(phonemes_len = phonemes.len(), chunk_size),
+        err
+    )]
     fn stream_synthesis(
         &self,
         phonemes: String,

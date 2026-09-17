@@ -184,6 +184,11 @@ impl DengjenModel for KokoroModel {
         true
     }
 
+    #[tracing::instrument(
+        skip(self, phonemes, cancel_token),
+        fields(phonemes_len = phonemes.len(), chunk_size),
+        err
+    )]
     fn stream_synthesis(
         &self,
         phonemes: String,

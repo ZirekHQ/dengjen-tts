@@ -525,8 +525,17 @@ fn setup_logging() -> Result<(), Box<dyn std::error::Error>> {
     // `fmt().init()` installs the LogTracer bridge itself (tracing-subscriber's
     // default "tracing-log" feature) — a separate explicit `LogTracer::init()` call
     // here would double-install the `log` backend and panic with `SetLoggerError`.
-    let filter = tracing_subscriber::EnvFilter::try_from_env("DENGJEN_GRPC")
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+    let filter = match std::env::var("DENGJEN_GRPC") {
+        Ok(directives) => {
+            tracing_subscriber::EnvFilter::try_new(&directives).unwrap_or_else(|err| {
+                eprintln!(
+                    "warning: ignoring malformed DENGJEN_GRPC ({err}); defaulting to \"info\""
+                );
+                tracing_subscriber::EnvFilter::new("info")
+            })
+        }
+        Err(_) => tracing_subscriber::EnvFilter::new("info"),
+    };
     // stdout carries the listening-port announcement (see `listening_announcement`); logs
     // must go to stderr, matching the `env_logger` default this replaces, or they corrupt
     // that line for anything parsing it.

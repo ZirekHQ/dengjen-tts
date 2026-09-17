@@ -58,7 +58,9 @@ impl DengjenModel for MeloTTSModel {
         ))
     }
 
-    #[tracing::instrument(skip(self, phoneme_batches), fields(batch_len = phoneme_batches.len()), err)]
+    // No `err`: `speak_one_sentence` is itself `#[instrument(err)]`, so it already
+    // logs the failure — adding `err` here would emit a second ERROR event per error.
+    #[tracing::instrument(skip(self, phoneme_batches), fields(batch_len = phoneme_batches.len()))]
     fn speak_batch(&self, phoneme_batches: Vec<String>) -> DengjenResult<Vec<Audio>> {
         phoneme_batches
             .into_iter()
