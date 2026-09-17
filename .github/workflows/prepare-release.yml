@@ -3,12 +3,29 @@ name: Prepare release
 # Proposes a release; merging the opened PR is what actually cuts one -- release.yml tags that
 # merge commit and triggers every downstream release workflow automatically.
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      new_tag:
+        description: "Skip the PR: release this exact vX.Y.Z tag directly (requires approval)"
+        required: false
+        type: string
+      previous_tag:
+        description: "Override Java changelog baseline (only used together with new_tag)"
+        required: false
+        type: string
+      dry_run:
+        description: "Dry Run: publish nothing (only used together with new_tag)"
+        required: false
+        type: boolean
+        default: false
 
 permissions: {}
 
 jobs:
+  # Normal path: compute the next version and open the PR. Merging it is the release gate --
+  # nothing here needs approval of its own. Skipped when new_tag selects the override path below.
   prepare:
+    if: inputs.new_tag == ''
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -72,3 +89,33 @@ jobs:
           gh pr create --title "chore: bump workspace version -> ${VERSION}" \
             --body "Computed by \`prepare-release.yml\` from Conventional Commit subjects since the last tag (see \`scripts/next-version.sh\`). **Merging this releases v${VERSION}**: \`release.yml\` tags this merge commit \`v${VERSION}\` and runs \`publish-crates.yml\` (crates.io), \`publish-java.yml\` (Maven Central), \`publish-go.yml\` (the ZirekHQ/dengjen-tts-go mirror), \`publish-grpc.yml\` (the gRPC server's GitHub Release), and \`publish-python.yml\` (PyPI) all as jobs of that same run, no further approval needed. Review the version and the diff carefully before merging -- this is the real decision point." \
             --base main --head "$branch"
+
+  # Override path: skip prepare/PR entirely and hand off straight to release.yml. This is
+  # the one path in the whole pipeline with no PR review to fall back on, so it's the only
+  # thing that still needs a human gate.
+  gate:
+    if: inputs.new_tag != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: release
+    steps:
+      - run: echo "approved"
+
+  release-now:
+    needs: gate
+    permissions:
+      contents: write
+      id-token: write
+    uses: ./.github/workflows/release.yml # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
+    secrets:
+      JRELEASER_MAVENCENTRAL_USERNAME: ${{ secrets.JRELEASER_MAVENCENTRAL_USERNAME }}
+      JRELEASER_MAVENCENTRAL_PASSWORD: ${{ secrets.JRELEASER_MAVENCENTRAL_PASSWORD }}
+      JRELEASER_GPG_PASSPHRASE: ${{ secrets.JRELEASER_GPG_PASSPHRASE }}
+      JRELEASER_GPG_SECRET_KEY: ${{ secrets.JRELEASER_GPG_SECRET_KEY }}
+      JRELEASER_GPG_PUBLIC_KEY: ${{ secrets.JRELEASER_GPG_PUBLIC_KEY }}
+      DENGJEN_TTS_GO_DEPLOY_TOKEN: ${{ secrets.DENGJEN_TTS_GO_DEPLOY_TOKEN }}
+      PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+    with:
+      new_tag: ${{ inputs.new_tag }}
+      previous_tag: ${{ inputs.previous_tag }}
+      dry_run: ${{ inputs.dry_run == true }}
