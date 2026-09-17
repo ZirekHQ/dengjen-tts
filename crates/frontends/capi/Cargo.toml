@@ -34,6 +34,7 @@ libc = "0.2.150"
 dengjen-tts-piper = { workspace = true, optional = true }
 dengjen-tts-kokoro.workspace = true
 dengjen-tts-melotts.workspace = true
+workspace-hack = { version = "0.1", path = "../../workspace-hack" }
 
 [dependencies.ort]
 version = "2.0.0-rc.13"

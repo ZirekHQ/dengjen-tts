@@ -34,6 +34,7 @@ tokio-stream = "0.1.16"
 tonic = "0.14.0"
 tonic-prost = "0.14.0"
 xxhash-rust = { version = "0.8.12", features = ["xxh3"] }
+workspace-hack = { version = "0.1", path = "../../workspace-hack" }
 
 [dependencies.tracing-subscriber]
 version = "0.3"

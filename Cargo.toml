@@ -16,6 +16,7 @@ members = [
     "crates/text/pinyin-phonemizer",
     "crates/audio/sonic-sys",
     "crates/audio/ops",
+    "crates/workspace-hack",
 ]
 
 [workspace.package]

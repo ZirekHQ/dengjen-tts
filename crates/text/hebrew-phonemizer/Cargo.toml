@@ -14,6 +14,7 @@ workspace = true
 dengjen-tts-core.workspace = true
 ndarray = "0.17"
 unicode-normalization = "0.1"
+workspace-hack = { version = "0.1", path = "../../workspace-hack" }
 
 [dependencies.ort]
 version = "2.0.0-rc.13"

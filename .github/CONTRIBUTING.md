@@ -37,6 +37,14 @@ repo, so CI only compile-checks them (via the `clippy` job's `--benches` flag); 
 yourself needs fixtures at `crates/dengjen/synth/models/{std,rt}/` — see
 [#220](https://github.com/ZirekHQ/dengjen-tts/issues/220) for provisioning those in CI.
 
+## Workspace dependencies
+
+`crates/workspace-hack` unifies feature flags for shared dependencies across the workspace's 14
+crates (via [`cargo-hakari`](https://docs.rs/cargo-hakari)), so CI jobs that check the same crate
+under different feature combinations (e.g. `coverage`) don't force a rebuild of shared deps on
+every switch. After adding, removing, or changing the features of a dependency, run
+`cargo hakari generate` and commit the result — CI's `hakari` job fails if it's stale.
+
 ## Getting started
 
 See [README.md](../README.md) for build instructions and [CLAUDE.md](../CLAUDE.md) for the lint

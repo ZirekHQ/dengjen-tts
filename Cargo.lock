@@ -494,6 +494,7 @@ dependencies = [
  "once_cell",
  "proptest",
  "riff-wave",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -504,6 +505,7 @@ dependencies = [
  "ffi-support",
  "once_cell",
  "regex",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -527,6 +529,7 @@ dependencies = [
  "ndarray",
  "ort",
  "unicode-normalization",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -540,6 +543,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokenizers",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -548,6 +552,7 @@ version = "1.2.3"
 dependencies = [
  "bindgen",
  "cc",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -587,6 +592,7 @@ dependencies = [
  "tempfile",
  "tracing",
  "tracing-test",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -605,6 +611,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tracing-subscriber",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -613,6 +620,7 @@ version = "1.2.3"
 dependencies = [
  "dengjen-audio-ops",
  "once_cell",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -634,6 +642,7 @@ dependencies = [
  "tonic-prost",
  "tonic-prost-build",
  "tracing-subscriber",
+ "workspace-hack",
  "xxhash-rust",
 ]
 
@@ -649,6 +658,7 @@ dependencies = [
  "serde_json",
  "tracing",
  "tracing-test",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -664,6 +674,7 @@ dependencies = [
  "serde_json",
  "tracing",
  "tracing-test",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -681,6 +692,7 @@ dependencies = [
  "serde_json",
  "tracing",
  "tracing-test",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -698,6 +710,7 @@ dependencies = [
  "once_cell",
  "ort",
  "pyo3",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -1157,6 +1170,7 @@ dependencies = [
  "ffi-support",
  "libc",
  "ort",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -2809,6 +2823,43 @@ name = "wit-bindgen"
 version = "0.57.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
+
+[[package]]
+name = "workspace-hack"
+version = "0.1.0"
+dependencies = [
+ "bitflags",
+ "bytes",
+ "clap",
+ "clap_builder",
+ "either",
+ "futures-core",
+ "futures-sink",
+ "indexmap",
+ "libc",
+ "log",
+ "memchr",
+ "ndarray",
+ "nom",
+ "num-traits",
+ "once_cell",
+ "ppv-lite86",
+ "prost",
+ "quote",
+ "rand",
+ "rand_chacha",
+ "regex",
+ "regex-automata",
+ "regex-syntax",
+ "rustix",
+ "serde",
+ "serde_core",
+ "smallvec",
+ "syn 2.0.119",
+ "syn 3.0.3",
+ "tracing",
+ "tracing-core",
+]
 
 [[package]]
 name = "xattr"
