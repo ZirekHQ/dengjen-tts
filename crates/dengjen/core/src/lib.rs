@@ -86,6 +86,11 @@ impl fmt::Display for Phonemes {
 
 pub trait DengjenModel {
     fn audio_output_info(&self) -> DengjenResult<AudioInfo>;
+    /// Deliberately not delegated to a standalone `Phonemizer` trait: each
+    /// backend adapts a shared phonemizer crate's output to its own phoneme
+    /// representation, so a generic trait would not provide a useful shared
+    /// output contract without per-model adaptation. See
+    /// "Phonemization" in docs/modules/ROOT/pages/architecture.adoc.
     fn phonemize_text(&self, text: &str) -> DengjenResult<Phonemes>;
     fn speak_batch(&self, phoneme_batches: Vec<String>) -> DengjenResult<Vec<Audio>>;
     fn speak_one_sentence(&self, phonemes: String) -> DengjenAudioResult;
