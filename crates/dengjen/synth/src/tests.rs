@@ -4,6 +4,44 @@ use dengjen_tts::DengjenResult;
 use std::{path::PathBuf, sync::Arc};
 use tracing_test::traced_test;
 
+fn parse_chunk_index(line: &str) -> Option<usize> {
+    let after = line.split("chunk_index=").nth(1)?;
+    after
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect::<String>()
+        .parse()
+        .ok()
+}
+
+/// Checks that every expected chunk index has a captured log line proving its
+/// `chunk_ready` fired at `DEBUG`, nested under a `synthesis_request` span
+/// carrying the given `mode`, followed by a `chunk` span — not just that both
+/// names appear somewhere in the logs.
+fn assert_chunk_ready_nested_under_mode(
+    lines: &[&str],
+    mode: &str,
+    expected_chunk_count: usize,
+) -> Result<(), String> {
+    let span_context = format!(":synthesis_request{{mode=\"{mode}\"}}:chunk");
+    let indices: std::collections::BTreeSet<usize> = lines
+        .iter()
+        .filter(|line| {
+            line.contains("DEBUG") && line.contains(&span_context) && line.contains("chunk_ready")
+        })
+        .filter_map(|line| parse_chunk_index(line))
+        .collect();
+    let expected: std::collections::BTreeSet<usize> = (0..expected_chunk_count).collect();
+    if indices == expected {
+        Ok(())
+    } else {
+        Err(format!(
+            "expected DEBUG chunk_ready events nested under `{span_context}` carrying chunk_index \
+             values {expected:?}, got {indices:?}; log lines: {lines:?}"
+        ))
+    }
+}
+
 #[traced_test]
 #[test]
 fn lazy_stream_emits_nested_synthesis_request_and_chunk_spans() {
@@ -15,7 +53,7 @@ fn lazy_stream_emits_nested_synthesis_request_and_chunk_spans() {
     let stream = match stream {
         Ok(stream) => stream,
         Err(dengjen_tts_core::DengjenError::PhonemizationError(msg))
-            if msg.contains("Failed to initialize eSpeak-ng") =>
+            if msg.contains(dengjen_espeak_phonemizer::ESPEAKNG_INIT_FAILURE_MARKER) =>
         {
             eprintln!(
                 "skipping lazy_stream_emits_nested_synthesis_request_and_chunk_spans: espeak-ng data unavailable"
@@ -25,10 +63,9 @@ fn lazy_stream_emits_nested_synthesis_request_and_chunk_spans() {
         Err(e) => panic!("synthesize_lazy failed unexpectedly: {e:?}"),
     };
 
-    let _chunks: Vec<_> = stream.collect();
+    let chunks: Vec<_> = stream.collect();
 
-    assert!(logs_contain("synthesis_request"));
-    assert!(logs_contain("chunk_ready"));
+    logs_assert(|lines| assert_chunk_ready_nested_under_mode(lines, "lazy", chunks.len()));
 }
 
 #[traced_test]
@@ -42,7 +79,7 @@ fn parallel_stream_emits_nested_synthesis_request_and_chunk_spans() {
     let stream = match stream {
         Ok(stream) => stream,
         Err(dengjen_tts_core::DengjenError::PhonemizationError(msg))
-            if msg.contains("Failed to initialize eSpeak-ng") =>
+            if msg.contains(dengjen_espeak_phonemizer::ESPEAKNG_INIT_FAILURE_MARKER) =>
         {
             eprintln!(
                 "skipping parallel_stream_emits_nested_synthesis_request_and_chunk_spans: espeak-ng data unavailable"
@@ -52,10 +89,9 @@ fn parallel_stream_emits_nested_synthesis_request_and_chunk_spans() {
         Err(e) => panic!("synthesize_parallel failed unexpectedly: {e:?}"),
     };
 
-    let _chunks: Vec<_> = stream.collect();
+    let chunks: Vec<_> = stream.collect();
 
-    assert!(logs_contain("synthesis_request"));
-    assert!(logs_contain("chunk_ready"));
+    logs_assert(|lines| assert_chunk_ready_nested_under_mode(lines, "parallel", chunks.len()));
 }
 
 #[traced_test]
@@ -75,7 +111,7 @@ fn realtime_stream_emits_nested_synthesis_request_and_chunk_spans() {
     let stream = match stream {
         Ok(stream) => stream,
         Err(dengjen_tts_core::DengjenError::PhonemizationError(msg))
-            if msg.contains("Failed to initialize eSpeak-ng") =>
+            if msg.contains(dengjen_espeak_phonemizer::ESPEAKNG_INIT_FAILURE_MARKER) =>
         {
             eprintln!(
                 "skipping realtime_stream_emits_nested_synthesis_request_and_chunk_spans: espeak-ng data unavailable"
@@ -85,10 +121,9 @@ fn realtime_stream_emits_nested_synthesis_request_and_chunk_spans() {
         Err(e) => panic!("synthesize_streamed failed unexpectedly: {e:?}"),
     };
 
-    let _chunks: Vec<_> = stream.map(|c| c.expect("chunk synthesis failed")).collect();
+    let chunks: Vec<_> = stream.map(|c| c.expect("chunk synthesis failed")).collect();
 
-    assert!(logs_contain("synthesis_request"));
-    assert!(logs_contain("chunk_ready"));
+    logs_assert(|lines| assert_chunk_ready_nested_under_mode(lines, "realtime", chunks.len()));
 }
 
 #[test]
@@ -184,7 +219,7 @@ fn kokoro_realtime_stream_uses_realistic_chunk_duration_for_capi_default_chunk_s
     let stream = match stream {
         Ok(stream) => stream,
         Err(dengjen_tts_core::DengjenError::PhonemizationError(msg))
-            if msg.contains("Failed to initialize eSpeak-ng") =>
+            if msg.contains(dengjen_espeak_phonemizer::ESPEAKNG_INIT_FAILURE_MARKER) =>
         {
             eprintln!(
                 "skipping kokoro_realtime_stream_uses_realistic_chunk_duration_for_capi_default_chunk_size: espeak-ng data unavailable on this machine"

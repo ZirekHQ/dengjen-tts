@@ -45,6 +45,8 @@ dengjen-hebrew-phonemizer = { path = "crates/text/hebrew-phonemizer", version = 
 dengjen-pinyin-phonemizer = { path = "crates/text/pinyin-phonemizer", version = "1.2.3" }
 dengjen-sonic-sys = { path = "crates/audio/sonic-sys", version = "1.2.3" }
 dengjen-audio-ops = { path = "crates/audio/ops", version = "1.2.3" }
+tracing = "0.1"
+tracing-test = { version = "0.2", features = ["no-env-filter"] }
 
 
 

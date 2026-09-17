@@ -72,7 +72,7 @@ fn cli_loads_a_kokoro_voice_without_panicking() {
 
     if !output.status.success() {
         assert!(
-            stderr.contains("Failed to initialize eSpeak-ng"),
+            stderr.contains(dengjen_espeak_phonemizer::ESPEAKNG_INIT_FAILURE_MARKER),
             "CLI failed for an unexpected reason: {stderr}"
         );
         eprintln!(

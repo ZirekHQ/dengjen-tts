@@ -59,6 +59,7 @@ fn build_model_with_scaled_voices(
     (model, dir)
 }
 
+#[traced_test]
 #[test]
 fn synthesizes_against_synthetic_fixture_without_panicking() {
     let (model, dir) = build_model_with_voices("basic", &["test_voice"]);
@@ -72,6 +73,46 @@ fn synthesizes_against_synthetic_fixture_without_panicking() {
     assert!(!samples.is_empty(), "expected non-empty output samples");
 
     assert_eq!(samples.len(), 16000);
+    assert!(logs_contain("speak_one_sentence"));
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[traced_test]
+#[test]
+fn speak_batch_synthesizes_each_sentence_independently() {
+    let (model, dir) = build_model_with_voices("speak_batch", &["test_voice"]);
+
+    let audios = model
+        .speak_batch(vec!["t\u{025b}st".to_string(), "t\u{025b}st".to_string()])
+        .expect("batch synthesis against synthetic fixture failed");
+
+    assert_eq!(audios.len(), 2);
+    assert!(logs_contain("speak_batch"));
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[cfg(feature = "espeak")]
+#[traced_test]
+#[test]
+fn phonemize_text_emits_its_instrumentation_span() {
+    let (model, dir) = build_model_with_voices("phonemize_text_span", &["test_voice"]);
+
+    match model.phonemize_text("hi") {
+        Ok(_) => {}
+        Err(dengjen_tts_core::DengjenError::PhonemizationError(msg))
+            if msg.contains(dengjen_espeak_phonemizer::ESPEAKNG_INIT_FAILURE_MARKER) =>
+        {
+            eprintln!(
+                "skipping phonemize_text_emits_its_instrumentation_span: espeak-ng data unavailable on this machine"
+            );
+            std::fs::remove_dir_all(&dir).ok();
+            return;
+        }
+        Err(e) => panic!("phonemization against the espeak backend failed: {e}"),
+    }
+    assert!(logs_contain("phonemize_text"));
 
     std::fs::remove_dir_all(&dir).ok();
 }
