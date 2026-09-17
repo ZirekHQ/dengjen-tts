@@ -93,3 +93,20 @@ classDiagram
     DengjenModel <|.. DengjenSpeechSynthesizer
     DengjenSpeechSynthesizer o-- DengjenModel : wraps
 ----
+
+== Versioning
+
+All 14 published crates share a single lockstep version via
+`[workspace.package].version` in the root `Cargo.toml`, rather than letting
+each crate version independently. A one-line fix in a single low-level crate
+(e.g. `dengjen-audio-ops`) still forces a version bump and republish of every
+crate, including unrelated ones, but the tradeoff is deliberate: any two
+crate versions that match are known to be compatible, with no compatibility
+matrix to consult.
+
+Sibling repo `dengjen-piper-rs` piloted a hybrid split (lockstep core,
+independent versions for `espeak-rs-sys`/`espeak-rs`) and reverted it back to
+a single shared version, judging it simpler to reason about. dengjen-tts
+follows the same precedent and keeps lockstep versioning for all crates.
+`scripts/next-version.sh` and `scripts/bump-version.sh` continue to encode
+this assumption.
