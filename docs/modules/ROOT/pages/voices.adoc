@@ -1,0 +1,86 @@
+= Choosing and tuning a model backend
+
+dengjen-tts's three model backends (Piper, Kokoro, MeloTTS) all implement the same
+`DengjenModel` trait, but their voice manifests expose different tuning knobs and support
+different features. See xref:usage.adoc[Usage] for the required manifest fields per backend;
+this page covers what the numeric knobs actually change, and which backend to reach for.
+
+== Backend comparison
+
+[cols="1,2,2,1"]
+|===
+|Backend |Tunable inference knobs |Phonemizer options |Realtime streaming
+
+|Piper
+|`noise_scale`, `length_scale`, `noise_w`
+|`espeak` (any configured espeak-ng voice), `text` (raw passthrough), `hebrew`, `pinyin`
+|Only voices with `"streaming": true` (split encoder/decoder ONNX export)
+
+|Kokoro
+|None — speed is fixed at `1.0`, voices vary only via precomputed style vectors
+|Hardcoded to English (`en-US`); not configurable
+|Yes, but by chunking an already-fully-synthesized sentence, not true incremental decoding
+
+|MeloTTS
+|`noise_scale`, `length_scale`, `noise_scale_w`
+|`espeak` (`en`, `es`, `fr`, `ja`, `ko`) or `pinyin` (`zh`, needs the `pinyin` Cargo feature)
+|Not supported — returns `UnsupportedOperation`
+|===
+
+All three backends also accept the same post-synthesis prosody controls
+(`rate`/`pitch`/`volume`/`silence` on the CLI, `ProsodyControls` over gRPC), applied uniformly
+by `DengjenSpeechSynthesizer` regardless of which model produced the audio.
+
+== Piper
+
+Piper's `inference` block controls the VITS decoder's stochastic duration/pitch predictor:
+
+* `noise_scale` — variability injected into pitch/energy. Higher values sound more expressive
+  and less monotone, but too high introduces artifacts.
+* `length_scale` — a global speaking-rate multiplier applied to predicted phoneme durations;
+  values above `1.0` slow speech down, below `1.0` speed it up.
+* `noise_w` — variability injected into the duration predictor itself, changing pacing/rhythm
+  between repeated runs rather than pitch.
+
+Whether a Piper voice can run in realtime mode is a property of the voice, not a runtime flag:
+only manifests with `"streaming": true` ship the split `encoder.onnx`/`decoder.onnx` pair that
+`VitsStreamingModel` needs (see `crates/dengjen/models/piper/src/lib.rs`); other Piper voices
+load as the standard single-file `VitsModel` and only support `lazy`/`parallel` mode.
+
+== Kokoro
+
+Kokoro voices have no `inference` block at all — `crates/dengjen/models/kokoro/src/config.rs`
+only accepts `model_path`, `voices_dir`, `vocab_path`, `sample_rate`, and the list of `voices`
+names. Per-voice character comes entirely from a precomputed style vector looked up by voice
+name and token length (`VoiceStyles::style_for`); there's no `noise_scale`/`length_scale`
+equivalent to adjust. `speed` is hardcoded to `1.0` and the phonemizer's target language is
+hardcoded to `en-US` (`crates/dengjen/models/kokoro/src/inference.rs`) — a Kokoro voice is
+English-only regardless of manifest content.
+
+Kokoro does implement `stream_synthesis`, so realtime mode is available, but
+`KokoroAudioStreamer` slices an already-fully-synthesized sentence into chunks rather than
+generating incrementally. It lowers perceived latency for playback (first chunk arrives before
+the whole WAV is written out) but not actual synthesis latency the way a streaming Piper voice
+does.
+
+== MeloTTS
+
+MeloTTS's `inference` block mirrors Piper's shape but with `noise_scale_w` instead of `noise_w`;
+the perceptual effect of each knob is the same as described above. The phonemizer is chosen per
+voice manifest (`{"type": "espeak", "voice": "..."}` or `{"type": "pinyin", "model_dir": "..."}`)
+rather than being a separate `phoneme_type` field like Piper's.
+
+MeloTTS models don't override `stream_synthesis`, so they fall back to the `DengjenModel` trait's
+default, which returns `DengjenError::UnsupportedOperation` (`unimplemented` over gRPC) for
+realtime mode. Use `lazy` or `parallel` mode with MeloTTS voices.
+
+== Choosing a backend
+
+* **Piper** for the broadest voice availability (any VITS-family ONNX export using the standard
+  3/4-input tensor convention) and the widest language reach, since its `espeak` phonemizer works
+  with any configured espeak-ng voice.
+* **Kokoro** when a fixed set of English voices with no tuning surface is acceptable, and true
+  incremental low-latency generation isn't required.
+* **MeloTTS** for tone-aware Mandarin output (via its dedicated pinyin phonemizer with real tone
+  extraction) or its bundled Spanish/French/Japanese/Korean voices, and when realtime streaming
+  isn't needed.
