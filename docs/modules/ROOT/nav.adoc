@@ -1,5 +1,8 @@
 * xref:index.adoc[Overview]
 * xref:installation.adoc[Installation]
 * xref:usage.adoc[Usage]
+* xref:voices.adoc[Choosing and tuning a model backend]
+* xref:streaming.adoc[Streaming synthesis and the gRPC frontend]
+* xref:phonemizers.adoc[Phonemizer language coverage]
 * xref:testing.adoc[Testing]
 * xref:architecture.adoc[Architecture]

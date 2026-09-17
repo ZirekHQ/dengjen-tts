@@ -1,0 +1,73 @@
+= Phonemizer language coverage
+
+dengjen-tts phonemizes text through three dedicated crates under `crates/text/`
+(`dengjen-espeak-phonemizer`, `dengjen-hebrew-phonemizer`, `dengjen-pinyin-phonemizer`) that
+Piper, Kokoro, and MeloTTS each call directly rather than through a shared `Phonemizer` trait
+(see xref:architecture.adoc[Architecture] for why). Language support is therefore a property of
+*which phonemizer a voice manifest selects*, not a single project-wide language list.
+
+== What's actually wired up today
+
+[cols="1,2,3"]
+|===
+|Backend |Phonemizer |Language coverage
+
+|Piper
+|`phoneme_type: "espeak"` (default)
+|Whatever espeak-ng voice the manifest's `espeak.voice` field names — see the full list below.
+
+|Piper
+|`phoneme_type: "text"`
+|None — raw passthrough, for voices already trained on phonemic/symbol text.
+
+|Piper
+|`phoneme_type: "hebrew"`
+|Hebrew only (Nakdimon diacritization + IPA).
+
+|Piper
+|`phoneme_type: "pinyin"`
+|Mandarin Chinese only.
+
+|Kokoro
+|Hardcoded, not manifest-configurable
+|English (`en-US`) only, regardless of voice.
+
+|MeloTTS
+|`{"type": "espeak", "voice": "..."}`
+|English, Spanish, French, Japanese, Korean.
+
+|MeloTTS
+|`{"type": "pinyin", "model_dir": "..."}`
+|Mandarin Chinese, with real tone extraction (needs the `pinyin` Cargo feature).
+|===
+
+MeloTTS's pinyin path and Piper's `hebrew`/`pinyin` paths are the only ones with dedicated,
+tone- or diacritic-aware handling; espeak-backed paths get IPA phonemes only.
+
+== espeak-ng's full language list
+
+Piper's `espeak` phoneme type and MeloTTS's `espeak` phonemizer both accept any language/locale
+code espeak-ng itself ships. The list below is extracted directly from
+`dengjen-espeak-rs-sys`'s bundled `espeak-ng-data/lang/` (the actual fork this project vendors),
+not from upstream espeak-ng documentation, so it reflects what's really available at runtime:
+
+....
+ab, af, am, an, ar, as, az, ba, be, bg, bn, bpy, bs, ca, ca-ba, ca-nw, ca-va, chr, cmn,
+cmn-Latn-pinyin, crh, cs, cv, cy, da, de, el, en, en-029, en-GB-scotland, en-GB-x-gbclan,
+en-GB-x-gbcwmd, en-GB-x-rp, en-Shaw, en-US, en-US-nyc, eo, es, es-419, et, eu, fa, fa-Latn,
+fi, fo, fr, fr-BE, fr-CH, ga, gd, gn, grc, gu, hak, haw, he, hi, hr, ht, hu, hy, hyw, ia, id,
+io, is, it, ja, jbo, ka, kaa, kk, kl, kn, ko, kok, ku, ky, la, lb, lfn, lt, ltg, lv, mi, mk,
+ml, mn, mr, ms, mt, mto, my, nb, nci, ne, nl, nog, om, or, pa, pap, piqd, pl, ps, pt, pt-BR,
+py, qdb, qu, quc, qya, ro, ru, ru-cl, ru-LV, rup, sd, shn, si, sjn, sk, sl, smj, sq, sr, sv,
+sw, ta, te, th, ti, tk, tn, tr, tt, ug, uk, ur, uz, vi, vi-VN-x-central, vi-VN-x-south, xex,
+yue, yue-Latn-jyutping
+....
+
+[IMPORTANT]
+====
+This is espeak-ng's own capability, not a dengjen-tts guarantee. dengjen-tts's own test suite
+only exercises English voices end-to-end; any other language on this list will phonemize (espeak-ng
+supports it), but whether a *given Piper or MeloTTS ONNX voice* — trained on some specific
+language's phoneme set — actually produces intelligible speech from that phonemization is
+untested by this project and depends entirely on the voice model itself.
+====
