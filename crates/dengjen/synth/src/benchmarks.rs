@@ -1,5 +1,4 @@
 fn main() {
-    dev_utils::init();
     divan::main();
 }
 
@@ -26,7 +25,11 @@ mod speech_streams {
     #[divan::bench(threads = 4)]
     fn bench_lazy_stream(bencher: Bencher) {
         bencher
-            .with_inputs(|| dev_utils::gen_params("std"))
+            .with_inputs(|| {
+                dev_utils::gen_params("std")
+                    .expect("failed to load std voice fixture")
+                    .expect("std voice fixture missing; see CONTRIBUTING.md#benchmarks")
+            })
             .bench_local_refs(|(synth, text, output_config)| {
                 let stream = synth
                     .synthesize_lazy(text.clone(), output_config.clone())
@@ -39,7 +42,11 @@ mod speech_streams {
     #[divan::bench]
     fn bench_parallel_stream(bencher: Bencher) {
         bencher
-            .with_inputs(|| dev_utils::gen_params("std"))
+            .with_inputs(|| {
+                dev_utils::gen_params("std")
+                    .expect("failed to load std voice fixture")
+                    .expect("std voice fixture missing; see CONTRIBUTING.md#benchmarks")
+            })
             .bench_local_refs(|(synth, text, output_config)| {
                 let stream = synth
                     .synthesize_parallel(text.clone(), output_config.clone())
@@ -52,7 +59,11 @@ mod speech_streams {
     #[divan::bench]
     fn bench_realtime_stream(bencher: Bencher) {
         bencher
-            .with_inputs(|| dev_utils::gen_params("rt"))
+            .with_inputs(|| {
+                dev_utils::gen_params("rt")
+                    .expect("failed to load rt voice fixture")
+                    .expect("rt voice fixture missing; see CONTRIBUTING.md#benchmarks")
+            })
             .bench_local_refs(|(synth, text, output_config)| {
                 let stream = synth
                     .synthesize_streamed(
@@ -70,7 +81,11 @@ mod speech_streams {
     #[divan::bench]
     fn bench_lazy_stream_latency(bencher: Bencher) {
         bencher
-            .with_inputs(|| dev_utils::gen_params("std"))
+            .with_inputs(|| {
+                dev_utils::gen_params("std")
+                    .expect("failed to load std voice fixture")
+                    .expect("std voice fixture missing; see CONTRIBUTING.md#benchmarks")
+            })
             .bench_local_refs(|(synth, text, output_config)| {
                 let stream = synth
                     .synthesize_lazy(text.clone(), output_config.clone())
@@ -83,7 +98,11 @@ mod speech_streams {
     #[divan::bench]
     fn bench_parallel_stream_latency(bencher: Bencher) {
         bencher
-            .with_inputs(|| dev_utils::gen_params("std"))
+            .with_inputs(|| {
+                dev_utils::gen_params("std")
+                    .expect("failed to load std voice fixture")
+                    .expect("std voice fixture missing; see CONTRIBUTING.md#benchmarks")
+            })
             .bench_local_refs(|(synth, text, output_config)| {
                 let stream = synth
                     .synthesize_parallel(text.clone(), output_config.clone())
@@ -96,7 +115,11 @@ mod speech_streams {
     #[divan::bench]
     fn bench_realtime_stream_latency(bencher: Bencher) {
         bencher
-            .with_inputs(|| dev_utils::gen_params("rt"))
+            .with_inputs(|| {
+                dev_utils::gen_params("rt")
+                    .expect("failed to load rt voice fixture")
+                    .expect("rt voice fixture missing; see CONTRIBUTING.md#benchmarks")
+            })
             .bench_local_refs(|(synth, text, output_config)| {
                 let stream = synth
                     .synthesize_streamed(

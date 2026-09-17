@@ -128,7 +128,12 @@ fn realtime_stream_emits_nested_synthesis_request_and_chunk_spans() {
 
 #[test]
 fn test_lazy_stream() -> DengjenResult<()> {
-    let (synthesizer, text, config) = dev_utils::gen_params("std");
+    let Some((synthesizer, text, config)) = dev_utils::gen_params("std")? else {
+        eprintln!(
+            "skipping test_lazy_stream: no std voice fixture at crates/dengjen/synth/models/std/ (see #220)"
+        );
+        return Ok(());
+    };
     let stream = synthesizer
         .synthesize_lazy(text, config)?
         .map(|chunk| chunk.map(|c| c.samples));
@@ -137,7 +142,12 @@ fn test_lazy_stream() -> DengjenResult<()> {
 
 #[test]
 fn test_parallel_stream() -> DengjenResult<()> {
-    let (synthesizer, text, config) = dev_utils::gen_params("std");
+    let Some((synthesizer, text, config)) = dev_utils::gen_params("std")? else {
+        eprintln!(
+            "skipping test_parallel_stream: no std voice fixture at crates/dengjen/synth/models/std/ (see #220)"
+        );
+        return Ok(());
+    };
     let stream = synthesizer
         .synthesize_parallel(text, config)?
         .map(|chunk| chunk.map(|c| c.samples));
@@ -146,7 +156,12 @@ fn test_parallel_stream() -> DengjenResult<()> {
 
 #[test]
 fn test_realtime_stream() -> DengjenResult<()> {
-    let (synthesizer, text, config) = dev_utils::gen_params("rt");
+    let Some((synthesizer, text, config)) = dev_utils::gen_params("rt")? else {
+        eprintln!(
+            "skipping test_realtime_stream: no rt voice fixture at crates/dengjen/synth/models/rt/ (see #220)"
+        );
+        return Ok(());
+    };
     let cancel = dengjen_tts_core::CancellationToken::new();
     let stream = synthesizer.synthesize_streamed(text, config, 72, 3, cancel)?;
     dev_utils::iterate_stream(stream)

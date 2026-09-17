@@ -364,6 +364,63 @@ jobs:
       - name: cargo test (dengjen-tts-cli, kokoro real voice e2e)
         run: cargo test -p dengjen-tts-cli --test kokoro_e2e
 
+  # Gated by PIPER_STD_TEST_VOICE_ARCHIVE_URL / PIPER_RT_TEST_VOICE_ARCHIVE_URL (unset until a
+  # maintainer vets a real Piper export's license, so this job's `if:` skips entirely). Divan
+  # panics on a missing fixture, so bench steps are gated per-voice; tests self-skip instead.
+  piper-real-voice-e2e:
+    if: |
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+      (vars.PIPER_STD_TEST_VOICE_ARCHIVE_URL != '' || vars.PIPER_RT_TEST_VOICE_ARCHIVE_URL != '')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-native-build-deps # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
+        timeout-minutes: 15
+        with:
+          apt-packages: llvm llvm-dev llvm-runtime libclang-dev espeak-ng
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: download real Piper std voice fixture
+        if: vars.PIPER_STD_TEST_VOICE_ARCHIVE_URL != ''
+        run: |
+          mkdir -p crates/dengjen/synth/models/std
+          curl -fsSL "${VARS_PIPER_STD_TEST_VOICE_ARCHIVE_URL}" -o /tmp/piper-std-voice.tar.gz
+          tar -xzf /tmp/piper-std-voice.tar.gz -C crates/dengjen/synth/models/std
+        env:
+          VARS_PIPER_STD_TEST_VOICE_ARCHIVE_URL: ${{ vars.PIPER_STD_TEST_VOICE_ARCHIVE_URL }}
+      - name: download real Piper rt voice fixture
+        if: vars.PIPER_RT_TEST_VOICE_ARCHIVE_URL != ''
+        run: |
+          mkdir -p crates/dengjen/synth/models/rt
+          curl -fsSL "${VARS_PIPER_RT_TEST_VOICE_ARCHIVE_URL}" -o /tmp/piper-rt-voice.tar.gz
+          tar -xzf /tmp/piper-rt-voice.tar.gz -C crates/dengjen/synth/models/rt
+        env:
+          VARS_PIPER_RT_TEST_VOICE_ARCHIVE_URL: ${{ vars.PIPER_RT_TEST_VOICE_ARCHIVE_URL }}
+      - name: cargo test (dengjen-tts, real Piper voice streams)
+        run: cargo test -p dengjen-tts --test tests -- test_lazy_stream test_parallel_stream test_realtime_stream
+      - name: cargo bench (dengjen-tts, std voice)
+        if: vars.PIPER_STD_TEST_VOICE_ARCHIVE_URL != ''
+        run: |
+          {
+            echo '### dengjen-tts (std voice) benchmarks'
+            echo '```'
+            cargo bench -p dengjen-tts --bench benchmarks -- bench_lazy_stream bench_parallel_stream bench_lazy_stream_latency bench_parallel_stream_latency
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: cargo bench (dengjen-tts, rt voice)
+        if: vars.PIPER_RT_TEST_VOICE_ARCHIVE_URL != ''
+        run: |
+          {
+            echo '### dengjen-tts (rt voice) benchmarks'
+            echo '```'
+            cargo bench -p dengjen-tts --bench benchmarks -- bench_realtime_stream bench_realtime_stream_latency
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   # libdengjen (crates/frontends/capi) depends on nearly the whole crate graph, so this
   # filters on all of crates/** rather than a narrow subset -- a hand-picked shorter list
   # would risk silently skipping a rebuild a real dependency change needed.
