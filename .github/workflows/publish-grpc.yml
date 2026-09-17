@@ -26,19 +26,19 @@ jobs:
     outputs:
       skip: ${{ steps.check.outputs.skip }}
     steps:
-      # github.workflow_ref stays bound to the top-level caller even inside a called reusable
-      # workflow -- rejects a differently-named workflow file invoking this publish flow directly,
-      # or a workflow_dispatch of release.yml from a non-main branch, either of which would skip
-      # release.yml's tag-and-release gate. Compares the full ref, not just the path: stripping the
-      # @ref accepted any branch. Same check as publish-crates.yml.
-      - name: verify this workflow was only reached through release.yml on main
+      # github.workflow_ref stays bound to the top-level caller through nested workflow_call hops
+      # too -- release.yml (always @refs/heads/main) or prepare-release.yml (the override path,
+      # which can legitimately run from a stale-retry tag ref, not just main).
+      - name: verify this workflow was only reached through release.yml or prepare-release.yml
         env:
           WORKFLOW_REF: ${{ github.workflow_ref }}
         run: |
           set -euo pipefail
-          expected="ZirekHQ/dengjen-tts/.github/workflows/release.yml@refs/heads/main"
-          if [ "$WORKFLOW_REF" != "$expected" ]; then
-            echo "::error::workflow_ref is '${WORKFLOW_REF}', expected '${expected}' -- refusing to run outside release.yml's main-branch flow" >&2
+          expected_release="ZirekHQ/dengjen-tts/.github/workflows/release.yml@refs/heads/main"
+          expected_prepare_path="ZirekHQ/dengjen-tts/.github/workflows/prepare-release.yml"
+          actual_path="${WORKFLOW_REF%@*}"
+          if [ "$WORKFLOW_REF" != "$expected_release" ] && [ "$actual_path" != "$expected_prepare_path" ]; then
+            echo "::error::workflow_ref is '${WORKFLOW_REF}', expected '${expected_release}' or '${expected_prepare_path}@<any ref>' -- refusing to run outside release.yml's main-branch flow or prepare-release.yml's override path" >&2
             exit 1
           fi
       - name: Check whether this version already has a GitHub Release

@@ -38,21 +38,19 @@ jobs:
       # matches the JWT's top-level triggering workflow, not this reusable file -- configure
       # release.yml there, not this file, even though id-token: write lives here.
 
-      # github.workflow_ref stays bound to the top-level caller even inside a called reusable
-      # workflow, so it mirrors the OIDC workflow_ref claim crates.io checks (see piper-rs #107).
-      # Compares the full ref, not just the path: stripping the @ref (old behavior) accepted a
-      # workflow_dispatch from any branch, not just main, which tag-and-release itself requires.
-      # crates.io's own Trusted Publishing config only pins the filename, not the branch -- this
-      # is stricter than that on purpose.
+      # github.workflow_ref stays bound to the top-level caller through nested workflow_call hops
+      # too -- release.yml (always @refs/heads/main, its only trigger) or prepare-release.yml (the
+      # override path, which can legitimately run from a tag ref -- see the stale-retry path).
       - name: verify OIDC workflow_ref matches crates.io Trusted Publishing target
         env:
           WORKFLOW_REF: ${{ github.workflow_ref }}
         run: |
           set -euo pipefail
-          expected_path="ZirekHQ/dengjen-tts/.github/workflows/release.yml"
-          expected="${expected_path}@refs/heads/main"
-          if [ "$WORKFLOW_REF" != "$expected" ]; then
-            echo "::error::workflow_ref is '${WORKFLOW_REF}', expected '${expected}'. crates.io Trusted Publishing for all 14 crates targets '${expected_path##*/}' -- if this workflow was renamed, update crates.io's config and this expected value together." >&2
+          expected_release="ZirekHQ/dengjen-tts/.github/workflows/release.yml@refs/heads/main"
+          expected_prepare_path="ZirekHQ/dengjen-tts/.github/workflows/prepare-release.yml"
+          actual_path="${WORKFLOW_REF%@*}"
+          if [ "$WORKFLOW_REF" != "$expected_release" ] && [ "$actual_path" != "$expected_prepare_path" ]; then
+            echo "::error::workflow_ref is '${WORKFLOW_REF}', expected '${expected_release}' or '${expected_prepare_path}@<any ref>'. crates.io Trusted Publishing for all 14 crates must target both release.yml and prepare-release.yml -- if either workflow was renamed, update crates.io's config and this check together." >&2
             exit 1
           fi
       - name: Authenticate with crates.io
