@@ -1,7 +1,8 @@
 name: Publish Python wheels
 
-# Called as a job of release.yml's flow; release.yml's own gate job (single-trigger,
-# single-gate) covers this file too, so it has none of its own. Separate from CI.yml's
+# Called as a job of release.yml's flow. release.yml has no gate of its own: the push-to-main
+# path is gated by the PR merge that triggers it, and the override path is gated by
+# prepare-release.yml's own `gate` job before it ever calls release.yml. Separate from CI.yml's
 # own build matrix, which smoke-tests on every push/PR but never publishes -- this file
 # duplicates that matrix rather than sharing it, same split tashkeel already uses for its
 # own python-wheel.yml (CI-only) vs python-publish.yml (release-only) pair.
@@ -241,18 +242,19 @@ jobs:
       # `if:` can't reference `secrets.*` directly -- mirror it into `env` so the step below can.
       PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
     steps:
-      # github.workflow_ref stays bound to the top-level caller even inside a called reusable
-      # workflow -- rejects a differently-named workflow file invoking this publish flow directly,
-      # or a workflow_dispatch of release.yml from a non-main branch, either of which would skip
-      # release.yml's tag-and-release gate. Same check as publish-crates/go/grpc/java.yml.
-      - name: verify this workflow was only reached through release.yml on main
+      # github.workflow_ref stays bound to the top-level caller through nested workflow_call hops
+      # too -- release.yml (always @refs/heads/main) or prepare-release.yml (the override path,
+      # which can legitimately run from a stale-retry tag ref, not just main).
+      - name: verify this workflow was only reached through release.yml or prepare-release.yml
         env:
           WORKFLOW_REF: ${{ github.workflow_ref }}
         run: |
           set -euo pipefail
-          expected="ZirekHQ/dengjen-tts/.github/workflows/release.yml@refs/heads/main"
-          if [ "$WORKFLOW_REF" != "$expected" ]; then
-            echo "::error::workflow_ref is '${WORKFLOW_REF}', expected '${expected}' -- refusing to run outside release.yml's main-branch flow" >&2
+          expected_release="ZirekHQ/dengjen-tts/.github/workflows/release.yml@refs/heads/main"
+          expected_prepare_path="ZirekHQ/dengjen-tts/.github/workflows/prepare-release.yml"
+          actual_path="${WORKFLOW_REF%@*}"
+          if [ "$WORKFLOW_REF" != "$expected_release" ] && [ "$actual_path" != "$expected_prepare_path" ]; then
+            echo "::error::workflow_ref is '${WORKFLOW_REF}', expected '${expected_release}' or '${expected_prepare_path}@<any ref>' -- refusing to run outside release.yml's main-branch flow or prepare-release.yml's override path" >&2
             exit 1
           fi
       # No `working-directory` here: `path: dist` downloads artifacts to $GITHUB_WORKSPACE/dist/, and

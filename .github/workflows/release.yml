@@ -1,13 +1,15 @@
 name: Release
 
+# No trigger or gate of its own -- prepare-release.yml is the single entry point (its `prepare`
+# job for the PR-merge path, `gate`+`release-now` for the override path). Reacts to that PR's
+# merge landing on main (push) or the override path's direct call (workflow_call).
 on:
   push:
     branches:
       - main
-  workflow_dispatch:
+  workflow_call:
     inputs:
       new_tag:
-        description: "Override the vX.Y.Z tag"
         required: false
         type: string
       previous_tag:
@@ -15,36 +17,36 @@ on:
         required: false
         type: string
       dry_run:
-        description: "Dry Run: publish nothing"
         required: false
         type: boolean
         default: false
+    secrets:
+      JRELEASER_MAVENCENTRAL_USERNAME:
+        required: false
+      JRELEASER_MAVENCENTRAL_PASSWORD:
+        required: false
+      JRELEASER_GPG_PASSPHRASE:
+        required: false
+      JRELEASER_GPG_SECRET_KEY:
+        required: false
+      JRELEASER_GPG_PUBLIC_KEY:
+        required: false
+      DENGJEN_TTS_GO_DEPLOY_TOKEN:
+        required: false
+      PYPI_API_TOKEN:
+        required: false
 
 permissions: {}
 
 jobs:
-  # Single gate for the whole pipeline: the push path needs none, its approval was the
-  # PR merge. Gating tag-and-release rather than the publish file widens coverage to the
-  # tag push -- the old per-file gates covered publishing only.
-  gate:
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    environment: release
-    steps:
-      - run: echo "approved"
-
   tag-and-release:
-    needs: gate
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # head_commit is absent on workflow_dispatch, hence the event_name check first. Combined
-    # with needs.gate: a push-triggered run skips gate (event_name != workflow_dispatch) and
-    # proceeds if the commit message matches; a dispatched run must clear gate first.
+    # github.event_name inherits the top-level caller's event through nested workflow_call hops,
+    # not literally 'workflow_call' -- inputs.new_tag != '' detects the override path directly.
     if: >-
-      always() && (needs.gate.result == 'success' || needs.gate.result == 'skipped') &&
-      (github.event_name == 'workflow_dispatch' ||
-      startsWith(github.event.head_commit.message, 'chore: bump workspace version -> '))
+      inputs.new_tag != '' ||
+      startsWith(github.event.head_commit.message, 'chore: bump workspace version -> ')
     permissions:
       contents: write
     outputs:
@@ -60,14 +62,19 @@ jobs:
           NEW_TAG: ${{ inputs.new_tag }}
         run: |
           set -euo pipefail
+          cargo_version="$(awk '/^\[workspace\.package\]/{f=1;next} /^\[/{f=0} f && /^version = /{gsub(/version = "|"/,""); print; exit}' Cargo.toml)"
           if [ -n "${NEW_TAG:-}" ]; then
             version="${NEW_TAG#v}"
             if ! echo "$version" | grep -qE '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'; then
               echo "::error::new_tag '${NEW_TAG}' doesn't look like a vX.Y.Z tag" >&2
               exit 1
             fi
+            if [ "$version" != "$cargo_version" ]; then
+              echo "::error::new_tag '${NEW_TAG}' (${version}) doesn't match Cargo.toml's workspace version (${cargo_version}) -- crates.io/PyPI publish from this checkout's Cargo.toml, not the tag, so a mismatch would silently publish the wrong version under this tag" >&2
+              exit 1
+            fi
           else
-            version="$(awk '/^\[workspace\.package\]/{f=1;next} /^\[/{f=0} f && /^version = /{gsub(/version = "|"/,""); print; exit}' Cargo.toml)"
+            version="$cargo_version"
           fi
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
@@ -98,8 +105,6 @@ jobs:
   crates:
     name: crates.io
     needs: tag-and-release
-    # Default `if: success()` checks the whole needs chain, not just this job's own direct
-    # need -- gate's skip (expected on a push trigger) otherwise propagates down and skips this too.
     if: "!cancelled() && needs.tag-and-release.result == 'success'"
     permissions:
       contents: read
@@ -162,16 +167,13 @@ jobs:
     secrets:
       PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
 
-  # crates/java/go/grpc each publish their own artifact-scoped release, none of which represent
-  # the repo as a whole -- without this job the `v${VERSION}` tag never gets a release object, so
-  # GitHub's `/releases/latest` falls back to whichever component release published last.
-  #
-  # python is deliberately NOT in needs/if here: PyPI publishing has never actually worked in
-  # this repo (no PYPI_API_TOKEN configured), so gating the whole-repo release on it would turn
-  # a pre-existing, already-broken capability into a hard release blocker -- worse than today's
-  # behavior, where it was a decoupled dispatch release.yml never even saw the result of.
+  # Represents the whole repo -- crates/java/go/grpc jobs only publish artifact-scoped releases,
+  # so without this job GitHub's `/releases/latest` would fall back to whichever component
+  # release published last.
   github-release:
     name: Whole-repo GitHub Release
+    # python excluded deliberately: PyPI publishing has never worked here (no PYPI_API_TOKEN),
+    # so gating the whole-repo release on it would turn a pre-existing gap into a hard blocker.
     needs: [tag-and-release, crates, java, go, grpc]
     if: >-
       !cancelled() && inputs.dry_run != true &&

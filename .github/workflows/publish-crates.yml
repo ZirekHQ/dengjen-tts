@@ -1,8 +1,8 @@
 name: Publish to crates.io
 
-# Called as a job of release.yml's flow; release.yml's own gate job (single-trigger,
-# single-gate) covers this file too, so it has none of its own. Not tag-triggered
-# itself, so a stray tag push can't fire a real publish.
+# Called as a job of release.yml's flow, which is gated upstream (PR merge for the normal path,
+# prepare-release.yml's `gate` job for the override path) -- this file has none of its own. Not
+# tag-triggered itself, so a stray tag push can't fire a real publish.
 on:
   workflow_call:
     inputs:
@@ -34,25 +34,23 @@ jobs:
       # channel comes from rust-toolchain.toml
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
 
-      # Requires Trusted Publishing configured on crates.io for all 14 crates below. crates.io
-      # matches the JWT's top-level triggering workflow, not this reusable file -- configure
-      # release.yml there, not this file, even though id-token: write lives here.
+      # Requires crates.io Trusted Publishing configured for all 14 crates, targeting BOTH
+      # release.yml and prepare-release.yml (crates.io matches the JWT's top-level triggering
+      # workflow, not this reusable file, even though id-token: write lives here).
 
-      # github.workflow_ref stays bound to the top-level caller even inside a called reusable
-      # workflow, so it mirrors the OIDC workflow_ref claim crates.io checks (see piper-rs #107).
-      # Compares the full ref, not just the path: stripping the @ref (old behavior) accepted a
-      # workflow_dispatch from any branch, not just main, which tag-and-release itself requires.
-      # crates.io's own Trusted Publishing config only pins the filename, not the branch -- this
-      # is stricter than that on purpose.
+      # github.workflow_ref stays bound to the top-level caller through nested workflow_call hops
+      # too -- release.yml (always @refs/heads/main, its only trigger) or prepare-release.yml (the
+      # override path, which can legitimately run from a tag ref -- see the stale-retry path).
       - name: verify OIDC workflow_ref matches crates.io Trusted Publishing target
         env:
           WORKFLOW_REF: ${{ github.workflow_ref }}
         run: |
           set -euo pipefail
-          expected_path="ZirekHQ/dengjen-tts/.github/workflows/release.yml"
-          expected="${expected_path}@refs/heads/main"
-          if [ "$WORKFLOW_REF" != "$expected" ]; then
-            echo "::error::workflow_ref is '${WORKFLOW_REF}', expected '${expected}'. crates.io Trusted Publishing for all 14 crates targets '${expected_path##*/}' -- if this workflow was renamed, update crates.io's config and this expected value together." >&2
+          expected_release="ZirekHQ/dengjen-tts/.github/workflows/release.yml@refs/heads/main"
+          expected_prepare_path="ZirekHQ/dengjen-tts/.github/workflows/prepare-release.yml"
+          actual_path="${WORKFLOW_REF%@*}"
+          if [ "$WORKFLOW_REF" != "$expected_release" ] && [ "$actual_path" != "$expected_prepare_path" ]; then
+            echo "::error::workflow_ref is '${WORKFLOW_REF}', expected '${expected_release}' or '${expected_prepare_path}@<any ref>'. crates.io Trusted Publishing for all 14 crates must target both release.yml and prepare-release.yml -- if either workflow was renamed, update crates.io's config and this check together." >&2
             exit 1
           fi
       - name: Authenticate with crates.io
