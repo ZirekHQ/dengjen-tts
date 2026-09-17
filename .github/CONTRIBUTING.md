@@ -83,9 +83,10 @@ step is idempotent (skips an artifact already published):
 - Stale version (a newer version has since bumped past it on `main`): run **Prepare release**
   again, this time from the old tag (`--ref v<old-version>` on the CLI, or pick it from the
   branch/tag dropdown in the Actions tab) with `new_tag: v<old-version>` set. This is the
-  direct-release override path above — it resolves the version from that tag's own `Cargo.toml`
-  rather than computing a new one, and the tag-push step's existing-tag branch reuses the tag
-  rather than erroring, so it doesn't need `main` to still be at that version. Only works for tags
+  direct-release override path above — it takes the version from `new_tag` directly (checked
+  against that ref's own `Cargo.toml` to catch a mismatch, but not read from it), and the
+  tag-push step's existing-tag branch reuses the tag rather than erroring, so it doesn't need
+  `main` to still be at that version. Only works for tags
   cut *after* this override path shipped — dispatching against an older tag runs *that tag's* copy
   of these workflow files, which won't have the `new_tag` input or the `workflow_call` trigger this
   retry path depends on.

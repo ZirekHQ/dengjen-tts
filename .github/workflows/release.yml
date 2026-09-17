@@ -62,20 +62,27 @@ jobs:
           NEW_TAG: ${{ inputs.new_tag }}
         run: |
           set -euo pipefail
+          cargo_version="$(awk '/^\[workspace\.package\]/{f=1;next} /^\[/{f=0} f && /^version = /{gsub(/version = "|"/,""); print; exit}' Cargo.toml)"
           if [ -n "${NEW_TAG:-}" ]; then
             version="${NEW_TAG#v}"
             if ! echo "$version" | grep -qE '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'; then
               echo "::error::new_tag '${NEW_TAG}' doesn't look like a vX.Y.Z tag" >&2
               exit 1
             fi
+            if [ "$version" != "$cargo_version" ]; then
+              echo "::error::new_tag '${NEW_TAG}' (${version}) doesn't match Cargo.toml's workspace version (${cargo_version}) -- crates.io/PyPI publish from this checkout's Cargo.toml, not the tag, so a mismatch would silently publish the wrong version under this tag" >&2
+              exit 1
+            fi
           else
-            version="$(awk '/^\[workspace\.package\]/{f=1;next} /^\[/{f=0} f && /^version = /{gsub(/version = "|"/,""); print; exit}' Cargo.toml)"
+            version="$cargo_version"
           fi
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Push release tag
+        if: inputs.dry_run != true
         env:
           VERSION: ${{ steps.version.outputs.version }}
+        # Checked against origin, not the local clone -- checkout's shallow fetch wouldn't reliably reflect a tag pushed by an earlier attempt.
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"

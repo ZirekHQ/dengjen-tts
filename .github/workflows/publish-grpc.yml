@@ -1,8 +1,9 @@
 name: Publish gRPC server release
 
 on:
-  # Called as a job of release.yml's flow; release.yml's own gate job (single-trigger,
-  # single-gate) covers this file too, so it has none of its own.
+  # Called as a job of release.yml's flow. release.yml has no gate of its own: the push-to-main
+  # path is gated by the PR merge that triggers it, and the override path is gated by
+  # prepare-release.yml's own `gate` job before it ever calls release.yml.
   workflow_call:
     inputs:
       tag:
