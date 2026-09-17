@@ -167,16 +167,13 @@ jobs:
     secrets:
       PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
 
-  # crates/java/go/grpc each publish their own artifact-scoped release, none of which represent
-  # the repo as a whole -- without this job the `v${VERSION}` tag never gets a release object, so
-  # GitHub's `/releases/latest` falls back to whichever component release published last.
-  #
-  # python is deliberately NOT in needs/if here: PyPI publishing has never actually worked in
-  # this repo (no PYPI_API_TOKEN configured), so gating the whole-repo release on it would turn
-  # a pre-existing, already-broken capability into a hard release blocker -- worse than today's
-  # behavior, where it was a decoupled dispatch release.yml never even saw the result of.
+  # Represents the whole repo -- crates/java/go/grpc jobs only publish artifact-scoped releases,
+  # so without this job GitHub's `/releases/latest` would fall back to whichever component
+  # release published last.
   github-release:
     name: Whole-repo GitHub Release
+    # python excluded deliberately: PyPI publishing has never worked here (no PYPI_API_TOKEN),
+    # so gating the whole-repo release on it would turn a pre-existing gap into a hard blocker.
     needs: [tag-and-release, crates, java, go, grpc]
     if: >-
       !cancelled() && inputs.dry_run != true &&

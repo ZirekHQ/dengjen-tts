@@ -1,9 +1,7 @@
 name: Prepare release
 
-# Single entry point for releases. Normal path: proposes a release via PR; merging it is what
-# actually cuts one -- release.yml tags that merge commit and triggers every downstream release
-# workflow automatically. Override path (`new_tag` set): skips the PR, requires approval via the
-# `gate` job, then `release-now` calls release.yml directly for that tag.
+# Single entry point for releases -- see `prepare` (normal path, opens a version-bump PR) and
+# `gate`/`release-now` (override path, requires approval) below for the two paths.
 on:
   workflow_dispatch:
     inputs:

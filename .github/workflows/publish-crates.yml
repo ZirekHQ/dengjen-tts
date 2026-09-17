@@ -1,9 +1,8 @@
 name: Publish to crates.io
 
-# Called as a job of release.yml's flow. release.yml has no gate of its own: the push-to-main
-# path is gated by the PR merge that triggers it, and the override path is gated by
-# prepare-release.yml's own `gate` job before it ever calls release.yml. Not tag-triggered
-# itself, so a stray tag push can't fire a real publish.
+# Called as a job of release.yml's flow, which is gated upstream (PR merge for the normal path,
+# prepare-release.yml's `gate` job for the override path) -- this file has none of its own. Not
+# tag-triggered itself, so a stray tag push can't fire a real publish.
 on:
   workflow_call:
     inputs:
@@ -35,10 +34,9 @@ jobs:
       # channel comes from rust-toolchain.toml
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
 
-      # Requires Trusted Publishing configured on crates.io for all 14 crates below, targeting
-      # BOTH release.yml and prepare-release.yml (crates.io matches the JWT's top-level triggering
-      # workflow, not this reusable file -- neither is configured here, even though
-      # id-token: write lives here).
+      # Requires crates.io Trusted Publishing configured for all 14 crates, targeting BOTH
+      # release.yml and prepare-release.yml (crates.io matches the JWT's top-level triggering
+      # workflow, not this reusable file, even though id-token: write lives here).
 
       # github.workflow_ref stays bound to the top-level caller through nested workflow_call hops
       # too -- release.yml (always @refs/heads/main, its only trigger) or prepare-release.yml (the
