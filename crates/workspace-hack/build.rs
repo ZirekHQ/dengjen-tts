@@ -1,2 +1,4 @@
 // A build script is required for cargo to consider build dependencies.
-fn main() {}
+fn main() -> Result<(), std::convert::Infallible> {
+    Ok(())
+}
