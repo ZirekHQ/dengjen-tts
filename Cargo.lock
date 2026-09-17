@@ -510,11 +510,12 @@ dependencies = [
 
 [[package]]
 name = "dengjen-espeak-rs-sys"
-version = "0.2.2"
+version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3cb0b50f7ef5b45298e9283b74f06813f9f527df29db74932e78df9399b1950"
+checksum = "7357c38845f746df9806265eed6a4f27452c1dd75c9e6f6d95ec5a1ea00e9999"
 dependencies = [
  "bindgen",
+ "cc",
  "cmake",
  "glob",
  "lzma-rs",
@@ -557,9 +558,9 @@ dependencies = [
 
 [[package]]
 name = "dengjen-tashkeel"
-version = "1.6.2"
+version = "1.6.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17f2061ad7a26c6968012557bb539c7a76b522e401141266f3a921d5b1d62d07"
+checksum = "fe906ac36ad13bf2b7ccc9ff45468566b39c006ef547408213c3f45ce9ca7b3f"
 dependencies = [
  "libtqsm",
  "log",
@@ -788,7 +789,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1892,7 +1893,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2160,7 +2161,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
