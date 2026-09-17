@@ -3,8 +3,8 @@ use dengjen_tts::{
     AudioOutputConfig, AudioSamples, DengjenModel, DengjenResult, DengjenSpeechSynthesizer,
 };
 use dengjen_tts_piper::from_config_path;
-use once_cell::sync::Lazy;
-use std::path::{Path, PathBuf};
+use once_cell::sync::OnceCell;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 const TEXT: &[&str] = &[
@@ -21,30 +21,46 @@ fn fixture_model_path(segments: &[&str]) -> PathBuf {
         })
 }
 
-fn load_voice(config_path: &Path) -> Arc<dyn DengjenModel + Send + Sync> {
-    from_config_path(config_path).unwrap()
+const STD_VOICE_FIXTURE: &[&str] = &["models", "std", "model.onnx.json"];
+const RT_VOICE_FIXTURE: &[&str] = &["models", "rt", "config.json"];
+
+static STD_VOICE: OnceCell<Arc<dyn DengjenModel + Send + Sync>> = OnceCell::new();
+static RT_VOICE: OnceCell<Arc<dyn DengjenModel + Send + Sync>> = OnceCell::new();
+
+fn load_voice(
+    cell: &OnceCell<Arc<dyn DengjenModel + Send + Sync>>,
+    segments: &[&str],
+) -> DengjenResult<Arc<dyn DengjenModel + Send + Sync>> {
+    cell.get_or_try_init(|| from_config_path(&fixture_model_path(segments)))
+        .map(Arc::clone)
 }
 
-static STD_VOICE: Lazy<Arc<dyn DengjenModel + Send + Sync>> =
-    Lazy::new(|| load_voice(&fixture_model_path(&["models", "std", "model.onnx.json"])));
-
-static RT_VOICE: Lazy<Arc<dyn DengjenModel + Send + Sync>> =
-    Lazy::new(|| load_voice(&fixture_model_path(&["models", "rt", "config.json"])));
-
-#[allow(dead_code)]
-pub fn init() {
-    Lazy::force(&STD_VOICE);
-    Lazy::force(&RT_VOICE);
-}
-
-pub fn gen_params(kind: &str) -> (DengjenSpeechSynthesizer, String, Option<AudioOutputConfig>) {
-    let voice = match kind {
-        "std" => Arc::clone(&STD_VOICE),
-        "rt" => Arc::clone(&RT_VOICE),
+/// Returns `Ok(None)` when the fixture backing `kind` isn't present on disk, so
+/// callers can skip rather than fail on machines without real Piper voices
+/// (see CONTRIBUTING.md#benchmarks and issue #220). A present-but-invalid
+/// fixture surfaces as `Err` rather than a silent skip.
+pub fn gen_params(
+    kind: &str,
+) -> DengjenResult<Option<(DengjenSpeechSynthesizer, String, Option<AudioOutputConfig>)>> {
+    let (fixture_path, segments, cell) = match kind {
+        "std" => (
+            fixture_model_path(STD_VOICE_FIXTURE),
+            STD_VOICE_FIXTURE,
+            &STD_VOICE,
+        ),
+        "rt" => (
+            fixture_model_path(RT_VOICE_FIXTURE),
+            RT_VOICE_FIXTURE,
+            &RT_VOICE,
+        ),
         other => panic!("unrecognized voice kind requested: {other}"),
     };
+    if !fixture_path.exists() {
+        return Ok(None);
+    }
 
-    let synthesizer = DengjenSpeechSynthesizer::new(voice).unwrap();
+    let voice = load_voice(cell, segments)?;
+    let synthesizer = DengjenSpeechSynthesizer::new(voice)?;
     let text = TEXT.join("\n");
     let output_config = Some(AudioOutputConfig {
         rate: Some(50),
@@ -53,7 +69,7 @@ pub fn gen_params(kind: &str) -> (DengjenSpeechSynthesizer, String, Option<Audio
         appended_silence_ms: None,
     });
 
-    (synthesizer, text, output_config)
+    Ok(Some((synthesizer, text, output_config)))
 }
 
 #[inline(always)]

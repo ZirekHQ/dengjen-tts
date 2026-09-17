@@ -32,10 +32,17 @@ target exercises.
 
 `crates/audio/ops` and `crates/dengjen/synth` each have `divan` benches. CI's `benchmarks` job
 runs audio/ops's bench for real and posts the numbers to the job summary — it's self-contained, no
-fixtures needed. Synth's benches need real Piper voice fixtures that aren't committed to this
-repo, so CI only compile-checks them (via the `clippy` job's `--benches` flag); running them
-yourself needs fixtures at `crates/dengjen/synth/models/{std,rt}/` — see
-[#220](https://github.com/ZirekHQ/dengjen-tts/issues/220) for provisioning those in CI.
+fixtures needed. Synth's benches, and its `test_lazy_stream`/`test_parallel_stream`/
+`test_realtime_stream` tests, need real Piper voice fixtures that aren't committed to this repo, so
+by default the tests self-skip and CI's `clippy` job only compile-checks the benches (via
+`--benches`). Running either for real, locally or in CI, needs fixtures at
+`crates/dengjen/synth/models/std/model.onnx.json` and `crates/dengjen/synth/models/rt/config.json`.
+
+CI's `piper-real-voice-e2e` job (mirroring `kokoro-real-voice-e2e`) provisions these the same
+way: set the `PIPER_STD_TEST_VOICE_ARCHIVE_URL` and/or `PIPER_RT_TEST_VOICE_ARCHIVE_URL` repo
+variables to `.tar.gz` URLs of a maintainer-sourced, license-vetted Piper voice export (`std/` and
+`rt/` respectively), and it downloads, extracts, and runs the corresponding tests/benches on the
+weekly schedule or on `workflow_dispatch`.
 
 ## Workspace dependencies
 
