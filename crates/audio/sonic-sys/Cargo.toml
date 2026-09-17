@@ -16,5 +16,8 @@ workspace = true
 [build-dependencies.bindgen]
 version = "0.72"
 
+[dependencies]
+workspace-hack = { version = "0.1", path = "../../workspace-hack" }
+
 [build-dependencies]
 cc = "1.0.79"

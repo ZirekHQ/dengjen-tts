@@ -26,6 +26,7 @@ serde = { version = "1.0.160", features = ["derive"] }
 serde_json = "1.0.89"
 ndarray = "0.17"
 tracing = { workspace = true }
+workspace-hack = { version = "0.1", path = "../../../workspace-hack" }
 
 [dependencies.ort]
 version = "2.0.0-rc.13"

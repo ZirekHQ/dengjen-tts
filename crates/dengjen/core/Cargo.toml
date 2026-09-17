@@ -13,3 +13,4 @@ workspace = true
 [dependencies]
 dengjen-audio-ops.workspace = true
 once_cell = "1.18.0"
+workspace-hack = { version = "0.1", path = "../../workspace-hack" }
