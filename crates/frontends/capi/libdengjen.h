@@ -39,6 +39,8 @@
 
 #define SYNTH_MODE_REALTIME 2
 
+#define SYNTH_MODE_BATCHED 3
+
 typedef struct DengjenVoice DengjenVoice;
 
 typedef struct PiperSynthConfig {

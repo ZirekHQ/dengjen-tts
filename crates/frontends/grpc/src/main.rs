@@ -1,8 +1,12 @@
 #![forbid(unsafe_code)]
 
-use dengjen_tts::{AudioOutputConfig, DengjenSpeechStreamLazy, DengjenSpeechSynthesizer};
+use dengjen_tts::{
+    default_batch_size, AudioOutputConfig, DengjenSpeechStreamBatched, DengjenSpeechStreamLazy,
+    DengjenSpeechStreamParallel, DengjenSpeechSynthesizer,
+};
 use dengjen_tts_core::{
-    CancellationToken, DengjenError, DengjenModel, DengjenResult, SynthesisConfig,
+    CancellationToken, DengjenAudioResult, DengjenError, DengjenModel, DengjenResult,
+    SynthesisConfig,
 };
 use grpc::dengjen_grpc_server::{DengjenGrpc, DengjenGrpcServer};
 use std::collections::HashMap;
@@ -133,12 +137,7 @@ impl DengjenGrpcService {
         Ok(voice_info)
     }
 
-    fn open_synthesis_stream(
-        &self,
-        voice_key: &str,
-        text: String,
-        output_config: Option<AudioOutputConfig>,
-    ) -> DengjenGrpcResult<DengjenSpeechStreamLazy> {
+    fn lookup_synth(&self, voice_key: &str) -> DengjenGrpcResult<Arc<DengjenSpeechSynthesizer>> {
         let voices = self.0.read().unwrap();
         let voice = voices.get(voice_key).ok_or_else(|| {
             DengjenGrpcError::VoiceNotFound(format!(
@@ -146,7 +145,7 @@ impl DengjenGrpcService {
                 voice_key
             ))
         })?;
-        Ok(voice.synth_ref().synthesize_lazy(text, output_config)?)
+        Ok(Arc::clone(&voice.0))
     }
 
     fn build_voice_info(
@@ -401,6 +400,60 @@ fn drain_stream_into_channel<Chunk, Message>(
     }
 }
 
+enum SynthesisStream {
+    Lazy(DengjenSpeechStreamLazy),
+    Parallel(DengjenSpeechStreamParallel),
+    Batched(DengjenSpeechStreamBatched),
+}
+
+impl Iterator for SynthesisStream {
+    type Item = DengjenAudioResult;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Lazy(stream) => stream.next(),
+            Self::Parallel(stream) => stream.next(),
+            Self::Batched(stream) => stream.next(),
+        }
+    }
+}
+
+fn resolve_batch_size(batch_size: Option<u32>) -> DengjenGrpcResult<std::num::NonZeroUsize> {
+    match batch_size {
+        None => Ok(default_batch_size()),
+        // `usize` is >= 32 bits on every target this crate builds for, so this never truncates.
+        Some(n) => std::num::NonZeroUsize::new(n as usize).ok_or_else(|| {
+            DengjenError::InvalidConfiguration("batch_size must be greater than zero".to_string())
+                .into()
+        }),
+    }
+}
+
+fn build_synthesis_stream(
+    synth: &DengjenSpeechSynthesizer,
+    text: String,
+    output_config: Option<AudioOutputConfig>,
+    mode: grpc::SynthesisMode,
+    batch_size: Option<u32>,
+) -> DengjenGrpcResult<SynthesisStream> {
+    match mode {
+        grpc::SynthesisMode::ModeUnspecified | grpc::SynthesisMode::ModeLazy => Ok(
+            SynthesisStream::Lazy(synth.synthesize_lazy(text, output_config)?),
+        ),
+        grpc::SynthesisMode::ModeParallel => Ok(SynthesisStream::Parallel(
+            synth.synthesize_parallel(text, output_config)?,
+        )),
+        grpc::SynthesisMode::ModeBatched => {
+            let batch_size = resolve_batch_size(batch_size)?;
+            Ok(SynthesisStream::Batched(synth.synthesize_batched(
+                text,
+                output_config,
+                batch_size,
+            )?))
+        }
+    }
+}
+
 #[tonic::async_trait]
 impl DengjenGrpc for DengjenGrpcService {
     async fn get_dengjen_version(
@@ -466,10 +519,31 @@ impl DengjenGrpc for DengjenGrpcService {
         let req = request.into_inner();
         let output_config =
             output_config_from_prosody(req.prosody).map_err(Status::invalid_argument)?;
-        let dengjen_stream = self.open_synthesis_stream(&req.voice_key, req.text, output_config)?;
+        let mode = grpc::SynthesisMode::try_from(req.synthesis_mode).map_err(|_| {
+            Status::invalid_argument(format!(
+                "Unrecognized synthesis_mode value: {}",
+                req.synthesis_mode
+            ))
+        })?;
+        let batch_size = req.batch_size;
+        // Validate eagerly for `ModeBatched` so a `batch_size: Some(0)` request fails before a
+        // `Response`/blocking-pool thread is ever handed out; other modes ignore `batch_size`
+        // and stay unvalidated, matching `build_synthesis_stream`'s dispatch below.
+        if mode == grpc::SynthesisMode::ModeBatched {
+            resolve_batch_size(batch_size)?;
+        }
+        let synth = self.lookup_synth(&req.voice_key)?;
 
         let (tx, rx) = mpsc::channel(512);
         tokio::task::spawn_blocking(move || {
+            let dengjen_stream =
+                match build_synthesis_stream(&synth, req.text, output_config, mode, batch_size) {
+                    Ok(stream) => stream,
+                    Err(e) => {
+                        tx.blocking_send(Err(e.into())).ok();
+                        return;
+                    }
+                };
             drain_stream_into_channel(dengjen_stream, tx, |wav| grpc::SynthesisChunk {
                 audio_bytes: wav.as_wave_bytes(),
                 real_time_factor: wav.real_time_factor().unwrap_or_default(),
@@ -686,6 +760,17 @@ mod listening_announcement_tests {
 }
 
 #[cfg(test)]
+mod synthesis_request_proto_tests {
+    use super::*;
+
+    #[test]
+    fn batch_size_is_unset_by_default() {
+        let req = grpc::SynthesisRequest::default();
+        assert_eq!(req.batch_size, None);
+    }
+}
+
+#[cfg(test)]
 mod voice_loading_tests {
     use super::*;
     use dengjen_tts_core::{Audio, AudioInfo as CoreAudioInfo, DengjenAudioResult, Phonemes};
@@ -790,20 +875,114 @@ mod voice_loading_tests {
     }
 
     #[test]
-    fn open_synthesis_stream_reports_voice_not_found_for_an_unloaded_voice() {
+    fn lookup_synth_reports_voice_not_found_for_an_unloaded_voice() {
         let service = DengjenGrpcService::new();
-        let result = service.open_synthesis_stream("missing", "hi".to_string(), None);
+        let result = service.lookup_synth("missing");
         assert!(matches!(result, Err(DengjenGrpcError::VoiceNotFound(_))));
     }
 
     #[test]
-    fn open_synthesis_stream_succeeds_for_a_loaded_voice() {
+    fn lookup_synth_succeeds_for_a_loaded_voice() {
         let model = FakeModel {
             speakers: StdHashMap::new(),
         };
         let service = service_with_voice("v1", model);
-        let result = service.open_synthesis_stream("v1", "hi".to_string(), None);
-        assert!(result.is_ok());
+        assert!(service.lookup_synth("v1").is_ok());
+    }
+
+    #[test]
+    fn build_synthesis_stream_dispatches_lazy_by_default_and_when_unspecified() {
+        let model = FakeModel {
+            speakers: StdHashMap::new(),
+        };
+        let service = service_with_voice("v1", model);
+        let synth = service.lookup_synth("v1").unwrap();
+        for mode in [
+            grpc::SynthesisMode::ModeUnspecified,
+            grpc::SynthesisMode::ModeLazy,
+        ] {
+            let stream =
+                build_synthesis_stream(&synth, "hi".to_string(), None, mode, None).unwrap();
+            assert!(matches!(stream, SynthesisStream::Lazy(_)));
+        }
+    }
+
+    #[test]
+    fn build_synthesis_stream_dispatches_parallel() {
+        let model = FakeModel {
+            speakers: StdHashMap::new(),
+        };
+        let service = service_with_voice("v1", model);
+        let synth = service.lookup_synth("v1").unwrap();
+        let stream = build_synthesis_stream(
+            &synth,
+            "hi".to_string(),
+            None,
+            grpc::SynthesisMode::ModeParallel,
+            None,
+        )
+        .unwrap();
+        assert!(matches!(stream, SynthesisStream::Parallel(_)));
+    }
+
+    #[test]
+    fn build_synthesis_stream_dispatches_batched_with_default_batch_size_when_unset() {
+        let model = FakeModel {
+            speakers: StdHashMap::new(),
+        };
+        let service = service_with_voice("v1", model);
+        let synth = service.lookup_synth("v1").unwrap();
+        let stream = build_synthesis_stream(
+            &synth,
+            "hi".to_string(),
+            None,
+            grpc::SynthesisMode::ModeBatched,
+            None,
+        )
+        .unwrap();
+        assert!(matches!(stream, SynthesisStream::Batched(_)));
+    }
+
+    #[test]
+    fn build_synthesis_stream_rejects_an_explicit_zero_batch_size() {
+        let model = FakeModel {
+            speakers: StdHashMap::new(),
+        };
+        let service = service_with_voice("v1", model);
+        let synth = service.lookup_synth("v1").unwrap();
+        let result = build_synthesis_stream(
+            &synth,
+            "hi".to_string(),
+            None,
+            grpc::SynthesisMode::ModeBatched,
+            Some(0),
+        );
+        assert!(matches!(
+            result,
+            Err(DengjenGrpcError::DengjenError(
+                DengjenError::InvalidConfiguration(_)
+            ))
+        ));
+    }
+
+    #[tokio::test]
+    async fn synthesize_utterance_rejects_an_out_of_range_synthesis_mode() {
+        let model = FakeModel {
+            speakers: StdHashMap::new(),
+        };
+        let service = service_with_voice("v1", model);
+        let request = Request::new(grpc::SynthesisRequest {
+            voice_key: "v1".to_string(),
+            text: "hi".to_string(),
+            prosody: None,
+            synthesis_mode: 99,
+            batch_size: None,
+        });
+        let status = service
+            .synthesize_utterance(request)
+            .await
+            .expect_err("an out-of-range synthesis_mode must be rejected");
+        assert_eq!(status.code(), tonic::Code::InvalidArgument);
     }
 
     #[test]
@@ -841,6 +1020,99 @@ mod voice_loading_tests {
         assert_eq!(
             info.synthesis_options.unwrap().speaker.as_deref(),
             Some("Default")
+        );
+    }
+
+    #[tokio::test]
+    async fn synthesize_utterance_does_not_panic_when_the_receiver_is_dropped_mid_stream() {
+        // `spawn_blocking`'s `JoinHandle` is never exposed, so a panic there is otherwise
+        // undetectable; this hooks the global panic handler instead. Risk: a concurrent test's
+        // own panic during the ~50ms window below could misattribute here.
+        use std::panic::{set_hook, take_hook};
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let panicked = std::sync::Arc::new(AtomicBool::new(false));
+        let panicked_flag = panicked.clone();
+        let previous_hook = take_hook();
+        set_hook(Box::new(move |info| {
+            panicked_flag.store(true, Ordering::SeqCst);
+            previous_hook(info);
+        }));
+
+        let model = FakeModel {
+            speakers: StdHashMap::new(),
+        };
+        let service = service_with_voice("v1", model);
+        let request = Request::new(grpc::SynthesisRequest {
+            voice_key: "v1".to_string(),
+            text: "hi".to_string(),
+            prosody: None,
+            synthesis_mode: grpc::SynthesisMode::ModeBatched as i32,
+            batch_size: Some(1),
+        });
+
+        let response = service
+            .synthesize_utterance(request)
+            .await
+            .expect("dispatch must succeed");
+        // Drop before polling any items: races the mpsc receiver against the still-possibly-
+        // mid-synthesis blocking task, exercising `drain_stream_into_channel`'s "receiver went
+        // away" path.
+        drop(response);
+
+        // Give the spawned blocking task a moment to observe the dropped
+        // receiver and return; if it panicked, the hook above recorded it.
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        // `take_hook()` alone uninstalls the current hook and reinstalls the default,
+        // returning what it removed; calling `set_hook` on that return value would
+        // just reinstall the very hook we're trying to discard.
+        let _ = take_hook();
+        assert!(
+            !panicked.load(Ordering::SeqCst),
+            "spawned blocking task panicked during mid-stream drop"
+        );
+    }
+
+    #[tokio::test]
+    async fn synthesize_utterance_rejects_an_explicit_zero_batch_size() {
+        let model = FakeModel {
+            speakers: StdHashMap::new(),
+        };
+        let service = service_with_voice("v1", model);
+        let request = Request::new(grpc::SynthesisRequest {
+            voice_key: "v1".to_string(),
+            text: "hi".to_string(),
+            prosody: None,
+            synthesis_mode: grpc::SynthesisMode::ModeBatched as i32,
+            batch_size: Some(0),
+        });
+
+        let status = service
+            .synthesize_utterance(request)
+            .await
+            .expect_err("an explicit zero batch_size must be rejected for ModeBatched");
+        assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    }
+
+    #[tokio::test]
+    async fn synthesize_utterance_ignores_batch_size_for_non_batched_modes() {
+        let model = FakeModel {
+            speakers: StdHashMap::new(),
+        };
+        let service = service_with_voice("v1", model);
+        let request = Request::new(grpc::SynthesisRequest {
+            voice_key: "v1".to_string(),
+            text: "hi".to_string(),
+            prosody: None,
+            synthesis_mode: grpc::SynthesisMode::ModeLazy as i32,
+            batch_size: Some(0),
+        });
+
+        let result = service.synthesize_utterance(request).await;
+        assert!(
+            result.is_ok(),
+            "non-batched modes must ignore batch_size entirely, zero or otherwise"
         );
     }
 }

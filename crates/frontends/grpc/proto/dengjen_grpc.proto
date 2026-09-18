@@ -28,9 +28,20 @@ service DengjenGrpc {
 }
 
 enum SynthesisMode {
+  // Not set by the caller; the server falls back to MODE_LAZY.
   MODE_UNSPECIFIED = 0;
+  // Synthesizes one sentence per call to the stream, sequentially. Lowest
+  // latency to the first chunk, no parallelism.
   MODE_LAZY = 1;
+  // Synthesizes every sentence concurrently, then yields them in order once
+  // all of them are done. Higher throughput for long, multi-sentence text,
+  // but nothing is emitted until the whole request finishes.
   MODE_PARALLEL = 2;
+  // Synthesizes sentences in bounded-size concurrent groups (batch_size),
+  // yielding each group's results before starting the next. A middle
+  // ground between MODE_LAZY and MODE_PARALLEL: partial output streams out
+  // sooner than MODE_PARALLEL, with less per-request thread/memory
+  // pressure than firing every sentence at once.
   MODE_BATCHED = 3;
 }
 enum VoiceQuality {
@@ -71,6 +82,9 @@ message SynthesisRequest {
   string text = 2;
   ProsodyControls prosody = 3;
   SynthesisMode synthesis_mode = 4;
+  // Only meaningful when synthesis_mode is MODE_BATCHED. Unset uses the
+  // server's default; an explicit 0 is rejected as invalid_argument.
+  optional uint32 batch_size = 5;
 }
 
 message SynthesisSettings {
