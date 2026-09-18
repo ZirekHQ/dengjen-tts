@@ -10,7 +10,7 @@ if [[ ! "$version" =~ ^v(0|[1-9][0-9]*)\.[0-9]+\.[0-9]+$ ]]; then
 fi
 
 major="${BASH_REMATCH[1]}"
-if [[ "$major" -ge 2 ]]; then
+if [[ "$major" != "0" && "$major" != "1" ]]; then
   echo "${base}/v${major}"
 else
   echo "$base"
