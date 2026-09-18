@@ -79,7 +79,7 @@ jobs:
       - name: install-protoc
         # dengjen-tts-grpc's build.rs shells out to protoc (tonic-build/prost-build); unlike libdengjen, it compiles a .proto.
         run: choco install protoc -y --no-progress
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-native-build-deps # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
