@@ -57,11 +57,11 @@ without parsing log output.
 
 === Call sequence
 
-. `LoadVoice(VoiceConfigLocation{path})` loads a voice manifest and returns a
+. `LoadVoice(VoiceConfigLocation\{path})` loads a voice manifest and returns a
   `VoiceDescriptor` keyed by a `voice_key` — a 16-hex-character xxh3_64 hash of the
   canonicalized config path. The key is deterministic and `LoadVoice` is idempotent: calling it
   again with the same path returns the already-loaded voice's descriptor instead of reloading.
-. `GetVoiceInfo(VoiceRef{voice_key})` / `GetSynthesisOptions` / `SetSynthesisOptions` inspect or
+. `GetVoiceInfo(VoiceRef\{voice_key})` / `GetSynthesisOptions` / `SetSynthesisOptions` inspect or
   adjust a loaded voice's default synthesis settings (`speaker`, `length_scale`, `noise_scale`,
   `noise_w`, plus a free-form `parameters` map for backend-specific knobs).
 . `SynthesizeUtterance(SynthesisRequest)` returns a `stream SynthesisChunk` of WAV-encoded audio
