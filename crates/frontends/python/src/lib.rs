@@ -7,8 +7,9 @@ use dengjen_tashkeel::{
     DynamicInferenceEngine as TashkeelInferenceEngine,
 };
 use dengjen_tts::{
-    detect_model_type, AudioOutputConfig, DengjenSpeechStreamLazy, DengjenSpeechStreamParallel,
-    DengjenSpeechSynthesizer, RealtimeSpeechStream,
+    default_batch_size, detect_model_type, AudioOutputConfig, DengjenSpeechStreamBatched,
+    DengjenSpeechStreamLazy, DengjenSpeechStreamParallel, DengjenSpeechSynthesizer,
+    RealtimeSpeechStream,
 };
 use dengjen_tts_core::{
     Audio, AudioInfo, CancellationToken, DengjenError, DengjenModel, DengjenResult, SynthesisConfig,
@@ -207,6 +208,33 @@ impl From<DengjenSpeechStreamParallel> for ParallelSpeechStream {
 
 #[pymethods]
 impl ParallelSpeechStream {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__(&mut self, py: Python) -> Option<WaveSamples> {
+        match py.detach(|| self.0.next()) {
+            None => None,
+            Some(Ok(audio)) => Some(WaveSamples(audio)),
+            Some(Err(err)) => {
+                PyErr::from(PyDengjenError::from(err)).restore(py);
+                None
+            }
+        }
+    }
+}
+
+#[pyclass(weakref, module = "pydengjen")]
+struct BatchedSpeechStream(DengjenSpeechStreamBatched);
+
+impl From<DengjenSpeechStreamBatched> for BatchedSpeechStream {
+    fn from(stream: DengjenSpeechStreamBatched) -> Self {
+        Self(stream)
+    }
+}
+
+#[pymethods]
+impl BatchedSpeechStream {
     fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
         slf
     }
@@ -503,6 +531,26 @@ impl Dengjen {
         Ok(stream.into())
     }
 
+    fn synthesize_batched(
+        &self,
+        text: String,
+        audio_output_config: Option<PyAudioOutputConfig>,
+        batch_size: Option<usize>,
+    ) -> PyDengjenResult<BatchedSpeechStream> {
+        let batch_size = match batch_size {
+            None => default_batch_size(),
+            Some(n) => std::num::NonZeroUsize::new(n).ok_or_else(|| {
+                PyDengjenError::from(DengjenError::InvalidConfiguration(
+                    "batch_size must be greater than zero".to_string(),
+                ))
+            })?,
+        };
+        let stream =
+            self.0
+                .synthesize_batched(text, audio_output_config.map(|o| o.into()), batch_size)?;
+        Ok(stream.into())
+    }
+
     fn synthesize_streamed(
         &self,
         text: String,
@@ -659,6 +707,7 @@ fn pydengjen(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_class::<LazySpeechStream>()?;
     m.add_class::<ParallelSpeechStream>()?;
+    m.add_class::<BatchedSpeechStream>()?;
     m.add_class::<PyRealtimeSpeechStream>()?;
 
     m.add("DengjenException", m.py().get_type::<DengjenException>())?;
@@ -1013,6 +1062,25 @@ mod model_and_synthesizer_tests {
         let first = stream.0.next().unwrap().unwrap();
         assert_eq!(first.into_vec().len(), 100);
         assert!(stream.0.next().is_none());
+    }
+
+    #[test]
+    fn dengjen_synthesize_batched_produces_a_stream_whose_inner_iterator_yields_the_fake_models_audio(
+    ) {
+        let dengjen = fake_dengjen();
+        let mut stream = dengjen
+            .synthesize_batched("hello".to_string(), None, Some(1))
+            .unwrap();
+        let first = stream.0.next().unwrap().unwrap();
+        assert_eq!(first.into_vec().len(), 100);
+        assert!(stream.0.next().is_none());
+    }
+
+    #[test]
+    fn dengjen_synthesize_batched_rejects_an_explicit_zero_batch_size() {
+        let dengjen = fake_dengjen();
+        let result = dengjen.synthesize_batched("hello".to_string(), None, Some(0));
+        assert!(result.is_err());
     }
 
     #[test]

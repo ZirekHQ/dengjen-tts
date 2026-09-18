@@ -205,6 +205,40 @@ fn cli_streams_realtime_synthesis_from_a_synthetic_piper_voice() {
 }
 
 #[test]
+fn cli_synthesizes_in_batched_mode_from_a_synthetic_piper_voice() {
+    let dir = std::env::temp_dir().join("dengjen_cli_piper_synthetic_batched_test");
+    std::fs::remove_dir_all(&dir).ok();
+    std::fs::create_dir_all(&dir).unwrap();
+    let config_path = write_streaming_config(&dir);
+    let input_path = dir.join("input.txt");
+    std::fs::write(&input_path, "Test one. Test two. Test three. Test four.").unwrap();
+
+    let output = run_cli(
+        &config_path,
+        &input_path,
+        None,
+        &["--mode", "batched", "--batch-size", "2"],
+    );
+
+    assert!(
+        output.status.success(),
+        "CLI exited with failure: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        !String::from_utf8_lossy(&output.stderr).contains("panicked"),
+        "CLI panicked during batched synthesis: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        !output.stdout.is_empty(),
+        "expected non-empty PCM output on stdout for batched mode"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn cli_synthesizes_from_a_stdin_json_request_and_exits_cleanly_on_eof() {
     let dir = std::env::temp_dir().join("dengjen_cli_piper_synthetic_stdin_test");
     std::fs::remove_dir_all(&dir).ok();

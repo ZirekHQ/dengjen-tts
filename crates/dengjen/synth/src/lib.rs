@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -54,6 +55,16 @@ pub static SYNTHESIS_THREAD_POOL: Lazy<ThreadPool> = Lazy::new(|| {
         .build()
         .expect("thread pool construction only fails on invalid config, never at runtime")
 });
+
+/// Resolves an unset `batch_size` to a sane default. Capped well below the
+/// core count because `Mutex<Session>` already serializes the actual
+/// inference call regardless of how many callers are ready to make it —
+/// spawning more than a handful of queued callers buys nothing.
+pub fn default_batch_size() -> NonZeroUsize {
+    const MAX_DEFAULT_BATCH_SIZE: NonZeroUsize = NonZeroUsize::new(4).unwrap();
+    let cores = std::thread::available_parallelism().unwrap_or(NonZeroUsize::MIN);
+    cores.min(MAX_DEFAULT_BATCH_SIZE)
+}
 
 #[derive(Clone)]
 pub struct AudioOutputConfig {
@@ -162,6 +173,7 @@ impl AudioOutputConfig {
     }
 }
 
+#[non_exhaustive]
 pub enum StreamMode {
     Lazy,
     Parallel,
@@ -170,12 +182,17 @@ pub enum StreamMode {
         chunk_padding: usize,
         cancel_token: CancellationToken,
     },
+    Batched {
+        batch_size: NonZeroUsize,
+    },
 }
 
+#[non_exhaustive]
 pub enum AudioChunkStream {
     Lazy(DengjenSpeechStreamLazy),
     Parallel(DengjenSpeechStreamParallel),
     Realtime(RealtimeSpeechStream),
+    Batched(DengjenSpeechStreamBatched),
 }
 
 impl Iterator for AudioChunkStream {
@@ -185,6 +202,7 @@ impl Iterator for AudioChunkStream {
         match self {
             Self::Lazy(stream) => stream.next().map(|res| res.map(|audio| audio.samples)),
             Self::Parallel(stream) => stream.next().map(|res| res.map(|audio| audio.samples)),
+            Self::Batched(stream) => stream.next().map(|res| res.map(|audio| audio.samples)),
             Self::Realtime(stream) => stream.next(),
         }
     }
@@ -232,6 +250,15 @@ impl DengjenSpeechSynthesizer {
         DengjenSpeechStreamParallel::new(self.task_provider(text, output_config))
     }
 
+    pub fn synthesize_batched(
+        &self,
+        text: String,
+        output_config: Option<AudioOutputConfig>,
+        batch_size: NonZeroUsize,
+    ) -> DengjenResult<DengjenSpeechStreamBatched> {
+        DengjenSpeechStreamBatched::new(self.task_provider(text, output_config), batch_size)
+    }
+
     pub fn synthesize_streamed(
         &self,
         text: String,
@@ -263,6 +290,9 @@ impl DengjenSpeechSynthesizer {
             )),
             StreamMode::Parallel => Ok(AudioChunkStream::Parallel(
                 self.synthesize_parallel(text, output_config)?,
+            )),
+            StreamMode::Batched { batch_size } => Ok(AudioChunkStream::Batched(
+                self.synthesize_batched(text, output_config, batch_size)?,
             )),
             StreamMode::Realtime {
                 chunk_size,
@@ -452,21 +482,23 @@ impl DengjenSpeechStreamParallel {
         let span = tracing::info_span!("synthesis_request", mode = "parallel");
         let sentences = span.in_scope(|| provider.get_phonemes())?;
         let worker_span = span.clone();
-        let finished: Vec<DengjenAudioResult> = sentences
-            .into_par_iter()
-            .enumerate()
-            .map(|(chunk_index, sentence)| {
-                worker_span.in_scope(|| {
-                    let chunk_span = tracing::debug_span!("chunk", chunk_index);
-                    let _enter = chunk_span.enter();
-                    let result = provider.process_one_sentence(sentence);
-                    if let Ok(audio) = &result {
-                        tracing::debug!(sample_count = audio.len(), "chunk_ready");
-                    }
-                    result
+        let finished: Vec<DengjenAudioResult> = SYNTHESIS_THREAD_POOL.install(|| {
+            sentences
+                .into_par_iter()
+                .enumerate()
+                .map(|(chunk_index, sentence)| {
+                    worker_span.in_scope(|| {
+                        let chunk_span = tracing::debug_span!("chunk", chunk_index);
+                        let _enter = chunk_span.enter();
+                        let result = provider.process_one_sentence(sentence);
+                        if let Ok(audio) = &result {
+                            tracing::debug!(sample_count = audio.len(), "chunk_ready");
+                        }
+                        result
+                    })
                 })
-            })
-            .collect();
+                .collect()
+        });
         Ok(Self {
             finished: finished.into_iter(),
             _span: span,
@@ -487,6 +519,82 @@ impl Iterator for DengjenSpeechStreamParallel {
 // carries no invariant a caller could observe as broken after a panic.
 impl std::panic::UnwindSafe for DengjenSpeechStreamParallel {}
 impl std::panic::RefUnwindSafe for DengjenSpeechStreamParallel {}
+
+/// Synthesizes sentences in bounded-size concurrent groups: parallel within
+/// a group of `batch_size`, sequential across groups. Unlike
+/// `DengjenSpeechStreamParallel`, which computes the whole request eagerly
+/// in `new()`, this stream computes lazily — one group at a time, only when
+/// `next()` needs more — so building it is cheap and the first group's
+/// audio can stream out before later groups are even started.
+pub struct DengjenSpeechStreamBatched {
+    provider: SpeechSynthesisTaskProvider,
+    pending: std::vec::IntoIter<String>,
+    batch_size: NonZeroUsize,
+    buffered: std::vec::IntoIter<DengjenAudioResult>,
+    next_chunk_index: usize,
+    span: tracing::Span,
+}
+
+impl DengjenSpeechStreamBatched {
+    fn new(provider: SpeechSynthesisTaskProvider, batch_size: NonZeroUsize) -> DengjenResult<Self> {
+        let span = tracing::info_span!("synthesis_request", mode = "batched");
+        let pending = span.in_scope(|| provider.get_phonemes())?.into_iter();
+        Ok(Self {
+            provider,
+            pending,
+            batch_size,
+            buffered: Vec::new().into_iter(),
+            next_chunk_index: 0,
+            span,
+        })
+    }
+
+    fn compute_next_group(&mut self) -> Option<Vec<DengjenAudioResult>> {
+        let group: Vec<String> = (&mut self.pending).take(self.batch_size.get()).collect();
+        if group.is_empty() {
+            return None;
+        }
+        let provider = &self.provider;
+        let start_index = self.next_chunk_index;
+        self.next_chunk_index += group.len();
+        let span = &self.span;
+        Some(SYNTHESIS_THREAD_POOL.install(|| {
+            span.in_scope(|| {
+                group
+                    .into_par_iter()
+                    .enumerate()
+                    .map(|(offset, sentence)| {
+                        let chunk_index = start_index + offset;
+                        let chunk_span = tracing::debug_span!("chunk", chunk_index);
+                        let _enter = chunk_span.enter();
+                        let result = provider.process_one_sentence(sentence);
+                        if let Ok(audio) = &result {
+                            tracing::debug!(sample_count = audio.len(), "chunk_ready");
+                        }
+                        result
+                    })
+                    .collect()
+            })
+        }))
+    }
+}
+
+impl Iterator for DengjenSpeechStreamBatched {
+    type Item = DengjenAudioResult;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(result) = self.buffered.next() {
+            return Some(result);
+        }
+        let group = self.compute_next_group()?;
+        self.buffered = group.into_iter();
+        self.buffered.next()
+    }
+}
+
+// Same rationale as `DengjenSpeechStreamParallel`'s impls above.
+impl std::panic::UnwindSafe for DengjenSpeechStreamBatched {}
+impl std::panic::RefUnwindSafe for DengjenSpeechStreamBatched {}
 
 const MAX_STREAM_CHUNK_SIZE: usize = 1_000_000;
 
@@ -1297,8 +1405,9 @@ mod audio_output_config_tests {
 }
 
 #[cfg(test)]
-mod lazy_parallel_tests {
+mod stream_mode_tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct CannedSentenceModel {
         sentences: Vec<&'static str>,
@@ -1345,6 +1454,249 @@ mod lazy_parallel_tests {
         }
         fn set_fallback_synthesis_config(&self, _c: &SynthesisConfig) -> DengjenResult<()> {
             Ok(())
+        }
+    }
+
+    #[test]
+    fn batched_stream_yields_one_result_per_sentence_in_order() {
+        let model: Arc<dyn DengjenModel + Send + Sync> = Arc::new(CannedSentenceModel {
+            sentences: vec!["a", "bb", "ccc", "dddd", "e"],
+            fail_on: None,
+        });
+        let synth = DengjenSpeechSynthesizer::new(model).unwrap();
+        let results: Vec<_> = synth
+            .synthesize_batched(
+                "irrelevant".to_string(),
+                None,
+                std::num::NonZeroUsize::new(2).unwrap(),
+            )
+            .unwrap()
+            .collect();
+        let lens: Vec<usize> = results.into_iter().map(|r| r.unwrap().len()).collect();
+        assert_eq!(
+            lens,
+            vec![1, 2, 3, 4, 1],
+            "batched stream must preserve sentence order across group boundaries"
+        );
+    }
+
+    #[test]
+    fn batched_stream_with_batch_size_covering_every_sentence_behaves_like_parallel() {
+        let model: Arc<dyn DengjenModel + Send + Sync> = Arc::new(CannedSentenceModel {
+            sentences: vec!["a", "bb", "ccc"],
+            fail_on: None,
+        });
+        let synth = DengjenSpeechSynthesizer::new(model).unwrap();
+        let results: Vec<_> = synth
+            .synthesize_batched(
+                "irrelevant".to_string(),
+                None,
+                std::num::NonZeroUsize::new(10).unwrap(),
+            )
+            .unwrap()
+            .collect();
+        assert_eq!(results.len(), 3);
+        let lens: Vec<usize> = results.into_iter().map(|r| r.unwrap().len()).collect();
+        assert_eq!(lens, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn batched_stream_drains_cleanly_when_fewer_sentences_than_batch_size() {
+        let model: Arc<dyn DengjenModel + Send + Sync> = Arc::new(CannedSentenceModel {
+            sentences: vec!["a"],
+            fail_on: None,
+        });
+        let synth = DengjenSpeechSynthesizer::new(model).unwrap();
+        let mut stream = synth
+            .synthesize_batched(
+                "irrelevant".to_string(),
+                None,
+                std::num::NonZeroUsize::new(4).unwrap(),
+            )
+            .unwrap();
+        let first = stream.next().unwrap().unwrap();
+        assert_eq!(first.len(), 1);
+        assert!(
+            stream.next().is_none(),
+            "stream must end after its one sentence, not pad to batch_size"
+        );
+    }
+
+    #[test]
+    fn batched_stream_keeps_yielding_after_a_sentence_level_error_within_a_group() {
+        let model: Arc<dyn DengjenModel + Send + Sync> = Arc::new(CannedSentenceModel {
+            sentences: vec!["a", "bb", "ccc", "dddd"],
+            fail_on: Some("bb"),
+        });
+        let synth = DengjenSpeechSynthesizer::new(model).unwrap();
+        let results: Vec<_> = synth
+            .synthesize_batched(
+                "irrelevant".to_string(),
+                None,
+                std::num::NonZeroUsize::new(2).unwrap(),
+            )
+            .unwrap()
+            .collect();
+        assert_eq!(results.len(), 4);
+        assert!(results[0].is_ok());
+        assert!(matches!(results[1], Err(DengjenError::OperationError(_))));
+        assert!(
+            results[2].is_ok(),
+            "the second group must still run after the first group had an error"
+        );
+        assert!(results[3].is_ok());
+    }
+
+    struct CountingCanaryModel {
+        sentences: Vec<&'static str>,
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl DengjenModel for CountingCanaryModel {
+        fn audio_output_info(&self) -> DengjenResult<AudioInfo> {
+            Ok(AudioInfo {
+                sample_rate: 16000,
+                num_channels: 1,
+                sample_width: 2,
+            })
+        }
+        fn phonemize_text(&self, _text: &str) -> DengjenResult<Phonemes> {
+            Ok(Phonemes::from(
+                self.sentences
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect::<Vec<_>>(),
+            ))
+        }
+        fn speak_batch(&self, phoneme_batches: Vec<String>) -> DengjenResult<Vec<Audio>> {
+            phoneme_batches
+                .into_iter()
+                .map(|ph| self.speak_one_sentence(ph))
+                .collect()
+        }
+        fn speak_one_sentence(&self, phonemes: String) -> DengjenAudioResult {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let n = phonemes.len();
+            Ok(Audio::new(
+                AudioSamples::from(vec![n as f32; n]),
+                16000,
+                None,
+            ))
+        }
+        fn get_default_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
+            Ok(None)
+        }
+        fn get_fallback_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
+            Ok(None)
+        }
+        fn set_fallback_synthesis_config(&self, _c: &SynthesisConfig) -> DengjenResult<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn batched_stream_does_not_synthesize_the_next_group_before_the_current_one_is_drained() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let model: Arc<dyn DengjenModel + Send + Sync> = Arc::new(CountingCanaryModel {
+            sentences: vec!["a", "b", "c", "d", "e", "f"],
+            calls: calls.clone(),
+        });
+        let synth = DengjenSpeechSynthesizer::new(model).unwrap();
+        let mut stream = synth
+            .synthesize_batched(
+                "irrelevant".to_string(),
+                None,
+                std::num::NonZeroUsize::new(2).unwrap(),
+            )
+            .unwrap();
+
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            0,
+            "constructing the stream must not eagerly synthesize"
+        );
+
+        let _ = stream.next();
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            2,
+            "only the first group (batch_size=2) may be synthesized before its first chunk is consumed — not the whole request"
+        );
+
+        let _ = stream.next();
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            2,
+            "the second chunk of an already-computed group must come from the buffer, not trigger new synthesis"
+        );
+
+        let _ = stream.next();
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            4,
+            "pulling past a drained group must synthesize exactly the next group, not the whole remainder"
+        );
+    }
+
+    struct ThreadNameCapturingModel {
+        names: std::sync::Arc<std::sync::Mutex<Vec<Option<String>>>>,
+    }
+
+    impl DengjenModel for ThreadNameCapturingModel {
+        fn audio_output_info(&self) -> DengjenResult<AudioInfo> {
+            Ok(AudioInfo {
+                sample_rate: 16000,
+                num_channels: 1,
+                sample_width: 2,
+            })
+        }
+        fn phonemize_text(&self, _text: &str) -> DengjenResult<Phonemes> {
+            Ok(Phonemes::from(vec!["a".to_string(), "b".to_string()]))
+        }
+        fn speak_batch(&self, phoneme_batches: Vec<String>) -> DengjenResult<Vec<Audio>> {
+            phoneme_batches
+                .into_iter()
+                .map(|p| self.speak_one_sentence(p))
+                .collect()
+        }
+        fn speak_one_sentence(&self, _phonemes: String) -> DengjenAudioResult {
+            self.names
+                .lock()
+                .unwrap()
+                .push(std::thread::current().name().map(str::to_string));
+            Ok(Audio::new(AudioSamples::from(vec![0.0f32]), 16000, None))
+        }
+        fn get_default_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
+            Ok(None)
+        }
+        fn get_fallback_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
+            Ok(None)
+        }
+        fn set_fallback_synthesis_config(&self, _c: &SynthesisConfig) -> DengjenResult<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn parallel_stream_runs_inference_on_the_dedicated_synthesis_thread_pool() {
+        let names = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let model: Arc<dyn DengjenModel + Send + Sync> = Arc::new(ThreadNameCapturingModel {
+            names: names.clone(),
+        });
+        let synth = DengjenSpeechSynthesizer::new(model).unwrap();
+        let _: Vec<_> = synth
+            .synthesize_parallel("irrelevant".to_string(), None)
+            .unwrap()
+            .collect();
+
+        let captured = names.lock().unwrap();
+        assert_eq!(captured.len(), 2);
+        for name in captured.iter() {
+            assert!(
+                name.as_deref()
+                    .is_some_and(|n| n.starts_with("dengjen_synth_")),
+                "expected a dengjen_synth_ pool thread, got {name:?}"
+            );
         }
     }
 
@@ -1455,6 +1807,31 @@ mod lazy_parallel_tests {
             lens,
             vec![1, 2, 3],
             "parallel mode must preserve sentence order in its output"
+        );
+    }
+
+    #[test]
+    fn synthesize_samples_batched_strips_audio_down_to_samples() {
+        let model: Arc<dyn DengjenModel + Send + Sync> = Arc::new(CannedSentenceModel {
+            sentences: vec!["a", "bb", "ccc"],
+            fail_on: None,
+        });
+        let synth = DengjenSpeechSynthesizer::new(model).unwrap();
+        let results: Vec<_> = synth
+            .synthesize_samples(
+                "irrelevant".to_string(),
+                None,
+                StreamMode::Batched {
+                    batch_size: std::num::NonZeroUsize::new(2).unwrap(),
+                },
+            )
+            .unwrap()
+            .collect();
+        let lens: Vec<usize> = results.into_iter().map(|r| r.unwrap().len()).collect();
+        assert_eq!(
+            lens,
+            vec![1, 2, 3],
+            "batched mode must preserve sentence order in its output"
         );
     }
 
@@ -1623,5 +2000,16 @@ mod model_type_detection_tests {
             detect_model_type(path),
             Err(DengjenError::FailedToLoadResource(_))
         ));
+    }
+}
+
+#[cfg(test)]
+mod default_batch_size_tests {
+    use super::*;
+
+    #[test]
+    fn default_batch_size_is_between_one_and_four_inclusive() {
+        let n = default_batch_size().get();
+        assert!((1..=4).contains(&n), "expected 1..=4, got {n}");
     }
 }

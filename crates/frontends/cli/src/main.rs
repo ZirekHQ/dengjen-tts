@@ -2,8 +2,8 @@
 
 use clap::Parser;
 use dengjen_tts::{
-    AudioOutputConfig, AudioSamples, CancellationToken, DengjenModel, DengjenResult,
-    DengjenSpeechSynthesizer, StreamMode, SynthesisConfig,
+    default_batch_size, AudioOutputConfig, AudioSamples, CancellationToken, DengjenModel,
+    DengjenResult, DengjenSpeechSynthesizer, StreamMode, SynthesisConfig,
 };
 #[cfg(test)]
 use dengjen_tts_piper::PiperSynthesisConfig;
@@ -19,6 +19,7 @@ enum SynthesisMode {
     #[default]
     Lazy,
     Parallel,
+    Batched,
     Realtime,
 }
 
@@ -30,6 +31,7 @@ impl std::str::FromStr for SynthesisMode {
         match normalized.as_str() {
             "lazy" => Ok(Self::Lazy),
             "parallel" => Ok(Self::Parallel),
+            "batched" => Ok(Self::Batched),
             "realtime" => Ok(Self::Realtime),
             _ => Err(format!("Unknown synthesis mode: `{}`", s)),
         }
@@ -90,6 +92,10 @@ struct Cli {
     /// Number of mel frames to use for padding current chunk (improves naturalness)
     #[arg(long)]
     chunk_padding: Option<usize>,
+    /// Number of sentences to synthesize per concurrent group in `batched`
+    /// mode (default: min(available CPU cores, 4))
+    #[arg(long)]
+    batch_size: Option<usize>,
     /// Named synthesis parameter, repeatable (e.g. --param custom_knob=1.25).
     /// A named flag (e.g. --length-scale) wins over a conflicting key here; an
     /// unrecognized key may be silently ignored by the current backend.
@@ -111,6 +117,7 @@ struct SynthesisRequest {
     appended_silence_ms: Option<u32>,
     chunk_size: Option<usize>,
     chunk_padding: Option<usize>,
+    batch_size: Option<usize>,
     #[serde(default)]
     parameters: Vec<(String, f32)>,
 }
@@ -222,6 +229,13 @@ fn process_synthesis_request<W: Write>(
     let mode = match req.mode.unwrap_or_default() {
         SynthesisMode::Lazy => StreamMode::Lazy,
         SynthesisMode::Parallel => StreamMode::Parallel,
+        SynthesisMode::Batched => StreamMode::Batched {
+            batch_size: match req.batch_size {
+                None => default_batch_size(),
+                Some(n) => std::num::NonZeroUsize::new(n)
+                    .ok_or_else(|| anyhow::anyhow!("batch_size must be greater than zero"))?,
+            },
+        },
         SynthesisMode::Realtime => StreamMode::Realtime {
             chunk_size: req.chunk_size.unwrap_or(100),
             chunk_padding: req.chunk_padding.unwrap_or(3),
@@ -379,6 +393,7 @@ mod synthesis_processing_tests {
             silence: None,
             chunk_size: None,
             chunk_padding: None,
+            batch_size: None,
             param: Vec::new(),
         }
     }
@@ -432,6 +447,57 @@ mod synthesis_processing_tests {
         process_synthesis_request(&args, &synth, &default_config(), req, &mut buffer).unwrap();
 
         assert!(!buffer.is_empty());
+    }
+
+    #[test]
+    fn process_synthesis_request_batched_mode_writes_pcm_bytes_to_the_writer() {
+        let synth = fake_synth();
+        let args = cli_with_output_file(None);
+        let req = SynthesisRequest {
+            text: "hello".to_string(),
+            mode: Some(SynthesisMode::Batched),
+            batch_size: Some(2),
+            ..Default::default()
+        };
+        let mut buffer: Vec<u8> = Vec::new();
+
+        process_synthesis_request(&args, &synth, &default_config(), req, &mut buffer).unwrap();
+
+        assert!(!buffer.is_empty());
+    }
+
+    #[test]
+    fn process_synthesis_request_batched_mode_falls_back_to_the_default_batch_size_when_unset() {
+        let synth = fake_synth();
+        let args = cli_with_output_file(None);
+        let req = SynthesisRequest {
+            text: "hello".to_string(),
+            mode: Some(SynthesisMode::Batched),
+            ..Default::default()
+        };
+        let mut buffer: Vec<u8> = Vec::new();
+
+        process_synthesis_request(&args, &synth, &default_config(), req, &mut buffer).unwrap();
+
+        assert!(!buffer.is_empty());
+    }
+
+    #[test]
+    fn process_synthesis_request_rejects_a_zero_batch_size_instead_of_silently_redefaulting() {
+        let synth = fake_synth();
+        let args = cli_with_output_file(None);
+        let req = SynthesisRequest {
+            text: "hello".to_string(),
+            mode: Some(SynthesisMode::Batched),
+            batch_size: Some(0),
+            ..Default::default()
+        };
+        let mut buffer: Vec<u8> = Vec::new();
+
+        let result = process_synthesis_request(&args, &synth, &default_config(), req, &mut buffer);
+
+        assert!(result.is_err());
+        assert!(buffer.is_empty());
     }
 
     #[test]
@@ -615,6 +681,7 @@ fn synthesis_request_from_cli(cli: &Cli, text: String) -> SynthesisRequest {
         appended_silence_ms: cli.silence,
         chunk_size: cli.chunk_size,
         chunk_padding: cli.chunk_padding,
+        batch_size: cli.batch_size,
         parameters: cli.param.clone(),
     }
 }
@@ -719,6 +786,10 @@ mod tests {
         assert!(matches!(
             SynthesisMode::from_str("realtime"),
             Ok(SynthesisMode::Realtime)
+        ));
+        assert!(matches!(
+            SynthesisMode::from_str("batched"),
+            Ok(SynthesisMode::Batched)
         ));
     }
 

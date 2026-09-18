@@ -1,19 +1,28 @@
 = Streaming synthesis and the gRPC frontend
 
-dengjen-tts can hand back audio three different ways — sequentially, eagerly-parallel, or as
-low-latency realtime chunks — and exposes the same choice through both the CLI and the
-`dengjen-tts-grpc` frontend.
+dengjen-tts can hand back audio four different ways — sequentially, eagerly-parallel,
+bounded-concurrent, or as low-latency realtime chunks — and exposes the same choice through
+both the CLI and the `dengjen-tts-grpc` frontend.
 
-== The three synthesis modes
+== The four synthesis modes
 
 `StreamMode` (`crates/dengjen/synth/src/lib.rs`) splits text into sentences and then produces
-audio one of three ways:
+audio one of four ways:
 
 * **`lazy`** (the default) — synthesizes one sentence per call to the stream's `next()`, on a
   single thread, on demand. Lowest latency to the *first* chunk, no parallelism.
 * **`parallel`** — synthesizes every sentence concurrently across a rayon thread pool, then
   yields them in original order once *all* of them are done. Higher throughput for long,
   multi-sentence text, but nothing is emitted until the whole request finishes.
+* **`batched(N)`** — synthesizes sentences in concurrent groups of up to `N` (parallel within a
+  group, sequential across groups), yielding each group's audio before starting the next. A
+  middle ground between `lazy` and `parallel`: partial output streams out sooner than
+  `parallel`'s "wait for everything," with less per-request thread/memory pressure than firing
+  every sentence at once. Because every backend serializes the actual inference call behind a
+  `Mutex`, `batched(N)`'s benefit is bounded resource pressure and earlier partial output, not
+  raw inference throughput. Delivery is bursty by design: the first chunk of each group waits
+  for the whole group to finish, then the remaining chunks in that group arrive immediately
+  from a buffer, before the next group's stall.
 * **`realtime`** — requests audio from the model in fixed-size windows (`chunk_size`, in a
   backend-specific unit — e.g. mel frames for Piper) as it's generated, with `chunk_padding`
   extra frames of context trimmed from each window's edges to avoid decoder boundary artifacts.
@@ -26,9 +35,10 @@ backend] for which Piper/Kokoro/MeloTTS voices support `realtime`. Requesting `r
 model that doesn't support it returns `DengjenError::UnsupportedOperation` (`unimplemented`
 over gRPC).
 
-On the CLI (`dengjen-tts-cli`), select a mode with `--mode lazy|parallel|realtime`, and tune
-realtime chunking with `--chunk-size`/`--chunk-padding`. Prosody flags (`--rate`, `--pitch`,
-`--volume`, `--silence`) apply uniformly regardless of mode.
+On the CLI (`dengjen-tts-cli`), select a mode with `--mode lazy|parallel|batched|realtime`, tune
+batched grouping with `--batch-size`, and tune realtime chunking with
+`--chunk-size`/`--chunk-padding`. Prosody flags (`--rate`, `--pitch`, `--volume`, `--silence`)
+apply uniformly regardless of mode.
 
 == The gRPC frontend
 
@@ -62,13 +72,14 @@ without parsing log output.
 
 [NOTE]
 ====
-`SynthesisRequest.synthesis_mode` (`MODE_LAZY`/`MODE_PARALLEL`/`MODE_BATCHED`) is part of the
-proto but currently has no effect on `SynthesizeUtterance`: the handler
-(`crates/frontends/grpc/src/main.rs`, `open_synthesis_stream`) always synthesizes in `lazy`
-mode regardless of what the field is set to. Only `SynthesizeUtteranceRealtime` — a separate RPC
-with no mode field — does genuinely different (chunked, realtime) streaming. Tracked as
-https://github.com/ZirekHQ/dengjen-tts/issues/248[issue #248]; don't rely on `synthesis_mode`
-to switch `SynthesizeUtterance`'s behavior today.
+`SynthesisRequest.synthesis_mode` (`MODE_LAZY`/`MODE_PARALLEL`/`MODE_BATCHED`) selects between
+`lazy`, `parallel`, and `batched(N)` for `SynthesizeUtterance`, matching the CLI's `--mode`
+flag. `batch_size` (`SynthesisRequest.batch_size`) only applies to `MODE_BATCHED`; when unset it
+defaults to `min(available CPU cores, 4)`, and an explicit `0` is rejected as
+`invalid_argument`. `MODE_BATCHED` does not mean tensor-level ONNX batching — a real trained
+voice's duration predictor is stochastic, so there is no reliable way to recover each
+sentence's audio length from a single padded multi-row inference call; see the design notes on
+https://github.com/ZirekHQ/dengjen-tts/issues/248[issue #248] for the underlying experiment.
 ====
 
 === Trying it with grpcurl

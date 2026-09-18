@@ -1,4 +1,7 @@
-use dengjen_tts::{AudioOutputConfig, DengjenSpeechSynthesizer, StreamMode, SYNTHESIS_THREAD_POOL};
+use dengjen_tts::{
+    default_batch_size, AudioOutputConfig, DengjenSpeechSynthesizer, StreamMode,
+    SYNTHESIS_THREAD_POOL,
+};
 use dengjen_tts_core::{
     AudioSamples, CancellationToken, DengjenError, DengjenModel, DengjenResult,
 };
@@ -54,6 +57,7 @@ pub mod synth_mode {
     pub const SYNTH_MODE_LAZY: i32 = 0;
     pub const SYNTH_MODE_PARALLEL: i32 = 1;
     pub const SYNTH_MODE_REALTIME: i32 = 2;
+    pub const SYNTH_MODE_BATCHED: i32 = 3;
 }
 
 pub const PIPER_SYNTH_CONFIG_NO_SPEAKER: u32 = u32::MAX;
@@ -773,6 +777,9 @@ fn _do_synthesize(
     let mode = match params.mode {
         synth_mode::SYNTH_MODE_LAZY => StreamMode::Lazy,
         synth_mode::SYNTH_MODE_PARALLEL => StreamMode::Parallel,
+        synth_mode::SYNTH_MODE_BATCHED => StreamMode::Batched {
+            batch_size: default_batch_size(),
+        },
         synth_mode::SYNTH_MODE_REALTIME => {
             let cancel_token = CancellationToken::new();
             *cancel_slot
@@ -873,7 +880,15 @@ mod tests {
     }
 
     fn new_test_piper_voice() -> *mut DengjenVoice {
-        let dir = std::env::temp_dir().join("dengjen_capi_user_data_test");
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        // Each call gets its own subdirectory: this helper's callers run concurrently under
+        // the default test harness, and a shared fixture path races on the file writes below.
+        static NEXT_ID: AtomicU64 = AtomicU64::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "dengjen_capi_user_data_test_{}",
+            NEXT_ID.fetch_add(1, Ordering::Relaxed)
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../dengjen/models/piper/tests/fixtures/synthetic_piper_batch.onnx");
@@ -913,6 +928,55 @@ mod tests {
                 &mut out_error,
             )
         }
+    }
+
+    #[test]
+    fn batched_mode_reaches_finished_without_an_error_event() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::OnceLock;
+
+        static SAW_FINISHED: OnceLock<AtomicBool> = OnceLock::new();
+        static SAW_ERROR: OnceLock<AtomicBool> = OnceLock::new();
+        SAW_FINISHED.get_or_init(|| AtomicBool::new(false));
+        SAW_ERROR.get_or_init(|| AtomicBool::new(false));
+
+        extern "C" fn recording_callback(event: SynthesisEvent, _user_data: *mut c_void) -> u8 {
+            match event.event_type {
+                synth_event::SYNTH_EVENT_FINISHED => {
+                    SAW_FINISHED.get().unwrap().store(true, Ordering::SeqCst)
+                }
+                synth_event::SYNTH_EVENT_ERROR => {
+                    SAW_ERROR.get().unwrap().store(true, Ordering::SeqCst)
+                }
+                _ => {}
+            }
+            // SAFETY: test-only reclaim of an event this test's own call produced.
+            unsafe { libdengjenFreeSynthesisEvent(event) };
+            0
+        }
+
+        let voice_ptr = new_test_piper_voice();
+        assert!(!voice_ptr.is_null(), "Failed to load test piper voice");
+        let mut params = synth_params();
+        params.mode = synth_mode::SYNTH_MODE_BATCHED;
+        params.callback = Some(recording_callback);
+        let mut out_error = ExternError::default();
+        let text = c_str("t:_");
+
+        // SAFETY: voice_ptr is a valid handle just loaded above; text stays alive (not
+        // dropped) for the full duration of this call.
+        unsafe {
+            libdengjenSpeak(
+                voice_ptr,
+                FfiStr::from_raw(text.as_ptr()),
+                params,
+                &mut out_error,
+            );
+            libdengjenUnloadDengjenVoice(voice_ptr);
+        }
+
+        assert!(SAW_FINISHED.get().unwrap().load(Ordering::SeqCst));
+        assert!(!SAW_ERROR.get().unwrap().load(Ordering::SeqCst));
     }
 
     #[test]
