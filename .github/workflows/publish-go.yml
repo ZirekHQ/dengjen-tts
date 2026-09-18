@@ -48,6 +48,19 @@ jobs:
             echo "::error::workflow_ref is '${WORKFLOW_REF}', expected '${expected_release}' or '${expected_prepare_path}@<any ref>' -- refusing to run outside release.yml's main-branch flow or prepare-release.yml's override path" >&2
             exit 1
           fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: scripts
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27'
+          cache: false
+      - name: verify the go.mod this release would generate resolves as a Go module
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: bash scripts/test-go-module-path.sh "${RELEASE_TAG#go-release-}"
       - name: Check whether this version's tag already exists on dengjen-tts-go
         id: check
         env:
@@ -253,6 +266,7 @@ jobs:
       contents: read
     outputs:
       version: ${{ steps.version.outputs.version }}
+      module_path: ${{ steps.version.outputs.module_path }}
       release_sha: ${{ steps.push-release.outputs.release_sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -283,7 +297,9 @@ jobs:
             echo "Tag '${tag}' does not carry a valid vX.Y.Z suffix" >&2
             exit 1
           fi
+          module_path="$(bash dengjen-tts/scripts/go-module-path.sh "$version")"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "module_path=${module_path}" >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: artifacts
@@ -324,7 +340,7 @@ jobs:
           EOF
 
           cat > "$dst/go.mod" <<EOF
-          module github.com/ZirekHQ/dengjen-tts-go
+          module ${STEPS_VERSION_OUTPUTS_MODULE_PATH}
 
           go 1.22
           EOF
@@ -417,7 +433,7 @@ jobs:
           linux/arm64, windows/amd64, and darwin/arm64.
 
           \`\`\`bash
-          go get github.com/ZirekHQ/dengjen-tts-go@${STEPS_VERSION_OUTPUTS_VERSION}
+          go get ${STEPS_VERSION_OUTPUTS_MODULE_PATH}@${STEPS_VERSION_OUTPUTS_VERSION}
           \`\`\`
 
           This repository is generated on every release from
@@ -452,6 +468,7 @@ jobs:
           EOF
         env:
           STEPS_VERSION_OUTPUTS_VERSION: ${{ steps.version.outputs.version }}
+          STEPS_VERSION_OUTPUTS_MODULE_PATH: ${{ steps.version.outputs.module_path }}
       - name: commit and push release snapshot
         id: push-release
         working-directory: dengjen-tts-go
@@ -518,26 +535,27 @@ jobs:
           GONOSUMDB: github.com/ZirekHQ/dengjen-tts-go
           GOFLAGS: '-mod=mod'
           NEEDS_ASSEMBLE_AND_PUSH_OUTPUTS_VERSION: ${{ needs.assemble-and-push.outputs.version }}
+          NEEDS_ASSEMBLE_AND_PUSH_OUTPUTS_MODULE_PATH: ${{ needs.assemble-and-push.outputs.module_path }}
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p /tmp/dengjen-go-verify
           cd /tmp/dengjen-go-verify
           go mod init verify
-          go get "github.com/ZirekHQ/dengjen-tts-go@${NEEDS_ASSEMBLE_AND_PUSH_OUTPUTS_VERSION}"
+          go get "${NEEDS_ASSEMBLE_AND_PUSH_OUTPUTS_MODULE_PATH}@${NEEDS_ASSEMBLE_AND_PUSH_OUTPUTS_VERSION}"
 
           if [[ "${RUNNER_OS:-}" == "Windows" ]]; then
-            mod_dir="$(go list -m -f '{{.Dir}}' github.com/ZirekHQ/dengjen-tts-go)"
+            mod_dir="$(go list -m -f '{{.Dir}}' "${NEEDS_ASSEMBLE_AND_PUSH_OUTPUTS_MODULE_PATH}")"
             export PATH="${mod_dir}/lib/windows_amd64:${PATH}"
           fi
 
-          cat > main_test.go <<'EOF'
+          cat > main_test.go <<EOF
           package main
 
           import (
           	"testing"
 
-          	dengjen "github.com/ZirekHQ/dengjen-tts-go"
+          	dengjen "${NEEDS_ASSEMBLE_AND_PUSH_OUTPUTS_MODULE_PATH}"
           )
 
           func TestModuleResolves(t *testing.T) {
