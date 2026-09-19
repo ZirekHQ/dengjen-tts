@@ -137,7 +137,7 @@ jobs:
             Windows) lib="target/release/libdengjen.dll" ;;
           esac
           cp "$lib" "native-artifacts/${{ matrix.platform.classifier }}/"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: native-${{ matrix.platform.classifier }}
           path: native-artifacts/${{ matrix.platform.classifier }}
@@ -163,7 +163,7 @@ jobs:
           # A publish-credentialed job must never consume a cache entry a
           # less-trusted run could have written.
           cache-disabled: true
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         with:
           path: bindings/java/native-artifacts
           pattern: "native-*"
@@ -186,7 +186,7 @@ jobs:
           JRELEASER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./gradlew publish jreleaserFullRelease --no-daemon --stacktrace
       - if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: jreleaser-release
           path: |
