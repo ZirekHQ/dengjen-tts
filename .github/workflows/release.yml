@@ -33,8 +33,6 @@ on:
         required: false
       DENGJEN_TTS_GO_DEPLOY_TOKEN:
         required: false
-      PYPI_API_TOKEN:
-        required: false
 
 permissions: {}
 
@@ -161,25 +159,23 @@ jobs:
     if: "!cancelled() && needs.tag-and-release.result == 'success'"
     permissions:
       contents: read
+      id-token: write
     uses: ./.github/workflows/publish-python.yml # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
     with:
       dry_run: ${{ inputs.dry_run == true }}
-    secrets:
-      PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
 
   # Represents the whole repo -- crates/java/go/grpc jobs only publish artifact-scoped releases,
   # so without this job GitHub's `/releases/latest` would fall back to whichever component
   # release published last.
   github-release:
     name: Whole-repo GitHub Release
-    # python excluded deliberately: PyPI publishing has never worked here (no PYPI_API_TOKEN),
-    # so gating the whole-repo release on it would turn a pre-existing gap into a hard blocker.
-    needs: [tag-and-release, crates, java, go, grpc]
+    needs: [tag-and-release, crates, java, go, grpc, python]
     if: >-
       !cancelled() && inputs.dry_run != true &&
       needs.tag-and-release.result == 'success' &&
       needs.crates.result == 'success' && needs.java.result == 'success' &&
-      needs.go.result == 'success' && needs.grpc.result == 'success'
+      needs.go.result == 'success' && needs.grpc.result == 'success' &&
+      needs.python.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

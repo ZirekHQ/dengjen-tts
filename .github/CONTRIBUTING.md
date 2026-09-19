@@ -69,10 +69,9 @@ mirror, the gRPC server release, and the Python wheels all track it.
    [`publish-java.yml`](workflows/publish-java.yml) (Maven Central),
    [`publish-go.yml`](workflows/publish-go.yml) (the `ZirekHQ/dengjen-tts-go` mirror),
    [`publish-grpc.yml`](workflows/publish-grpc.yml) (the gRPC server's GitHub Release), and
-   [`publish-python.yml`](workflows/publish-python.yml) (PyPI) as jobs of that same run, then
-   publishes one whole-repo GitHub Release once crates/java/go/grpc all succeed. PyPI publishing
-   has never actually worked in this repo (no `PYPI_API_TOKEN` configured) and is deliberately
-   non-blocking — the whole-repo release doesn't wait on it.
+   [`publish-python.yml`](workflows/publish-python.yml) (PyPI, via Trusted Publishing for
+   `pydengjen` targeting both `release.yml` and `prepare-release.yml`) as jobs of that same run,
+   then publishes one whole-repo GitHub Release once crates/java/go/grpc/python all succeed.
 3. **Direct-release override**: setting `new_tag` (and optionally `previous_tag` — overrides the
    Java changelog baseline — and `dry_run`) on **Prepare release** skips `next-version.sh`,
    `bump-version.sh`, and the PR entirely, and hands off straight to `release.yml` for the
