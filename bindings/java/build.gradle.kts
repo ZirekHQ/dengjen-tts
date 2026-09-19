@@ -8,7 +8,7 @@ import org.gradle.internal.os.OperatingSystem
 buildscript {
     configurations.classpath {
         resolutionStrategy {
-            force("org.eclipse.jgit:org.eclipse.jgit:5.13.5.202508271544-r")
+            force("org.eclipse.jgit:org.eclipse.jgit:6.10.1.202505221210-r")
         }
     }
 }
