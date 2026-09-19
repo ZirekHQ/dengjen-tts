@@ -15,7 +15,7 @@ use dengjen_tts_core::{
 };
 use ndarray::{Array, Array1, ArrayView, Axis, Dim, IxDynImpl};
 use ort::session::{Session, SessionInputValue, SessionOutputs};
-use ort::value::TensorRef;
+use ort::value::Tensor;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex, RwLock};
@@ -241,24 +241,25 @@ impl EncoderOutputs {
         })
     }
 
-    fn decoder_inputs<'v>(
-        &'v self,
-        z: ArrayView<'v, f32, Dim<IxDynImpl>>,
-        y_mask: ArrayView<'v, f32, Dim<IxDynImpl>>,
-    ) -> Vec<SessionInputValue<'v>> {
-        let mut inputs: Vec<SessionInputValue<'v>> = ort::inputs![
-            TensorRef::from_array_view(z).unwrap(),
-            TensorRef::from_array_view(y_mask).unwrap(),
-        ]
-        .into();
+    fn decoder_inputs(
+        &self,
+        z: ArrayView<'_, f32, Dim<IxDynImpl>>,
+        y_mask: ArrayView<'_, f32, Dim<IxDynImpl>>,
+    ) -> DengjenResult<Vec<SessionInputValue<'static>>> {
+        // Slicing the frame axis yields non-contiguous views, which ort rejects.
+        let contiguous = |view: ArrayView<'_, f32, Dim<IxDynImpl>>| {
+            Tensor::from_array(view.as_standard_layout().into_owned()).map_err(inference_error)
+        };
+        let mut inputs: Vec<SessionInputValue<'static>> =
+            vec![contiguous(z)?.into(), contiguous(y_mask)?.into()];
         if !self.g.is_empty() {
-            inputs.push(TensorRef::from_array_view(self.g.view()).unwrap().into());
+            inputs.push(contiguous(self.g.view())?.into());
         }
-        inputs
+        Ok(inputs)
     }
 
     fn infer_decoder(&self, session: &Mutex<Session>) -> DengjenResult<AudioSamples> {
-        let inputs = self.decoder_inputs(self.z.view(), self.y_mask.view());
+        let inputs = self.decoder_inputs(self.z.view(), self.y_mask.view())?;
         let mut session = session.lock().unwrap();
         let outputs = session.run(inputs.as_slice()).map_err(inference_error)?;
         let (_, samples) = outputs[0]
@@ -312,7 +313,7 @@ impl SpeechStreamer {
         let inputs = self.encoder_outputs.decoder_inputs(
             z.slice_axis(Axis(2), mel_index),
             y_mask.slice_axis(Axis(2), mel_index),
-        );
+        )?;
 
         let mut session = self.decoder_model.lock().unwrap();
         let outputs = session.run(inputs.as_slice()).map_err(inference_error)?;
@@ -429,6 +430,38 @@ impl Iterator for AdaptiveMelChunker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ndarray::IxDyn;
+
+    fn encoder_outputs(frames: usize) -> EncoderOutputs {
+        let filled = |channels: usize| {
+            Array::from_shape_vec(
+                IxDyn(&[1, channels, frames]),
+                (0..channels * frames).map(|i| i as f32).collect(),
+            )
+            .unwrap()
+        };
+        EncoderOutputs {
+            z: filled(192),
+            y_mask: filled(1),
+            p_duration: None,
+            g: Array1::<f32>::from_iter([0.5, 0.25]).into_dyn(),
+        }
+    }
+
+    #[test]
+    fn decoder_inputs_accepts_mel_chunk_sliced_along_the_frame_axis() {
+        let outputs = encoder_outputs(100);
+        let slice = ndarray::Slice::new(10, Some(60), 1);
+        let z = outputs.z.view();
+        let y_mask = outputs.y_mask.view();
+
+        let inputs = outputs.decoder_inputs(
+            z.slice_axis(Axis(2), slice),
+            y_mask.slice_axis(Axis(2), slice),
+        );
+
+        assert_eq!(inputs.unwrap().len(), 3);
+    }
 
     #[test]
     fn adaptive_mel_chunker_scales_audio_index_by_default_hop_length() {
