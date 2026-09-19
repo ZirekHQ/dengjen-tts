@@ -6,8 +6,8 @@ use crate::phonemize::{
 use crate::synth_config::PiperSynthesisConfig;
 use crate::VitsModelCommons;
 use dengjen_tts_core::{
-    Audio, AudioInfo, DengjenAudioResult, DengjenError, DengjenModel, DengjenResult, Phonemes,
-    SynthesisConfig,
+    lock_ignoring_poison, Audio, AudioInfo, DengjenAudioResult, DengjenError, DengjenModel,
+    DengjenResult, Phonemes, SynthesisConfig,
 };
 use ndarray::{Array1, Array2};
 use ort::session::{Session, SessionInputValue};
@@ -138,7 +138,7 @@ impl VitsModel {
             snapshot_scales_and_speaker(&self.synth_config, self.config.num_speakers);
         let inputs = build_vits_inputs(input_phonemes, scales, speaker);
 
-        let mut session = self.session.lock().unwrap();
+        let mut session = lock_ignoring_poison(&self.session);
         let started_at = std::time::Instant::now();
         let outputs = session.run(inputs.as_slice()).map_err(inference_error)?;
         let inference_ms = started_at.elapsed().as_millis() as f32;

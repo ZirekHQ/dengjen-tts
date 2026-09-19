@@ -9,7 +9,8 @@ pub use config::{AudioConfig, InferenceConfig, MeloVoiceConfig, PhonemizerConfig
 pub use synth_config::MeloSynthesisConfig;
 
 use dengjen_tts_core::{
-    Audio, AudioInfo, DengjenAudioResult, DengjenModel, DengjenResult, Phonemes, SynthesisConfig,
+    lock_ignoring_poison, Audio, AudioInfo, DengjenAudioResult, DengjenModel, DengjenResult,
+    Phonemes, SynthesisConfig,
 };
 use inference::MeloTTSModel as InnerModel;
 use phonemize::{create_backend, phone_tone_pairs, PhonemizerBackend};
@@ -80,7 +81,7 @@ impl DengjenModel for MeloTTSModel {
                     .unwrap_or_else(|| (token.to_string(), "_".to_string()))
             })
             .collect();
-        let fallback = self.fallback_config.lock().unwrap();
+        let fallback = lock_ignoring_poison(&self.fallback_config);
         let speaker = fallback
             .as_ref()
             .and_then(|c| c.speaker)
@@ -117,14 +118,14 @@ impl DengjenModel for MeloTTSModel {
     }
 
     fn get_fallback_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
-        Ok(self.fallback_config.lock().unwrap().clone())
+        Ok(lock_ignoring_poison(&self.fallback_config).clone())
     }
 
     fn set_fallback_synthesis_config(
         &self,
         synthesis_config: &SynthesisConfig,
     ) -> DengjenResult<()> {
-        *self.fallback_config.lock().unwrap() = Some(synthesis_config.clone());
+        *lock_ignoring_poison(&self.fallback_config) = Some(synthesis_config.clone());
         Ok(())
     }
 

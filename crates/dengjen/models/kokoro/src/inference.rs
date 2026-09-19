@@ -3,8 +3,8 @@ use crate::phonemize::text_to_kokoro_phonemes;
 use crate::vocab::Vocab;
 use crate::voice_style::VoiceStyles;
 use dengjen_tts_core::{
-    Audio, AudioInfo, AudioSamples, AudioStreamIterator, CancellationToken, DengjenAudioResult,
-    DengjenError, DengjenModel, DengjenResult, Phonemes, SynthesisConfig,
+    lock_ignoring_poison, Audio, AudioInfo, AudioSamples, AudioStreamIterator, CancellationToken,
+    DengjenAudioResult, DengjenError, DengjenModel, DengjenResult, Phonemes, SynthesisConfig,
 };
 use ndarray::{Array1, Array2};
 use ort::session::Session;
@@ -100,7 +100,7 @@ impl KokoroModel {
         let style = self.voice_styles.style_for(&voice_name, token_ids.len())?;
         let speed = Array1::from_vec(vec![1.0f32]);
 
-        let mut session = self.session.lock().unwrap();
+        let mut session = lock_ignoring_poison(&self.session);
         let outputs = session
             .run(ort::inputs![
                 Tensor::from_array(input_ids)

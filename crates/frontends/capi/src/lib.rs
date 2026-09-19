@@ -3,7 +3,7 @@ use dengjen_tts::{
     SYNTHESIS_THREAD_POOL,
 };
 use dengjen_tts_core::{
-    AudioSamples, CancellationToken, DengjenError, DengjenModel, DengjenResult,
+    panic_message, AudioSamples, CancellationToken, DengjenError, DengjenModel, DengjenResult,
 };
 use ffi_support::{call_with_result, define_string_destructor, ErrorCode, ExternError, FfiStr};
 use std::ops::Deref;
@@ -748,8 +748,19 @@ fn _synthesize(
 
     let report_to_caller = callback;
     let report_user_data = UserDataPtr(params.user_data);
+    // An unwinding job would abort the host process; report it as an error event.
     SYNTHESIS_THREAD_POOL.spawn(move || {
-        if let Err(error) = _do_synthesize(synth, cancel_slot, text, callback, params) {
+        let outcome = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            _do_synthesize(synth, cancel_slot, text, callback, params)
+        }))
+        .unwrap_or_else(|payload| {
+            Err(DengjenError::InferenceError(format!(
+                "synthesis worker panicked: {}",
+                panic_message(payload.as_ref())
+            ))
+            .into())
+        });
+        if let Err(error) = outcome {
             invoke_callback(
                 report_to_caller,
                 SynthesisEvent::with_error(error),

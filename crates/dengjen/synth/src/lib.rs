@@ -628,39 +628,50 @@ impl RealtimeSpeechStream {
         let producer_cancel_token = cancel_token.clone();
         let producer_span = span.clone();
 
+        // An unwinding job would abort the whole process, and dropping `tx` on
+        // unwind would end the stream as if synthesis had succeeded.
         SYNTHESIS_THREAD_POOL.spawn(move || {
             let _enter = producer_span.enter();
             let cancel_token = producer_cancel_token;
-            for (sentence_index, phonemes) in sentences.into_iter().enumerate() {
-                if cancel_token.is_cancelled() {
-                    return;
-                }
-
-                let this_chunk_size = Self::next_chunk_size(chunk_size, sentence_index);
-                let stream = match provider.model.stream_synthesis(
-                    phonemes,
-                    this_chunk_size,
-                    chunk_padding,
-                    cancel_token.clone(),
-                ) {
-                    Ok(stream) => stream,
-                    Err(err) => {
-                        let _ = tx.send(Err(err));
+            let produced = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                for (sentence_index, phonemes) in sentences.into_iter().enumerate() {
+                    if cancel_token.is_cancelled() {
                         return;
                     }
-                };
 
-                let stream_result = Self::process_rt_stream(
-                    stream,
-                    &tx,
-                    provider.output_config.as_ref(),
-                    sample_rate,
-                    num_channels,
-                    &cancel_token,
-                );
-                if stream_result.is_err() {
-                    return;
+                    let this_chunk_size = Self::next_chunk_size(chunk_size, sentence_index);
+                    let stream = match provider.model.stream_synthesis(
+                        phonemes,
+                        this_chunk_size,
+                        chunk_padding,
+                        cancel_token.clone(),
+                    ) {
+                        Ok(stream) => stream,
+                        Err(err) => {
+                            let _ = tx.send(Err(err));
+                            return;
+                        }
+                    };
+
+                    let stream_result = Self::process_rt_stream(
+                        stream,
+                        &tx,
+                        provider.output_config.as_ref(),
+                        sample_rate,
+                        num_channels,
+                        &cancel_token,
+                    );
+                    if stream_result.is_err() {
+                        return;
+                    }
                 }
+            }));
+            if let Err(payload) = produced {
+                let message = panic_message(payload.as_ref());
+                tracing::error!(%message, "synthesis worker panicked");
+                let _ = tx.send(Err(DengjenError::InferenceError(format!(
+                    "synthesis worker panicked: {message}"
+                ))));
             }
         });
 
@@ -1204,6 +1215,95 @@ mod realtime_stream_error_tests {
                 .expect("stream_synthesis called more than once in this test");
             Ok(Box::new(chunks.into_iter()))
         }
+    }
+
+    struct PanickingStreamModel;
+
+    impl DengjenModel for PanickingStreamModel {
+        fn audio_output_info(&self) -> DengjenResult<AudioInfo> {
+            Ok(AudioInfo {
+                sample_rate: 16000,
+                num_channels: 1,
+                sample_width: 2,
+            })
+        }
+        fn phonemize_text(&self, _text: &str) -> DengjenResult<Phonemes> {
+            Ok(Phonemes::from(vec!["sentence".to_string()]))
+        }
+        fn speak_batch(&self, _phoneme_batches: Vec<String>) -> DengjenResult<Vec<Audio>> {
+            Ok(Vec::new())
+        }
+        fn speak_one_sentence(&self, _phonemes: String) -> DengjenAudioResult {
+            Err(DengjenError::OperationError(
+                "not used by this test".to_string(),
+            ))
+        }
+        fn get_default_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
+            Ok(None)
+        }
+        fn get_fallback_synthesis_config(&self) -> DengjenResult<Option<SynthesisConfig>> {
+            Ok(None)
+        }
+        fn set_fallback_synthesis_config(&self, _c: &SynthesisConfig) -> DengjenResult<()> {
+            Ok(())
+        }
+        fn supports_streaming_output(&self) -> bool {
+            true
+        }
+        fn stream_synthesis(
+            &self,
+            _phonemes: String,
+            _chunk_size: usize,
+            _chunk_padding: usize,
+            _cancel_token: CancellationToken,
+        ) -> DengjenResult<AudioStreamIterator<'_>> {
+            panic!("synthetic stream_synthesis panic")
+        }
+    }
+
+    fn collect_stream(
+        model: Arc<dyn DengjenModel + Send + Sync>,
+    ) -> Vec<DengjenResult<AudioSamples>> {
+        DengjenSpeechSynthesizer::new(model)
+            .unwrap()
+            .synthesize_streamed(
+                "irrelevant".to_string(),
+                None,
+                10,
+                0,
+                CancellationToken::new(),
+            )
+            .unwrap()
+            .collect()
+    }
+
+    #[test]
+    fn worker_panic_surfaces_as_an_error_and_the_pool_keeps_serving() {
+        let items = collect_stream(Arc::new(PanickingStreamModel));
+
+        assert_eq!(
+            items.len(),
+            1,
+            "the panic must yield exactly one error item"
+        );
+        match &items[0] {
+            Err(DengjenError::InferenceError(msg)) => {
+                assert!(
+                    msg.contains("synthetic stream_synthesis panic"),
+                    "got {msg:?}"
+                );
+            }
+            other => panic!("expected an InferenceError carrying the panic message, got {other:?}"),
+        }
+
+        let healthy: Arc<dyn DengjenModel + Send + Sync> = Arc::new(FailingStreamModel {
+            sentences: 1,
+            fail_on_call: usize::MAX,
+            calls: Arc::new(AtomicUsize::new(0)),
+        });
+        let follow_up = collect_stream(healthy);
+        assert_eq!(follow_up.len(), 1);
+        assert!(follow_up[0].is_ok(), "a request after a panic must succeed");
     }
 
     #[test]
