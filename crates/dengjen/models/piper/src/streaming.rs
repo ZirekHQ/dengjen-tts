@@ -10,8 +10,8 @@ use crate::phonemize::{
 use crate::synth_config::PiperSynthesisConfig;
 use crate::VitsModelCommons;
 use dengjen_tts_core::{
-    Audio, AudioInfo, AudioSamples, AudioStreamIterator, CancellationToken, DengjenAudioResult,
-    DengjenError, DengjenModel, DengjenResult, Phonemes, SynthesisConfig,
+    lock_ignoring_poison, Audio, AudioInfo, AudioSamples, AudioStreamIterator, CancellationToken,
+    DengjenAudioResult, DengjenError, DengjenModel, DengjenResult, Phonemes, SynthesisConfig,
 };
 use ndarray::{Array, Array1, ArrayView, Axis, Dim, IxDynImpl};
 use ort::session::{Session, SessionInputValue, SessionOutputs};
@@ -82,7 +82,7 @@ impl VitsStreamingModel {
             snapshot_scales_and_speaker(&self.synth_config, self.config.num_speakers);
         let inputs = build_vits_inputs(input_phonemes, scales, speaker);
 
-        let mut session = self.encoder_model.lock().unwrap();
+        let mut session = lock_ignoring_poison(&self.encoder_model);
         let outputs = session.run(inputs.as_slice()).map_err(inference_error)?;
         EncoderOutputs::from_values(outputs)
     }
@@ -260,7 +260,7 @@ impl EncoderOutputs {
 
     fn infer_decoder(&self, session: &Mutex<Session>) -> DengjenResult<AudioSamples> {
         let inputs = self.decoder_inputs(self.z.view(), self.y_mask.view())?;
-        let mut session = session.lock().unwrap();
+        let mut session = lock_ignoring_poison(session);
         let outputs = session.run(inputs.as_slice()).map_err(inference_error)?;
         let (_, samples) = outputs[0]
             .try_extract_tensor::<f32>()
@@ -315,7 +315,7 @@ impl SpeechStreamer {
             y_mask.slice_axis(Axis(2), mel_index),
         )?;
 
-        let mut session = self.decoder_model.lock().unwrap();
+        let mut session = lock_ignoring_poison(&self.decoder_model);
         let outputs = session.run(inputs.as_slice()).map_err(inference_error)?;
         let (shape, data) = outputs[0]
             .try_extract_tensor::<f32>()

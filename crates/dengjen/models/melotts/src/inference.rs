@@ -1,5 +1,7 @@
 use crate::config::{map_phone_tone_pairs_to_ids, MeloVoiceConfig};
-use dengjen_tts_core::{Audio, DengjenAudioResult, DengjenError, DengjenResult};
+use dengjen_tts_core::{
+    lock_ignoring_poison, Audio, DengjenAudioResult, DengjenError, DengjenResult,
+};
 use ndarray::{Array1, Array2};
 use ort::session::Session;
 use ort::value::Tensor;
@@ -70,7 +72,7 @@ impl MeloTTSModel {
         let length_scale = Array1::<f32>::from_iter([synth.length_scale]);
         let noise_scale_w = Array1::<f32>::from_iter([synth.noise_scale_w]);
 
-        let mut session = self.session.lock().unwrap();
+        let mut session = lock_ignoring_poison(&self.session);
         let outputs = session
             .run(ort::inputs![
                 "x" => Tensor::from_array(x).map_err(|e| DengjenError::with_message(e.to_string()))?,
