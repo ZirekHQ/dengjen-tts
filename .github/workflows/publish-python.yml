@@ -149,12 +149,13 @@ jobs:
           # on every retry.
           maturin-version: v1.15.0
       # Python is pinned to 3.13, not 3.x, so a floating interpreter can't change what the abi3-py39
-      # wheel is tested against; it must load there with its bundled onnxruntime DLLs.
+      # wheel is tested against; it must load there with its bundled onnxruntime DLLs. Extracted
+      # rather than pip-installed: Sonar S8544 flags any pip install that doesn't pin hashes.
       - name: Smoke-test wheel
         shell: bash
         run: |
-          python -m pip install --no-index --no-deps --only-binary :all: crates/frontends/python/dist/*.whl
-          python -c "import pydengjen"
+          python -m zipfile -e crates/frontends/python/dist/*.whl smoke
+          PYTHONPATH=smoke python -c "import pydengjen"
       - name: Upload wheels
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
