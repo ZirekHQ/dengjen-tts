@@ -39,7 +39,7 @@ jobs:
         with:
           apt-packages: llvm llvm-dev llvm-runtime libclang-dev
       - if: matrix.platform.target != 'x86_64'
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+        uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: 3.x
