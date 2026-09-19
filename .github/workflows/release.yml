@@ -154,28 +154,54 @@ jobs:
       dry_run: ${{ inputs.dry_run == true }}
 
   python:
-    name: PyPI
+    name: Python wheels
     needs: tag-and-release
     if: "!cancelled() && needs.tag-and-release.result == 'success'"
     permissions:
       contents: read
-      id-token: write
     uses: ./.github/workflows/publish-python.yml # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
-    with:
-      dry_run: ${{ inputs.dry_run == true }}
+
+  # PyPI Trusted Publishing matches the workflow file holding this job and is unsupported from a
+  # reusable one, so it can't live in publish-python.yml. Runs only on the push path, where
+  # release.yml is top-level -- the override path publishes from prepare-release.yml instead.
+  # Requires a PyPI trusted publisher for `pydengjen` on release.yml and prepare-release.yml.
+  pypi:
+    name: PyPI
+    needs: python
+    if: "!cancelled() && github.event_name == 'push' && needs.python.result == 'success'"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: wheels-*
+          merge-multiple: true
+          path: dist
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          packages-dir: dist
+          skip-existing: true
 
   # Represents the whole repo -- crates/java/go/grpc jobs only publish artifact-scoped releases,
   # so without this job GitHub's `/releases/latest` would fall back to whichever component
   # release published last.
   github-release:
     name: Whole-repo GitHub Release
-    needs: [tag-and-release, crates, java, go, grpc, python]
+    # On the override path `pypi` is skipped (prepare-release.yml publishes to PyPI after this
+    # workflow returns), so only the wheel build gates the release there.
+    needs: [tag-and-release, crates, java, go, grpc, python, pypi]
     if: >-
       !cancelled() && inputs.dry_run != true &&
       needs.tag-and-release.result == 'success' &&
       needs.crates.result == 'success' && needs.java.result == 'success' &&
       needs.go.result == 'success' && needs.grpc.result == 'success' &&
-      needs.python.result == 'success'
+      needs.python.result == 'success' &&
+      (needs.pypi.result == 'success' ||
+        (inputs.new_tag != '' && needs.pypi.result == 'skipped'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

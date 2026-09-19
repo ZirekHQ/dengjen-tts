@@ -7,18 +7,11 @@ name: Publish Python wheels
 # duplicates that matrix rather than sharing it, same split tashkeel already uses for its
 # own python-wheel.yml (CI-only) vs python-publish.yml (release-only) pair.
 #
-# Requires PyPI Trusted Publishing configured for `pydengjen`, targeting BOTH release.yml and
-# prepare-release.yml (PyPI matches the JWT's top-level triggering workflow, not this reusable
-# file, even though id-token: write lives here). Without a registered publisher (pending until
-# the first upload) the non-dry-run publish step fails. If either workflow is renamed, update
-# PyPI's config and the workflow_ref check in the `publish` job together.
+# Build-only: PyPI Trusted Publishing is unsupported from a reusable workflow (see
+# pypa/gh-action-pypi-publish's README), so the upload lives in the top-level release.yml (push
+# path) and prepare-release.yml (override path), which download this file's `wheels-*` artifacts.
 on:
   workflow_call:
-    inputs:
-      dry_run:
-        required: false
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -160,7 +153,7 @@ jobs:
       - name: Smoke-test wheel
         shell: bash
         run: |
-          python -m pip install --no-index --find-links crates/frontends/python/dist pydengjen
+          python -m pip install --no-index --no-deps --only-binary :all: crates/frontends/python/dist/*.whl
           python -c "import pydengjen"
       - name: Upload wheels
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -235,39 +228,3 @@ jobs:
           name: wheels-sdist
           path: crates/frontends/python/dist
           if-no-files-found: error
-
-  publish:
-    name: Publish to PyPI
-    needs: [linux, windows, macos, sdist]
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      # github.workflow_ref stays bound to the top-level caller through nested workflow_call hops
-      # too -- release.yml (always @refs/heads/main) or prepare-release.yml (the override path,
-      # which can legitimately run from a stale-retry tag ref, not just main).
-      - name: verify this workflow was only reached through release.yml or prepare-release.yml
-        env:
-          WORKFLOW_REF: ${{ github.workflow_ref }}
-        run: |
-          set -euo pipefail
-          expected_release="ZirekHQ/dengjen-tts/.github/workflows/release.yml@refs/heads/main"
-          expected_prepare_path="ZirekHQ/dengjen-tts/.github/workflows/prepare-release.yml"
-          actual_path="${WORKFLOW_REF%@*}"
-          if [ "$WORKFLOW_REF" != "$expected_release" ] && [ "$actual_path" != "$expected_prepare_path" ]; then
-            echo "::error::workflow_ref is '${WORKFLOW_REF}', expected '${expected_release}' or '${expected_prepare_path}@<any ref>' -- refusing to run outside release.yml's main-branch flow or prepare-release.yml's override path" >&2
-            exit 1
-          fi
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          pattern: wheels-*
-          merge-multiple: true
-          path: dist
-      - name: Publish to PyPI
-        if: inputs.dry_run != true
-        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
-        with:
-          packages-dir: dist
-          skip-existing: true
