@@ -106,9 +106,10 @@ jobs:
       - name: Test the x86_64 wheel
         if: matrix.platform.target == 'x86_64'
         run: |
-          python -m venv "$RUNNER_TEMP/wheel-test"
-          "$RUNNER_TEMP/wheel-test/bin/pip" install crates/frontends/python/dist/*.whl
-          "$RUNNER_TEMP/wheel-test/bin/python" -m unittest discover -s crates/frontends/python/tests -v
+          wheels=(crates/frontends/python/dist/*.whl)
+          [ "${#wheels[@]}" -eq 1 ] && [ -f "${wheels[0]}" ] || { echo "expected exactly one wheel, found: ${wheels[*]}" >&2; exit 1; }
+          python -m zipfile -e "${wheels[0]}" "$RUNNER_TEMP/wheel-test"
+          PYTHONPATH="$RUNNER_TEMP/wheel-test" python -m unittest discover -s crates/frontends/python/tests -v
       - name: Upload wheels
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
