@@ -46,7 +46,7 @@ of options. The main ones:
 * `--mode lazy|parallel|batched|realtime` selects the synthesis mode (default `lazy`).
   `--batch-size` sets how many sentences `batched` synthesizes per concurrent group, and
   `--chunk-size` and `--chunk-padding` tune `realtime` chunking.
-* `--speaker-id` picks a speaker for multi-speaker voices (default `0`).
+* `--speaker-id` picks a speaker for multi-speaker voices; when omitted, the voice's own default speaker from its manifest is used (Kokoro's is `0`).
 * `--rate`, `--pitch` and `--volume` take 0-100 and leave the audio unprocessed when
   omitted. The value maps linearly onto a speed of 0.5x-5.5x (so 50 is 3x), a pitch of
   0.5-1.5 and a volume gain of 0-1 (a volume of 0 mutes the audio). `--silence` appends
