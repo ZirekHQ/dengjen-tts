@@ -15,6 +15,10 @@ A cross-platform Rust engine for neural TTS models.
 RHVoice-style formant/statistical synthesis is a different synthesis paradigm from this engine's
 neural-ONNX pipeline and isn't planned.
 
+To start using dengjen-tts, follow xref:start-grpc.adoc[Get started with the gRPC server] or
+xref:start-python.adoc[Get started with Python].
+
+[#what-each-model-supports]
 == What each model supports
 
 [cols="2,3,3,3"]
