@@ -45,7 +45,7 @@ Piper's `inference` block controls the VITS decoder's stochastic duration/pitch 
 Whether a Piper voice can run in realtime mode is a property of the voice, not a runtime flag:
 only manifests with `"streaming": true` ship the split `encoder.onnx`/`decoder.onnx` pair that
 `VitsStreamingModel` needs (see `crates/dengjen/models/piper/src/lib.rs`); other Piper voices
-load as the standard single-file `VitsModel` and only support `lazy`/`parallel` mode.
+load as the standard single-file `VitsModel` and only support the `lazy`, `parallel` and `batched` modes.
 
 == Kokoro
 
@@ -72,7 +72,7 @@ rather than being a separate `phoneme_type` field like Piper's.
 
 MeloTTS models don't override `stream_synthesis`, so they fall back to the `DengjenModel` trait's
 default, which returns `DengjenError::UnsupportedOperation` (`unimplemented` over gRPC) for
-realtime mode. Use `lazy` or `parallel` mode with MeloTTS voices.
+realtime mode. Use `lazy`, `parallel` or `batched` mode with MeloTTS voices.
 
 == Choosing a backend
 

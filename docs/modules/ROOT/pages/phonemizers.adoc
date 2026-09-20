@@ -22,7 +22,7 @@ Piper, Kokoro, and MeloTTS each call directly rather than through a shared `Phon
 
 |Piper
 |`phoneme_type: "hebrew"`
-|Hebrew only (Nakdimon diacritization + IPA).
+|Hebrew only (Nakdimon diacritization + IPA; needs the `hebrew` Cargo feature).
 
 |Piper
 |`phoneme_type: "pinyin"`
