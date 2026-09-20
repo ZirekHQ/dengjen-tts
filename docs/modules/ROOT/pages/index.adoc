@@ -52,7 +52,12 @@ neural-ONNX pipeline and isn't planned.
 |eSpeak-ng (`en`, `es`, `fr`, `ja`, `ko`) or pinyin (`zh`)
 |===
 
-The Hebrew and pinyin phonemizers are opt-in Cargo features (`hebrew`, `pinyin`) that no frontend in this repository enables, so the prebuilt `dengjen-tts-grpc` server and the `pydengjen` wheels do not include them; embedding the Rust crates lets you enable them. Arabic diacritization is the `tashkeel` feature, which the frontends enable in different combinations. See xref:voices.adoc[Choosing and tuning a model backend] and xref:streaming.adoc[Streaming synthesis and the gRPC frontend] for detail.
+The Hebrew and pinyin phonemizers are opt-in Cargo features (`hebrew`, `pinyin`) that no frontend in
+this repository enables, so the prebuilt `dengjen-tts-grpc` server and the `pydengjen` wheels do not
+include them; embedding the Rust crates lets you enable them. Arabic diacritization (the `tashkeel`
+feature) is enabled by default in every frontend this repository publishes. See
+xref:voices.adoc[Choosing and tuning a model backend] and
+xref:streaming.adoc[Streaming synthesis and the gRPC frontend] for detail.
 
 == Crates
 
