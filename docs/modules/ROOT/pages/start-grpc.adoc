@@ -66,12 +66,16 @@ after it binds its port, and writes its log to stderr. Three environment variabl
 |===
 
 For example, `$env:DENGJEN_GRPC_SERVER_PORT = 0` before the command above picks a free port. The examples
-below connect to `127.0.0.1:49314`. Set `DENGJEN_GRPC_ADDRESS` to another `host:port` to change that.
+below connect to `127.0.0.1:49314`. `call_sequence.sh` and `client.py` read `DENGJEN_GRPC_ADDRESS` (another `host:port`) to change that.
 
 == Check that it works
 
+The client steps below (the `curl` download, `bash call_sequence.sh`, `VAR=value command`, `ffmpeg`)
+use a POSIX shell: Linux, macOS, or Git Bash on Windows. The server binds `127.0.0.1` only, so a client
+in WSL2 cannot reach a server running on the Windows host. Run the client on the same host as the server.
+
 `GetDengjenVersion` needs no voice. The server does not register gRPC reflection, so grpcurl needs the
-`.proto` file. Install https://github.com/fullstorydev/grpcurl[grpcurl], then, from a shell:
+`.proto` file. Install https://github.com/fullstorydev/grpcurl[grpcurl], then run:
 
 [source,sh]
 ----
@@ -79,6 +83,9 @@ curl -LO https://raw.githubusercontent.com/ZirekHQ/dengjen-tts/v2.0.3/crates/fro
 grpcurl -plaintext -import-path . -proto dengjen_grpc.proto -d '{}' \
     127.0.0.1:49314 dengjen_grpc.DengjenGrpc/GetDengjenVersion
 ----
+
+If the server runs on another port, for example after `DENGJEN_GRPC_SERVER_PORT=0`, replace `49314` in
+that command.
 
 `examples/grpc/call_sequence.sh` in the https://github.com/ZirekHQ/dengjen-tts[repository] makes the same
 call through a `call` function that adds the grpcurl flags and the address:
@@ -99,8 +106,9 @@ The reply carries the server version, which equals the release version:
 
 == Call it with grpcurl
 
-Install https://jqlang.org/[jq] as well, then run the script
-from the directory that holds `dengjen_grpc.proto`. Point it at the manifest with an absolute path that
+Install https://jqlang.org/[jq] as well, then copy the script
+from the repository next to `dengjen_grpc.proto` (or set `DENGJEN_PROTO_DIR` to the directory that holds
+the `.proto`) and run it. Point it at the manifest with an absolute path that
 the server can read:
 
 [source,sh]
@@ -123,7 +131,8 @@ and the script decodes them into one file:
 include::example$grpc/call_sequence.sh[tag=synthesize]
 ----
 
-The script prints, for example:
+The script prints the version JSON from the first call, then the voice key and the output size. The
+last two lines look like this, for example:
 
 ----
 voice_key=aa3cceca7d5a09d3
@@ -162,7 +171,8 @@ include::example$grpc/client.py[tag=synthesize]
 ----
 
 It prints the server version, the voice key, the chunk count and the output file name, and writes a real
-WAV, because `write_pcm` adds the header from the voice's `audio` format:
+WAV, because `write_pcm` adds the header from the voice's `audio` format. The lines after the version look
+like this, for example:
 
 ----
 voice_key: aa3cceca7d5a09d3

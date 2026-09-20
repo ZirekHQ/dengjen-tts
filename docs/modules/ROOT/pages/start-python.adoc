@@ -21,6 +21,8 @@ pip install pydengjen
 
 == Prerequisites: a voice
 
+The commands in this section are POSIX shell: Linux, macOS, or Git Bash on Windows.
+
 Download a voice, a `.onnx` model and its `.onnx.json` manifest. This one is 63 MB:
 
 [source,sh]
@@ -40,7 +42,7 @@ before you import `pydengjen`. A value you set is never overwritten.
 eSpeak-ng data, and importing the package overwrites `DENGJEN_ESPEAKNG_DATA_DIRECTORY`. Every
 argument of `AudioOutputConfig` and the `synthesize*` methods is required, so pass `None` for the ones
 you do not need. `PiperScales` values cannot be read. On 2.0.3, fetch the data (18 MB) and copy it
-into the installed package:
+into the installed package (run it with the environment where you installed `pydengjen` active, so `python` finds it):
 
 [source,sh]
 ----
