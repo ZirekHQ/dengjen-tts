@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Usage: DENGJEN_EXAMPLE_VOICE=/path/voice.onnx.json call_sequence.sh [output.pcm]
 # Writes raw 16-bit little-endian PCM (no WAV header); the rate is in the LoadVoice response.
-# Needs grpcurl and jq on PATH, a running dengjen-tts-grpc, and dengjen_grpc.proto in $PROTO_DIR.
+# Needs grpcurl and jq on PATH, a running dengjen-tts-grpc, and dengjen_grpc.proto in DENGJEN_PROTO_DIR.
 set -euo pipefail
 
 ADDRESS="${DENGJEN_GRPC_ADDRESS:-127.0.0.1:49314}"
@@ -29,6 +29,6 @@ echo "voice_key=$voice_key"
 jq -n --arg key "$voice_key" --arg text "Hello from the gRPC server." \
     '{voice_key: $key, text: $text, synthesis_mode: "MODE_LAZY"}' \
     | call dengjen_grpc.DengjenGrpc/SynthesizeUtterance -d @ \
-    | jq -r '.audioBytes' | while read -r chunk; do printf '%s' "$chunk" | base64 -d; done > "$OUT"
+    | jq -r '.audioBytes // empty' | while read -r chunk; do printf '%s' "$chunk" | base64 -d; done > "$OUT"
 # end::synthesize[]
 echo "wrote $OUT ($(wc -c < "$OUT") bytes)"

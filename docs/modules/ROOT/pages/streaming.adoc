@@ -64,10 +64,11 @@ without parsing log output.
 . `GetVoiceInfo(VoiceRef\{voice_key})` / `GetSynthesisOptions` / `SetSynthesisOptions` inspect or
   adjust a loaded voice's default synthesis settings (`speaker`, `length_scale`, `noise_scale`,
   `noise_w`, plus a free-form `parameters` map for backend-specific knobs).
-. `SynthesizeUtterance(SynthesisRequest)` returns a `stream SynthesisChunk` of WAV-encoded audio
-  (`audio_bytes` plus a computed `real_time_factor`).
-. `SynthesizeUtteranceRealtime(SynthesisRequest)` returns a `stream RealtimeAudioChunk` of raw
-  PCM (`audio_bytes` only, no WAV header) — this is the RPC `dengjen-nvda` vendors for live
+. `SynthesizeUtterance(SynthesisRequest)` returns a `stream SynthesisChunk` of raw 16-bit
+  little-endian PCM at the voice's sample rate, mono, with no header (`audio_bytes` plus a
+  computed `real_time_factor`).
+. `SynthesizeUtteranceRealtime(SynthesisRequest)` returns a `stream RealtimeAudioChunk` of the
+  same raw PCM (`audio_bytes` only) — this is the RPC `dengjen-nvda` vendors for live
   screen-reader playback.
 
 [NOTE]

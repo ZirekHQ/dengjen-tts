@@ -52,7 +52,7 @@ def synthesize_chunks(synth, mode, text, config, args):
 def report_chunks(chunks):
     for index, chunk in enumerate(chunks):
         if isinstance(chunk, bytes):
-            print(f"chunk {index}: {len(chunk)} bytes of WAV")
+            print(f"chunk {index}: {len(chunk)} bytes of PCM")
         else:
             print(f"chunk {index}: {chunk.duration_ms:.0f} ms, real-time factor {chunk.real_time_factor}")
 
