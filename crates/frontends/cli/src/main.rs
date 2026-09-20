@@ -62,25 +62,25 @@ struct Cli {
     /// Synthesis mode (default `Lazy`)
     #[arg(long)]
     mode: Option<SynthesisMode>,
-    /// Speaker ID for multi-speaker models (default `0`)
+    /// Speaker ID for multi-speaker models (default: the voice's own default speaker)
     #[arg(long)]
     speaker_id: Option<u32>,
-    /// Piper length scale (default `model_default from config file`)
+    /// Length scale override, used by Piper and MeloTTS (default: the voice's config value)
     #[arg(long)]
     length_scale: Option<f32>,
-    /// Piper noise scale (default `model_default from config file`)
+    /// Noise scale override, used by Piper and MeloTTS (default: the voice's config value)
     #[arg(long)]
     noise_scale: Option<f32>,
     /// Piper noise width (default `model_default from config file`)
     #[arg(long)]
     noise_w: Option<f32>,
-    /// Speaking rate [0 - 100] (default `50`)
+    /// Speaking rate [0 - 100], mapped linearly to 0.5x-5.5x speed; 10 is 1x, 50 is 3x (default: 1x)
     #[arg(long)]
     rate: Option<u8>,
-    /// Speech pitch [0 - 100] (default `50`)
+    /// Speech pitch [0 - 100], mapped to 0.5-1.5; 50 is neutral (default: 1.0, no change)
     #[arg(long)]
     pitch: Option<u8>,
-    /// Speech volume [0 - 100] (default `75`)
+    /// Speech volume [0 - 100], mapped to 0-1 gain; 0 mutes (default: 1.0, no change)
     #[arg(long)]
     volume: Option<u8>,
     /// Extra silence (in milliseconds) to append to the end of each sentence (default `0`)
