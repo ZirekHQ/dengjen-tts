@@ -41,4 +41,14 @@ echo '{"text": "Hello world"}' | cargo run --release -p dengjen-tts-cli -- voice
 ----
 
 Run `dengjen --help` (or `cargo run --release -p dengjen-tts-cli -- --help`) for the full list
-of options, including synthesis mode, speaker id, rate/pitch/volume, and streaming chunk size.
+of options. The main ones:
+
+* `--mode lazy|parallel|batched|realtime` selects the synthesis mode (default `lazy`).
+  `--batch-size` sets how many sentences `batched` synthesizes per concurrent group, and
+  `--chunk-size` and `--chunk-padding` tune `realtime` chunking.
+* `--speaker-id` picks a speaker for multi-speaker voices (default `0`).
+* `--rate`, `--pitch` and `--volume` take 0-100 (defaults 50, 50 and 75); `--silence` appends that
+  many milliseconds of silence after each sentence.
+* `--length-scale`, `--noise-scale` and `--noise-w` override a Piper voice's inference knobs.
+  `--param KEY=VALUE` (repeatable) sets any other backend-specific parameter, such as MeloTTS's
+  `noise_scale_w`; a named flag wins over a conflicting `--param`.
