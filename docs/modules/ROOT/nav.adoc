@@ -1,5 +1,8 @@
 * xref:index.adoc[Overview]
-* xref:installation.adoc[Installation]
+* Get started
+** xref:start-grpc.adoc[gRPC server]
+** xref:start-python.adoc[Python]
+* xref:installation.adoc[Build from source]
 * xref:usage.adoc[Usage]
 * xref:voices.adoc[Choosing and tuning a model backend]
 * xref:streaming.adoc[Streaming synthesis and the gRPC frontend]

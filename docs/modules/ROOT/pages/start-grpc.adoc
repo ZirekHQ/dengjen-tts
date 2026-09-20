@@ -1,0 +1,216 @@
+= Get started with the gRPC server
+
+`dengjen-tts-grpc` is a local gRPC server that loads dengjen-tts voices and streams synthesized audio
+to any client that speaks gRPC. The https://github.com/ZirekHQ/dengjen-nvda[dengjen-nvda] screen-reader
+add-on uses it this way.
+
+== What is published
+
+* GitHub release `grpc-release-v2.0.3`, asset `dengjen-tts-grpc-v2.0.3-windows-x64.zip` (13.8 MB).
+  It holds `dengjen-tts-grpc.exe` and `NOTICE`. ONNX Runtime is linked into the executable.
+* The release is Windows x64 only. On other platforms, build from source with
+  `cargo build --release -p dengjen-tts-grpc`. See xref:installation.adoc[Build from source].
+* The executable needs the Microsoft Visual C++ runtime (it imports `VCRUNTIME140.dll`,
+  `VCRUNTIME140_1.dll` and `MSVCP140.dll`). Install the
+  https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist[Visual C++ Redistributable]
+  if the server does not start.
+
+== Install
+
+In PowerShell:
+
+[source,powershell]
+----
+curl.exe -LO https://github.com/ZirekHQ/dengjen-tts/releases/download/grpc-release-v2.0.3/dengjen-tts-grpc-v2.0.3-windows-x64.zip
+Expand-Archive dengjen-tts-grpc-v2.0.3-windows-x64.zip -DestinationPath dengjen-tts-grpc
+----
+
+== Prerequisites
+
+* A voice. Download `en_US-lessac-low.onnx` and its manifest as shown in
+  xref:start-python.adoc#_prerequisites_a_voice[the Python page].
+* The eSpeak-ng data. The zip does not contain it. The server looks for an `espeak-ng-data` folder next
+  to the executable, so extract it there and set no environment variable:
++
+[source,powershell]
+----
+curl.exe -LO https://github.com/ZirekHQ/dengjen-tts/archive/refs/tags/v2.0.3.tar.gz
+tar -xzf v2.0.3.tar.gz --strip-components=3 -C dengjen-tts-grpc dengjen-tts-2.0.3/deps/dev/espeak-ng-data
+----
+
+== Start the server
+
+[source,powershell]
+----
+.\dengjen-tts-grpc\dengjen-tts-grpc.exe
+----
+
+The server binds `127.0.0.1` only. Version 2.0.3 prints `DENGJEN_GRPC_LISTENING port=<port>` on stdout
+after it binds its port, and writes its log to stderr. Three environment variables change its behavior:
+
+[cols="2,1,3"]
+|===
+|Variable |Default |Effect
+
+|`DENGJEN_GRPC_SERVER_PORT`
+|`49314`
+|TCP port. `0` lets the OS pick a free port; read it from the `DENGJEN_GRPC_LISTENING` line. A value that is not a port number falls back to the default.
+
+|`DENGJEN_GRPC`
+|`info`
+|Log filter, in the `tracing` `EnvFilter` syntax such as `debug`. A malformed value falls back to `info` with a warning.
+
+|`DENGJEN_ESPEAKNG_DATA_DIRECTORY`
+|the executable's directory
+|Directory that _contains_ the `espeak-ng-data` folder.
+|===
+
+For example, `$env:DENGJEN_GRPC_SERVER_PORT = 0` before the command above picks a free port. The examples
+below connect to `127.0.0.1:49314`. Set `DENGJEN_GRPC_ADDRESS` to another `host:port` to change that.
+
+== Check that it works
+
+`GetDengjenVersion` needs no voice. The server does not register gRPC reflection, so grpcurl needs the
+`.proto` file:
+
+[source,sh]
+----
+curl -LO https://raw.githubusercontent.com/ZirekHQ/dengjen-tts/v2.0.3/crates/frontends/grpc/proto/dengjen_grpc.proto
+----
+
+The call, from `examples/grpc/call_sequence.sh` in the https://github.com/ZirekHQ/dengjen-tts[repository]:
+
+[source,sh]
+----
+include::example$grpc/call_sequence.sh[tag=version]
+----
+
+The reply carries the server version, which equals the release version:
+
+[source,json]
+----
+{
+  "version": "2.0.3"
+}
+----
+
+== Call it with grpcurl
+
+Install https://github.com/fullstorydev/grpcurl[grpcurl] and https://jqlang.org/[jq], then run the script
+from the directory that holds `dengjen_grpc.proto`. Point it at the manifest with an absolute path that
+the server can read:
+
+[source,sh]
+----
+DENGJEN_EXAMPLE_VOICE=/path/to/en_US-lessac-low.onnx.json bash call_sequence.sh
+----
+
+`LoadVoice` returns a `voice_key`, a hash of the manifest path, and the voice's `audio` format:
+
+[source,sh]
+----
+include::example$grpc/call_sequence.sh[tag=load]
+----
+
+`SynthesizeUtterance` streams one chunk per sentence. grpcurl prints each chunk's `audioBytes` as base64,
+and the script decodes them into one file:
+
+[source,sh]
+----
+include::example$grpc/call_sequence.sh[tag=synthesize]
+----
+
+The script prints, for example:
+
+----
+voice_key=aa3cceca7d5a09d3
+wrote output.pcm (67072 bytes)
+----
+
+The audio is raw 16-bit little-endian PCM with no WAV header, mono, at the voice's sample rate
+(`audio.sampleRate` in the `LoadVoice` reply, 16000 for `en_US-lessac-low`). The byte count changes from
+run to run. To get a playable file:
+
+[source,sh]
+----
+ffmpeg -f s16le -ar 16000 -ac 1 -i output.pcm output.wav
+----
+
+== Call it with Python
+
+Install the client libraries and generate the stubs next to a copy of `examples/grpc/client.py` from the repository:
+
+[source,sh]
+----
+pip install grpcio grpcio-tools
+python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. dengjen_grpc.proto
+python client.py /path/to/en_US-lessac-low.onnx.json
+----
+
+The script imports the generated modules, loads the voice and collects the chunks:
+
+[source,python]
+----
+include::example$grpc/client.py[tag=stubs]
+
+include::example$grpc/client.py[tag=load]
+
+include::example$grpc/client.py[tag=synthesize]
+----
+
+It prints the server version, the voice key, the chunk count and the output file name, and writes a real
+WAV, because `write_pcm` adds the header from the voice's `audio` format:
+
+----
+voice_key: aa3cceca7d5a09d3
+received 1 PCM chunk(s)
+wrote output.wav
+----
+
+`SynthesizeUtteranceRealtime` returns PCM windows as the model produces them. The script calls it only
+when `voice.supports_streaming_output` is true:
+
+[source,python]
+----
+include::example$grpc/client.py[tag=realtime]
+----
+
+The realtime RPC works only for voices that support streaming. `en_US-lessac-low` does not, and the call
+fails with `UNIMPLEMENTED: Streaming synthesis is not supported for this model`.
+
+== The RPCs
+
+[cols="2,3"]
+|===
+|RPC |What it does
+
+|`GetDengjenVersion`
+|Returns the server version.
+
+|`LoadVoice`
+|Loads a voice manifest and returns its `VoiceDescriptor` with a `voice_key`. Loading the same path again returns the loaded voice.
+
+|`GetVoiceInfo`
+|Returns the `VoiceDescriptor` of a loaded voice: audio format, speakers, language, `supports_streaming_output`.
+
+|`GetSynthesisOptions`
+|Returns a loaded voice's default synthesis settings.
+
+|`SetSynthesisOptions`
+|Changes those defaults: `speaker`, `length_scale`, `noise_scale`, `noise_w` and a `parameters` map.
+
+|`SynthesizeUtterance`
+|Streams `SynthesisChunk` messages of PCM with a `real_time_factor`, one per sentence in `MODE_LAZY`.
+
+|`SynthesizeUtteranceRealtime`
+|Streams `RealtimeAudioChunk` messages of PCM windows for voices that support streaming.
+|===
+
+`SynthesisRequest.synthesis_mode` picks `MODE_LAZY`, `MODE_PARALLEL` or `MODE_BATCHED`. See
+xref:streaming.adoc[Streaming synthesis and the gRPC frontend] for how the modes differ.
+
+== Errors
+
+An RPC that names a voice that is not loaded returns `NotFound`, and so does `LoadVoice` with a manifest
+path that does not exist. For the first case, see the example in
+xref:streaming.adoc[Streaming synthesis and the gRPC frontend].

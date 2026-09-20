@@ -1,4 +1,4 @@
-= Installation
+= Build from source
 
 Dengjen pulls its native dependencies (eSpeak-ng, Sonic, ...) in as git submodules, so clone
 recursively:

@@ -35,7 +35,9 @@ The Hebrew and pinyin phonemizers are opt-in Cargo features (`hebrew`, `pinyin`)
 The documentation lives at <https://zirekhq.github.io/en/dengjen-tts/main/index.html>:
 
 - [Overview and crate list](https://zirekhq.github.io/en/dengjen-tts/main/index.html)
-- [Installation](https://zirekhq.github.io/en/dengjen-tts/main/installation.html): build from source and the eSpeak-ng data directory
+- [Get started with the gRPC server](https://zirekhq.github.io/en/dengjen-tts/main/start-grpc.html)
+- [Get started with Python](https://zirekhq.github.io/en/dengjen-tts/main/start-python.html)
+- [Build from source](https://zirekhq.github.io/en/dengjen-tts/main/installation.html): the workspace build and the eSpeak-ng data directory
 - [Usage](https://zirekhq.github.io/en/dengjen-tts/main/usage.html): synthesize from the command line
 - [Choosing and tuning a model backend](https://zirekhq.github.io/en/dengjen-tts/main/voices.html)
 - [Streaming synthesis and the gRPC frontend](https://zirekhq.github.io/en/dengjen-tts/main/streaming.html)

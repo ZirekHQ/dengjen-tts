@@ -1,0 +1,149 @@
+= Get started with Python
+
+`pydengjen` is the Python binding for dengjen-tts. It loads Piper, Kokoro and MeloTTS voices
+through one class, `PiperModel`, and synthesizes in every mode the engine offers.
+
+== What is published
+
+* PyPI package https://pypi.org/project/pydengjen/[`pydengjen`] (2.0.3 at the time of writing).
+* Wheels for CPython 3.9 and newer, one `abi3` wheel per platform: Linux x86_64 and aarch64
+  (manylinux 2.28), Windows x64 and macOS arm64.
+* ONNX Runtime is linked into the wheel, so you install nothing else.
+* Wheels built after 2.0.3 include the eSpeak-ng data that Piper's default phonemizer needs. See the
+  note under Prerequisites for 2.0.3 and earlier.
+
+== Install
+
+[source,sh]
+----
+pip install pydengjen
+----
+
+== Prerequisites: a voice
+
+Download a voice, a `.onnx` model and its `.onnx.json` manifest. This one is 63 MB:
+
+[source,sh]
+----
+BASE=https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/lessac/low
+curl -LO $BASE/en_US-lessac-low.onnx
+curl -LO $BASE/en_US-lessac-low.onnx.json
+----
+
+The wheel finds its bundled eSpeak-ng data on its own. To use a different copy, set
+`DENGJEN_ESPEAKNG_DATA_DIRECTORY` to the directory that _contains_ a folder named `espeak-ng-data`
+before you import `pydengjen`. A value you set is never overwritten.
+
+[NOTE]
+====
+`pydengjen` 2.0.3 and earlier differ in three ways, all fixed in later wheels. The wheels contain no
+eSpeak-ng data, and importing the package overwrites `DENGJEN_ESPEAKNG_DATA_DIRECTORY`. Every
+argument of `AudioOutputConfig` and the `synthesize*` methods is required, so pass `None` for the ones
+you do not need. `PiperScales` values cannot be read. On 2.0.3, fetch the data (18 MB) and copy it
+into the installed package:
+
+[source,sh]
+----
+curl -sSL https://github.com/ZirekHQ/dengjen-tts/archive/refs/tags/v2.0.3.tar.gz \
+  | tar xz --strip-components=3 dengjen-tts-2.0.3/deps/dev/espeak-ng-data
+cp -r espeak-ng-data "$(python -c 'import os, pydengjen; print(os.path.dirname(pydengjen.__file__))')"
+----
+====
+
+== Run the example
+
+The example is `examples/python/synthesize.py` in the
+https://github.com/ZirekHQ/dengjen-tts[repository]. Clone the repository, then run the example with the
+manifest path:
+
+[source,sh]
+----
+python examples/python/synthesize.py en_US-lessac-low.onnx.json
+----
+
+It writes `output.wav` and prints the size. On one run the line was `wrote output.wav (113172 bytes)`.
+
+Play `output.wav` to check the result. The file is 16000 Hz, mono, 16-bit, and between 3.5 and 3.9 seconds long
+across runs. Sizes and durations change a little from run to run.
+
+== Synthesis modes
+
+`--mode` picks how the text turns into audio. Each mode except `file` returns an iterator of chunks,
+one per sentence, or one per window for `streamed`.
+
+* `file` writes the whole text to one WAV (`synthesize_to_file`).
+* `lazy` synthesizes one sentence per step, on demand. It has the lowest latency to the first chunk.
+* `parallel` synthesizes every sentence at once and yields them in order when all are done.
+* `batched` synthesizes groups of `--batch-size` sentences at a time and yields each group as it finishes.
+* `streamed` yields audio in fixed windows (`--chunk-size`, `--chunk-padding`) as the model generates it.
+
+[source,python]
+----
+include::example$python/synthesize.py[tag=modes]
+----
+
+A `lazy` run prints one line per sentence. For example:
+
+----
+chunk 0: 1086 ms, real-time factor 0.030390238389372826
+chunk 1: 2649 ms, real-time factor 0.026805097237229347
+----
+
+`streamed` needs a voice whose manifest sets `"streaming": true`. On any other voice, such as
+`en_US-lessac-low`, it raises `DengjenException: Streaming synthesis is not supported for this model`.
+Chunks from `streamed` are `bytes`: raw 16-bit little-endian PCM with no header. `WaveSamples.get_wave_bytes()`
+is raw PCM too, despite its name; `save_to_file` writes a real WAV. See
+xref:streaming.adoc[Streaming synthesis and the gRPC frontend] for how the modes differ.
+
+== Prosody
+
+`AudioOutputConfig` sets speed, volume, pitch and trailing silence:
+
+[source,python]
+----
+include::example$python/synthesize.py[tag=prosody]
+----
+
+Every argument is optional, and `None` leaves it unset. The positional order is rate, *volume*, pitch
+(the CLI and gRPC list pitch before volume), so use the keyword names. Rate, pitch and volume take 0 to
+100 and map as described under xref:usage.adoc[Usage]. `appended_silence_ms` adds silence after each
+sentence. On one run, `--rate 60 --pitch 50 --volume 80 --silence 200` produced a 1.2 second file from
+the same text that took 3.5 seconds with no prosody options.
+
+== Speakers and model knobs
+
+[source,python]
+----
+include::example$python/synthesize.py[tag=load]
+----
+
+`model.speaker = "name"` selects a speaker by name. An unknown name raises `DengjenException`.
+`--list-speakers` prints the speaker map the manifest declares, one `id: name` line per speaker. It
+prints nothing for a single-speaker voice such as `en_US-lessac-low`.
+
+[source,python]
+----
+include::example$python/synthesize.py[tag=speakers]
+----
+
+`set_parameters` (`--param KEY=VALUE`, repeatable) sets named inference knobs. Unknown names are
+silently ignored. xref:index.adoc#_what_each_model_supports[What each model supports] lists the keys:
+Piper reads `noise_scale`, `length_scale` and `noise_w`, MeloTTS reads `noise_scale`, `length_scale`
+and `noise_scale_w`, and Kokoro has none.
+
+== Errors
+
+Every failure raises `pydengjen.DengjenException`. The example prints it as `error: <message>` and
+exits 1. Messages from the example:
+
+* Missing manifest: `Failed to load resource: Failed to read model config: ...`
+* Unknown speaker: `no speaker named 'nope'`
+* eSpeak data not found, which happens when `DENGJEN_ESPEAKNG_DATA_DIRECTORY` points at a directory without
+  `espeak-ng-data`, or on 2.0.3 without the workaround:
+  `Failed to phonemize given text using espeak-ng ... Failed to initialize eSpeak-ng`
+
+== Next steps
+
+Read xref:voices.adoc[Choosing and tuning a model backend] and
+xref:streaming.adoc[Streaming synthesis and the gRPC frontend]. To build from source, see
+xref:installation.adoc[Build from source].
