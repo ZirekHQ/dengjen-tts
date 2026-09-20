@@ -28,7 +28,7 @@ Expand-Archive dengjen-tts-grpc-v2.0.3-windows-x64.zip -DestinationPath dengjen-
 == Prerequisites
 
 * A voice. Download `en_US-lessac-low.onnx` and its manifest as shown in
-  xref:start-python.adoc#_prerequisites_a_voice[the Python page].
+  xref:start-python.adoc#prerequisites-a-voice[the Python page].
 * The eSpeak-ng data. The zip does not contain it. The server looks for an `espeak-ng-data` folder next
   to the executable, so extract it there and set no environment variable:
 +

@@ -12,12 +12,13 @@ A cross-platform Rust engine for neural TTS models.
 * *Synthesis modes*: lazy, parallel, and batched, selectable per request; realtime for the voices that support it
 * *Bindings*: native Rust, C-API (`libdengjen`), Python (`pydengjen`), Go and Java bindings over the C API (see `bindings/go` and `bindings/java`), gRPC (any language over the wire), and a CLI
 
-To start using dengjen-tts, follow xref:start-grpc.adoc[Get started with the gRPC server] or
-xref:start-python.adoc[Get started with Python].
-
 RHVoice-style formant/statistical synthesis is a different synthesis paradigm from this engine's
 neural-ONNX pipeline and isn't planned.
 
+To start using dengjen-tts, follow xref:start-grpc.adoc[Get started with the gRPC server] or
+xref:start-python.adoc[Get started with Python].
+
+[#what-each-model-supports]
 == What each model supports
 
 [cols="2,3,3,3"]
