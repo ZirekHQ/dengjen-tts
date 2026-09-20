@@ -4,17 +4,57 @@ A cross-platform Rust engine for neural TTS models.
 
 == Features
 
-* *Models*: https://github.com/rhasspy/piper[Piper], https://github.com/hexgrad/kokoro[Kokoro], and https://github.com/myshell-ai/MeloTTS[MeloTTS] ONNX voices, including Kokoro per-voice style embeddings
+* *Models*: https://github.com/rhasspy/piper[Piper], https://github.com/hexgrad/kokoro[Kokoro], and https://github.com/myshell-ai/MeloTTS[MeloTTS] ONNX voices
 * *Phonemization*: eSpeak-ng (100+ languages, IPA output) and Arabic diacritization via `libtashkeel`
 * *Multi-speaker voices*: select by `speaker_id`
 * *Streaming synthesis*: chunked output (`chunk_size`/`chunk_padding`) and a realtime gRPC stream
 * *Prosody control*: rate, pitch, and volume via `dengjen-sonic-sys` (libsonic)
-* *Synthesis modes*: lazy, parallel, and batched, selectable per request
-* *Bindings*: native Rust, C-API (`libdengjen`), Python (`pyo3`), gRPC (any language over the wire), and a CLI
+* *Synthesis modes*: lazy, parallel, and batched, selectable per request; realtime for the voices that support it
+* *Bindings*: native Rust, C-API (`libdengjen`), Python (`pydengjen`), Go and Java bindings over the C API (see `bindings/go` and `bindings/java`), gRPC (any language over the wire), and a CLI
 
-Not yet supported, tracked on the issue tracker: native Go/Java/Kotlin bindings and a Matcha-TTS
-model loader. RHVoice-style formant/statistical synthesis is a different synthesis paradigm from
-this engine's neural-ONNX pipeline and isn't planned.
+RHVoice-style formant/statistical synthesis is a different synthesis paradigm from this engine's
+neural-ONNX pipeline and isn't planned.
+
+== What each model supports
+
+[cols="2,3,3,3"]
+|===
+| |Piper |Kokoro |MeloTTS
+
+|Lazy, parallel, batched modes
+|Yes
+|Yes
+|Yes
+
+|Realtime streaming
+|Voices whose manifest sets `"streaming": true`
+|Yes, by chunking an already synthesized sentence
+|No
+
+|Speakers
+|Manifest speaker map
+|Presets from the manifest's `voices` list
+|Manifest speaker map
+
+|Rate, pitch, volume, silence
+|Yes
+|Yes
+|Yes
+
+|Tunable inference knobs
+|`noise_scale`, `length_scale`, `noise_w`
+|None
+|`noise_scale`, `length_scale`, `noise_scale_w`
+
+|Phonemizers
+|eSpeak-ng, raw text, Hebrew, pinyin; Arabic diacritization via `libtashkeel`
+|eSpeak-ng, fixed to `en-US`
+|eSpeak-ng (`en`, `es`, `fr`, `ja`, `ko`) or pinyin (`zh`)
+|===
+
+The pinyin phonemizer needs the `pinyin` Cargo feature; the released `dengjen-tts-grpc` build does not
+include it. See xref:voices.adoc[Choosing and tuning a model backend] and
+xref:streaming.adoc[Streaming synthesis and the gRPC frontend] for detail.
 
 == Crates
 
@@ -22,26 +62,38 @@ this engine's neural-ONNX pipeline and isn't planned.
 |===
 |Crate |Purpose
 
+|`dengjen-tts-core`
+|Core error types, synthesis configuration, and shared primitives
+
+|`dengjen-tts-piper`, `dengjen-tts-kokoro`, `dengjen-tts-melotts`
+|Model backends: loading and inference for each model family, using `onnxruntime` via `ort`
+
+|`dengjen-tts`
+|Wraps a model backend and adds synthesized speech post-processing, including changing prosody. Also provides different modes of parallelism.
+
 |`dengjen-espeak-phonemizer`
 |Converts text to IPA phonemes using a patched version of eSpeak-ng
 
-|`dengjen-model`
-|Handles model loading and inference using `onnxruntime` via `ort`
+|`dengjen-hebrew-phonemizer`, `dengjen-pinyin-phonemizer`
+|Hebrew (diacritization plus IPA) and Mandarin pinyin grapheme-to-phoneme conversion
 
-|`dengjen-tts`
-|Wraps `DengjenModel` and adds synthesized speech post-processing, including changing prosody. Also provides different modes of parallelism.
-
-|`dengjen-tts-grpc`
-|https://grpc.io/[GRPC] frontend for dengjen
-
-|`libdengjen`
-|C-API binding to dengjen
-
-|`dengjen-tts-python`
-|Python bindings to `dengjen-tts` using `pyo3`
+|`dengjen-audio-ops`
+|Audio post-processing primitives: sample buffers, Hann windowing, and WAV encoding
 
 |`dengjen-sonic-sys`
 |Rust FFI bindings to https://github.com/waywardgeek/sonic[Sonic]: a C library for controlling rate, volume, and pitch of generated speech
+
+|`dengjen-tts-grpc`
+|https://grpc.io/[gRPC] server frontend
+
+|`libdengjen`
+|C API bindings (static and shared library)
+
+|`dengjen-tts-python`
+|Python bindings, published as `pydengjen`, using `pyo3`
+
+|`dengjen-tts-cli`
+|Command-line interface (builds the `dengjen` binary)
 |===
 
 == License
