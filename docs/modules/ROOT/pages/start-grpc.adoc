@@ -10,9 +10,9 @@ add-on uses it this way.
   It holds `dengjen-tts-grpc.exe` and `NOTICE`. ONNX Runtime is linked into the executable.
 * The release is Windows x64 only. On other platforms, build from source with
   `cargo build --release -p dengjen-tts-grpc`. See xref:installation.adoc[Build from source].
-* The executable needs the Microsoft Visual C++ runtime (it imports `VCRUNTIME140.dll`,
+* The executable needs the Microsoft Visual C{plus}{plus} runtime (it imports `VCRUNTIME140.dll`,
   `VCRUNTIME140_1.dll` and `MSVCP140.dll`). Install the
-  https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist[Visual C++ Redistributable]
+  https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist[Visual C{plus}{plus} Redistributable]
   if the server does not start.
 
 == Install
@@ -71,14 +71,17 @@ below connect to `127.0.0.1:49314`. Set `DENGJEN_GRPC_ADDRESS` to another `host:
 == Check that it works
 
 `GetDengjenVersion` needs no voice. The server does not register gRPC reflection, so grpcurl needs the
-`.proto` file:
+`.proto` file. Install https://github.com/fullstorydev/grpcurl[grpcurl], then, from a shell:
 
 [source,sh]
 ----
 curl -LO https://raw.githubusercontent.com/ZirekHQ/dengjen-tts/v2.0.3/crates/frontends/grpc/proto/dengjen_grpc.proto
+grpcurl -plaintext -import-path . -proto dengjen_grpc.proto -d '{}' \
+    127.0.0.1:49314 dengjen_grpc.DengjenGrpc/GetDengjenVersion
 ----
 
-The call, from `examples/grpc/call_sequence.sh` in the https://github.com/ZirekHQ/dengjen-tts[repository]:
+`examples/grpc/call_sequence.sh` in the https://github.com/ZirekHQ/dengjen-tts[repository] makes the same
+call through a `call` function that adds the grpcurl flags and the address:
 
 [source,sh]
 ----
@@ -96,7 +99,7 @@ The reply carries the server version, which equals the release version:
 
 == Call it with grpcurl
 
-Install https://github.com/fullstorydev/grpcurl[grpcurl] and https://jqlang.org/[jq], then run the script
+Install https://jqlang.org/[jq] as well, then run the script
 from the directory that holds `dengjen_grpc.proto`. Point it at the manifest with an absolute path that
 the server can read:
 
