@@ -1,6 +1,12 @@
 name: Notify docs site
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'examples/python/**'
+      - 'examples/grpc/**'
   release:
     types: [published]
   workflow_dispatch:
