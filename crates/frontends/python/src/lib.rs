@@ -101,6 +101,7 @@ struct PyAudioOutputConfig(AudioOutputConfig);
 #[pymethods]
 impl PyAudioOutputConfig {
     #[new]
+    #[pyo3(signature = (rate=None, volume=None, pitch=None, appended_silence_ms=None))]
     fn new(
         rate: Option<u8>,
         volume: Option<u8>,
@@ -274,11 +275,11 @@ impl PyRealtimeSpeechStream {
 
 #[pyclass(weakref, module = "pydengjen")]
 struct PiperScales {
-    #[allow(dead_code)]
+    #[pyo3(get)]
     length_scale: f32,
-    #[allow(dead_code)]
+    #[pyo3(get)]
     noise_scale: f32,
-    #[allow(dead_code)]
+    #[pyo3(get)]
     noise_w: f32,
 }
 
@@ -501,6 +502,7 @@ impl Dengjen {
         Ok(Self(Arc::new(DengjenSpeechSynthesizer::new(model)?)))
     }
 
+    #[pyo3(signature = (text, audio_output_config=None))]
     fn synthesize(
         &self,
         text: String,
@@ -509,6 +511,7 @@ impl Dengjen {
         self.synthesize_lazy(text, audio_output_config)
     }
 
+    #[pyo3(signature = (text, audio_output_config=None))]
     fn synthesize_lazy(
         &self,
         text: String,
@@ -520,6 +523,7 @@ impl Dengjen {
         Ok(stream.into())
     }
 
+    #[pyo3(signature = (text, audio_output_config=None))]
     fn synthesize_parallel(
         &self,
         text: String,
@@ -531,6 +535,7 @@ impl Dengjen {
         Ok(stream.into())
     }
 
+    #[pyo3(signature = (text, audio_output_config=None, batch_size=None))]
     fn synthesize_batched(
         &self,
         text: String,
@@ -551,6 +556,7 @@ impl Dengjen {
         Ok(stream.into())
     }
 
+    #[pyo3(signature = (text, audio_output_config=None, chunk_size=None, chunk_padding=None))]
     fn synthesize_streamed(
         &self,
         text: String,
@@ -568,6 +574,7 @@ impl Dengjen {
         Ok(PyRealtimeSpeechStream(stream))
     }
 
+    #[pyo3(signature = (filename, text, audio_output_config=None))]
     fn synthesize_to_file(
         &self,
         filename: &str,
@@ -614,6 +621,7 @@ fn diacritize_text(_text: &str) -> PyResult<std::borrow::Cow<'_, str>> {
 
 #[cfg(feature = "espeak")]
 #[pyfunction]
+#[pyo3(signature = (text, language, phoneme_separator=None, remove_lang_switch_flags=None, remove_stress=None, use_tashkeel=None))]
 pub fn phonemize_text(
     text: &str,
     language: &str,

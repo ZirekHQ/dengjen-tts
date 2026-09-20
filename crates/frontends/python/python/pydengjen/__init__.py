@@ -2,7 +2,7 @@
 
 import os
 
-os.putenv(
+os.environ.setdefault(
     "DENGJEN_ESPEAKNG_DATA_DIRECTORY",
     os.path.abspath(os.path.dirname(__file__))
 )

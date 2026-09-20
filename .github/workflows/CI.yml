@@ -103,6 +103,12 @@ jobs:
         if: steps.build-wheels-3.outcome == 'failure'
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with: *build-wheels-args
+      - name: Test the x86_64 wheel
+        if: matrix.platform.target == 'x86_64'
+        run: |
+          python -m venv "$RUNNER_TEMP/wheel-test"
+          "$RUNNER_TEMP/wheel-test/bin/pip" install crates/frontends/python/dist/*.whl
+          "$RUNNER_TEMP/wheel-test/bin/python" -m unittest discover -s crates/frontends/python/tests -v
       - name: Upload wheels
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
