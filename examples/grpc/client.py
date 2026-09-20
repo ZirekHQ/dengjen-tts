@@ -1,10 +1,11 @@
 """Calls dengjen-tts-grpc with grpcio.
 
-Usage: python client.py [VOICE_MANIFEST_JSON] [--address 127.0.0.1:49314] [--out output.wav]
+Usage: python client.py [VOICE_MANIFEST_JSON] [--address HOST:PORT] [--out output.wav] [--text TEXT]
+The manifest and address default to DENGJEN_EXAMPLE_VOICE and DENGJEN_GRPC_ADDRESS (127.0.0.1:49314).
 
 The server streams raw 16-bit PCM (no WAV header); write_pcm wraps it using the voice's AudioFormat.
 
-Generate the stubs first, next to this file (see the get-started page):
+Generate the stubs first, next to this file:
     python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. dengjen_grpc.proto
 """
 

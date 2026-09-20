@@ -1,6 +1,7 @@
 """Synthesizes speech with pydengjen.
 
-Usage: python synthesize.py [VOICE_MANIFEST_JSON] [--mode file|lazy|parallel|batched|streamed]
+Usage: python synthesize.py [VOICE_MANIFEST_JSON] [--mode file|lazy|parallel|batched|streamed] [options]
+Run with --help for every option.
 
 The manifest path may also come from DENGJEN_EXAMPLE_VOICE.
 """
