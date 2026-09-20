@@ -29,6 +29,6 @@ echo "voice_key=$voice_key"
 jq -n --arg key "$voice_key" --arg text "Hello from the gRPC server." \
     '{voice_key: $key, text: $text, synthesis_mode: "MODE_LAZY"}' \
     | call dengjen_grpc.DengjenGrpc/SynthesizeUtterance -d @ \
-    | jq -r '.audioBytes // empty' | while read -r chunk; do printf '%s' "$chunk" | base64 -d; done > "$OUT"
+    | jq -r '.audioBytes // empty' | while read -r chunk; do printf '%s' "$chunk" | base64 --decode; done > "$OUT"
 # end::synthesize[]
 echo "wrote $OUT ($(wc -c < "$OUT") bytes)"
