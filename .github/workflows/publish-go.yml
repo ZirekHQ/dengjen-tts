@@ -1,6 +1,6 @@
 # Manual prereqs this workflow can't create itself: ZirekHQ/dengjen-tts-go must already exist with a
-# `main` branch (every release force-pushes an orphan commit onto it), and DENGJEN_TTS_GO_DEPLOY_TOKEN
-# must be an HTTPS-style fine-grained PAT scoped to it with Contents: Read and write.
+# `main` branch (every release force-pushes an orphan commit onto it), and the
+# zirekhq-deploy GitHub App must be installed on it with Contents: Read and write.
 name: Publish Go bindings release
 
 on:
@@ -18,7 +18,9 @@ on:
         type: boolean
         default: false
     secrets:
-      DENGJEN_TTS_GO_DEPLOY_TOKEN:
+      DEPLOY_APP_CLIENT_ID:
+        required: true
+      DEPLOY_APP_PRIVATE_KEY:
         required: true
 
 permissions:
@@ -61,11 +63,20 @@ jobs:
         env:
           RELEASE_TAG: ${{ inputs.tag }}
         run: bash scripts/test-go-module-path.sh "${RELEASE_TAG#go-release-}"
+      - name: Create deploy App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.DEPLOY_APP_CLIENT_ID }}
+          private-key: ${{ secrets.DEPLOY_APP_PRIVATE_KEY }}
+          owner: ZirekHQ
+          repositories: dengjen-tts-go
+          permission-contents: read
       - name: Check whether this version's tag already exists on dengjen-tts-go
         id: check
         env:
           RELEASE_TAG: ${{ inputs.tag }}
-          GO_REPO_TOKEN: ${{ secrets.DENGJEN_TTS_GO_DEPLOY_TOKEN }}
+          GO_REPO_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
           version="${RELEASE_TAG#go-release-}"
@@ -279,11 +290,20 @@ jobs:
       - uses: ./dengjen-tts/.github/actions/setup-native-build-deps # zizmor: ignore[self-repository] CI is pinned to zizmor v1.28.0, which predates $/ syntax support
         with:
           working-directory: dengjen-tts
+      - name: Create deploy App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.DEPLOY_APP_CLIENT_ID }}
+          private-key: ${{ secrets.DEPLOY_APP_PRIVATE_KEY }}
+          owner: ZirekHQ
+          repositories: dengjen-tts-go
+          permission-contents: write
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ZirekHQ/dengjen-tts-go
           path: dengjen-tts-go
-          token: ${{ secrets.DENGJEN_TTS_GO_DEPLOY_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
           persist-credentials: true
       - name: extract target version
         id: version
@@ -577,10 +597,19 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Create deploy App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.DEPLOY_APP_CLIENT_ID }}
+          private-key: ${{ secrets.DEPLOY_APP_PRIVATE_KEY }}
+          owner: ZirekHQ
+          repositories: dengjen-tts-go
+          permission-contents: write
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ZirekHQ/dengjen-tts-go
-          token: ${{ secrets.DENGJEN_TTS_GO_DEPLOY_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
           persist-credentials: true
       - name: delete failed release tag
         run: |
