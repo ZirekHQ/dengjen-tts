@@ -113,7 +113,8 @@ jobs:
       JRELEASER_GPG_PASSPHRASE: ${{ secrets.JRELEASER_GPG_PASSPHRASE }}
       JRELEASER_GPG_SECRET_KEY: ${{ secrets.JRELEASER_GPG_SECRET_KEY }}
       JRELEASER_GPG_PUBLIC_KEY: ${{ secrets.JRELEASER_GPG_PUBLIC_KEY }}
-      DENGJEN_TTS_GO_DEPLOY_TOKEN: ${{ secrets.DENGJEN_TTS_GO_DEPLOY_TOKEN }}
+      DEPLOY_APP_CLIENT_ID: ${{ secrets.DEPLOY_APP_CLIENT_ID }}
+      DEPLOY_APP_PRIVATE_KEY: ${{ secrets.DEPLOY_APP_PRIVATE_KEY }}
     with:
       new_tag: ${{ inputs.new_tag }}
       previous_tag: ${{ inputs.previous_tag }}
